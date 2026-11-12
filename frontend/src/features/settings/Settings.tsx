@@ -97,7 +97,7 @@ function AutoNumberRow({
       control={
         <SegmentedControl
           aria-label={`${label} mode`}
-          className="w-[236px]"
+          className="w-[288px]"
           value={custom ? "custom" : "auto"}
           onValueChange={(v) => onChange(v === "auto" ? null : (value ?? auto))}
           options={[
@@ -533,7 +533,7 @@ export function Settings() {
             );
           })}
         </nav>
-        <div key={current.id} className="g-page-in min-w-0 max-w-[640px]" role="region" aria-label={current.label}>
+        <div key={current.id} className="g-page-in w-[640px] min-w-0 max-w-full" role="region" aria-label={current.label}>
           {err && <ErrorView className="mb-5" error={err.error} retry={err.retry} onDismiss={() => useUi.getState().setError("settings", undefined)} />}
           {current.id === "general" && <General s={settings} />}
           {current.id === "downloads" && <Downloads s={settings} />}
