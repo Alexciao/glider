@@ -103,7 +103,7 @@ internal sealed class LegendaryOutputFacts
     public JobPhase Phase { get; internal set; } = JobPhase.Preparing;
 
     /// <summary>Best human-readable technical detail for an error.</summary>
-    public string? Detail => ExceptionLine ?? FirstWriteFailure ?? LastErrorLine;
+    public string? Detail => (ExceptionLine ?? FirstWriteFailure ?? LastErrorLine) is { } d ? Infrastructure.SecretRedactor.Redact(d) : null;
 
     public LineClass Observe(ReadOnlySpan<char> line, bool stdout)
     {

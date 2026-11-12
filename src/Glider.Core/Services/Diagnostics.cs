@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Glider.Core.Contracts;
 
 namespace Glider.Core.Services;
@@ -48,17 +47,7 @@ internal static partial class Diagnostics
     }
 
     /// <summary>Defense in depth: strips anything shaped like a secret even if a component logged one.</summary>
-    public static string Redact(string text)
-    {
-        text = AuthPassword().Replace(text, "$1<redacted>");
-        return TokenField().Replace(text, "$1<redacted>");
-    }
-
-    [GeneratedRegex(@"(-AUTH_PASSWORD=)\S+", RegexOptions.IgnoreCase)]
-    private static partial Regex AuthPassword();
-
-    [GeneratedRegex("""((?:access_token|refresh_token|authorizationCode|exchange_code|"code")"?\s*[:=]\s*"?)[^"\s,}]+""", RegexOptions.IgnoreCase)]
-    private static partial Regex TokenField();
+    public static string Redact(string text) => Infrastructure.SecretRedactor.Redact(text);
 }
 
 /// <summary>Third-party notices. Texts come from &lt;LicensesDirectory&gt;/&lt;id&gt;.txt when the build ships them.</summary>

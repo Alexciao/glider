@@ -177,7 +177,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
         catch (Exception e)
         {
             _c.Log.Error(Category, $"{method} failed", e);
-            throw new GliderException(Errors.Unknown(e.Message), e);
+            throw new GliderException(Errors.Unknown(Infrastructure.SecretRedactor.Redact(e.Message)), e);
         }
     }
 

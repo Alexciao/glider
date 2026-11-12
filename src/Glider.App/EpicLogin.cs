@@ -241,7 +241,8 @@ internal sealed class EpicLogin
             {
                 var web = _controller?.CoreWebView2;
                 var uri = web?.Source ?? "";
-                HostLog.Info($"login navigation: {(uri.Length > 80 ? uri[..80] : uri)} success={e.IsSuccess} status={e.WebErrorStatus}");
+                // Never the query/fragment: IdP callbacks (Google, Xbox, PSN…) carry one-time codes there.
+                HostLog.Info($"login navigation: {Glider.Core.Infrastructure.SecretRedactor.UrlForLog(uri)} success={e.IsSuccess} status={e.WebErrorStatus}");
                 if (_finished || web is null)
                 {
                     return;
