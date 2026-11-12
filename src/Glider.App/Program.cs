@@ -132,6 +132,10 @@ internal static class HostApp
             quit: () => FireAndForget(r => r.Quit(), "Quit", fallback: rt.Platform.Quit));
         rt.Platform.Attach(window, tray);
         StartupTimeline.Mark("tray");
+        if (startHidden)
+        {
+            _ = Task.Delay(TimeSpan.FromSeconds(3)).ContinueWith(_ => MemoryTrimmer.Trim(), TaskScheduler.Default);
+        }
 
         single?.Listen(() =>
         {
