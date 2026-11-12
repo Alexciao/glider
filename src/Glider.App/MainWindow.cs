@@ -280,7 +280,7 @@ internal sealed partial class MainWindow : Window
 
     private void SavePlacement()
     {
-        if (_hwnd != 0 && _revealed && !_quitting || _quitting)
+        if (_hwnd != 0)
         {
             WindowPlacementStore.Save(_rt.Paths, _hwnd);
         }

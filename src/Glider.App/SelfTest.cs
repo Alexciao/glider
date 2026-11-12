@@ -81,6 +81,7 @@ internal static partial class SelfTest
             await Step("toast", () => Ui(rt, () => rt.Platform.ShowToast("Glider self-test", "Host toast via Shell_NotifyIcon (safe to ignore).")));
             await Step("placement", () => Ui(rt, () => PlacementTest(rt, win)));
             await Step("login", () => LoginTest(rt));
+            await Step("close", () => CloseTest(rt, win));
             await Step("hide-suspend", () => HideSuspendTest(rt, win));
         }
         catch (Exception ex)
@@ -372,6 +373,18 @@ internal static partial class SelfTest
 
         await rt.Platform.ClearLoginSessionAsync();
         Report["login.clearSession"] = "ok";
+    }
+
+    /// <summary>Alt+F4 / system close must go through rpc.Close (→ hide to tray with the placeholder's default CloseToTray=true), not kill the app.</summary>
+    private static async Task CloseTest(HostRuntime rt, MainWindow win)
+    {
+        await Ui(rt, () => Win32.PostMessage(win.Hwnd, Win32.WM_CLOSE, 0, 0));
+        await Task.Delay(800);
+        bool hidden = false;
+        await Ui(rt, () => hidden = !win.IsVisible);
+        Report["close.WM_CLOSE.hiddenToTray"] = hidden;
+        await Ui(rt, win.RestoreFromTray);
+        await Task.Delay(500);
     }
 
     private static async Task HideSuspendTest(HostRuntime rt, MainWindow win)
