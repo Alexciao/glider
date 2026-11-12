@@ -1,0 +1,205 @@
+/*
+ * Shared motion + surface primitives used by src/ui. Everything animates transform/opacity only.
+ * Radix Presence waits for CSS *animations* (not transitions) to finish, so enter/exit of
+ * popovers/dialogs/toasts are keyframes; everything state-driven elsewhere is a transition.
+ */
+
+/* ---------- Keyframes ---------- */
+@keyframes g-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes g-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes g-pop-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes g-pop-out {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.97); }
+}
+@keyframes g-dialog-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.975); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes g-dialog-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(2px) scale(0.985); }
+}
+@keyframes g-toast-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes g-toast-out {
+  from { opacity: 1; transform: translateX(var(--radix-toast-swipe-end-x, 0)); }
+  to { opacity: 0; transform: translateX(calc(var(--radix-toast-swipe-end-x, 0px) + 24px)); }
+}
+@keyframes g-page-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes g-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes g-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes g-shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+@keyframes g-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(260%); }
+}
+@keyframes g-sheen {
+  from { transform: translateX(-130%); }
+  to { transform: translateX(130%); }
+}
+@keyframes g-ready-ring {
+  0% { opacity: 0.55; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.14); }
+}
+@keyframes g-draw {
+  to { stroke-dashoffset: 0; }
+}
+@keyframes g-breathe {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+/* ---------- Radix surfaces ---------- */
+.g-pop {
+  transform-origin: var(--radix-popper-transform-origin);
+  will-change: transform, opacity;
+}
+.g-pop[data-state="open"],
+.g-pop[data-state="delayed-open"] {
+  animation: g-pop-in 160ms var(--ease-out);
+}
+.g-pop[data-state="instant-open"] {
+  animation: none;
+}
+.g-pop[data-state="closed"] {
+  animation: g-pop-out 110ms var(--ease-out) forwards;
+}
+.g-select-pop {
+  transform-origin: var(--radix-select-content-transform-origin);
+}
+.g-overlay[data-state="open"] {
+  animation: g-fade-in 180ms var(--ease-out);
+}
+.g-overlay[data-state="closed"] {
+  animation: g-fade-out 120ms var(--ease-out) forwards;
+}
+.g-dialog[data-state="open"] {
+  animation: g-dialog-in 240ms var(--ease-out);
+}
+.g-dialog[data-state="closed"] {
+  animation: g-dialog-out 140ms var(--ease-out) forwards;
+}
+.g-toast[data-state="open"] {
+  animation: g-toast-in 260ms var(--ease-out);
+}
+.g-toast[data-state="closed"] {
+  animation: g-toast-out 160ms var(--ease-out) forwards;
+}
+.g-toast[data-swipe="move"] {
+  transform: translateX(var(--radix-toast-swipe-move-x));
+}
+.g-toast[data-swipe="cancel"] {
+  transform: translateX(0);
+  transition: transform 200ms var(--ease-out);
+}
+.g-toast[data-swipe="end"] {
+  animation: g-toast-out 160ms var(--ease-out) forwards;
+}
+
+/* ---------- Page + content motion ---------- */
+.g-page-in {
+  animation: g-page-in 220ms var(--ease-out) both;
+}
+.g-rise {
+  animation: g-rise 420ms var(--ease-out) both;
+  animation-delay: calc(var(--g-i, 0) * 55ms);
+}
+
+/* ---------- Indicators ---------- */
+.g-spinner {
+  animation: g-spin 0.75s linear infinite;
+}
+.g-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--g-surface-2);
+}
+.g-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--g-surface-2), transparent);
+  animation: g-shimmer 1.6s linear infinite;
+}
+.g-indeterminate {
+  width: 40%;
+  animation: g-indeterminate 1.5s var(--ease-in-out) infinite;
+}
+
+/* The one decorative moment: a single sheen across the primary action when the game becomes ready. */
+.g-sheen {
+  position: relative;
+  overflow: hidden;
+}
+.g-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 32%, oklch(1 0 0 / 0.55) 50%, transparent 68%);
+  animation: g-sheen 1100ms var(--ease-out) 150ms 1 both;
+  pointer-events: none;
+}
+.g-ready-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 2px var(--g-success);
+  animation: g-ready-ring 1100ms var(--ease-out) 1 both;
+  pointer-events: none;
+}
+.g-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: g-draw 520ms var(--ease-out) 180ms forwards;
+}
+
+/* ---------- Reduced motion: fewer, gentler — opacity survives, movement doesn't ---------- */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes g-pop-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes g-pop-out { from { opacity: 1; } to { opacity: 0; } }
+  @keyframes g-dialog-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes g-dialog-out { from { opacity: 1; } to { opacity: 0; } }
+  @keyframes g-toast-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes g-toast-out { from { opacity: 1; } to { opacity: 0; } }
+  @keyframes g-page-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes g-rise { from { opacity: 0; } to { opacity: 1; } }
+  .g-skeleton::after,
+  .g-sheen::after,
+  .g-ready-ring {
+    animation: none;
+  }
+  .g-indeterminate {
+    animation: g-breathe 1.6s ease-in-out infinite;
+    width: 100%;
+  }
+  .g-draw {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  * {
+    scroll-behavior: auto !important;
+  }
+}
