@@ -122,6 +122,7 @@ export interface InstallCandidate {
   executableFound: boolean;
   isStale: boolean;
   sizeBytes: number | null;
+  reason: string | null;
 }
 
 export interface InstallPlan {

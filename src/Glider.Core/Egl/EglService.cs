@@ -302,7 +302,10 @@ public sealed class EglService : IEglService, IDisposable
             FolderExists: folder,
             ExecutableFound: exe,
             IsStale: !exe,
-            SizeBytes: size);
+            SizeBytes: size,
+            Reason: exe ? null : folder
+                ? "The game files are missing from this folder."
+                : "This folder doesn't exist. The drive may be disconnected, or the game was moved or deleted.");
     }
 
     public EglInstall? FindByLocation(string installPath) => FindIn(FortniteItems(), installPath)?.ToInstall();
