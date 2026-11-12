@@ -17,6 +17,7 @@ import {
   cx,
 } from "../../ui";
 import { PathText } from "../common/PathText";
+import { heroButtonBase, heroButtonTone, heroRadius } from "./PrimaryAction";
 
 /** Live bar + numbers for the running job. Re-renders at 10 Hz; nothing else on the page does. */
 export function JobLine({ job }: { job: JobInfo }) {
@@ -123,7 +124,7 @@ export function Facts({ snap }: { snap: AppSnapshot }) {
   return <dl className="mt-8 flex flex-wrap items-start gap-x-9 gap-y-4 border-t border-border pt-5 max-[1100px]:mt-6 max-[1100px]:gap-x-6">{items}</dl>;
 }
 
-export function MoreMenu({ snap }: { snap: AppSnapshot }) {
+export function MoreMenu({ snap, primary }: { snap: AppSnapshot; primary: boolean }) {
   const openDialog = useUi((s) => s.openDialog);
   const busy = isBusy(snap);
   const installed = snap.game.installed !== null;
@@ -132,13 +133,19 @@ export function MoreMenu({ snap }: { snap: AppSnapshot }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          variant="secondary"
+        <button
+          type="button"
           aria-label="More actions"
-          className="size-12 rounded-[14px] border-border-strong bg-surface-3 p-0 backdrop-blur-md"
+          style={{
+            borderTopLeftRadius: heroRadius.inner,
+            borderBottomLeftRadius: heroRadius.inner,
+            borderTopRightRadius: heroRadius.outer,
+            borderBottomRightRadius: heroRadius.outer,
+          }}
+          className={cx(heroButtonBase, "w-12 shrink-0", heroButtonTone(primary))}
         >
           <MoreHorizontal size={20} />
-        </Button>
+        </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-60">
         <DropdownMenuItem icon={<Wrench size={15} />} disabled={busy || !signedIn} onSelect={() => void actions.verify()}>
