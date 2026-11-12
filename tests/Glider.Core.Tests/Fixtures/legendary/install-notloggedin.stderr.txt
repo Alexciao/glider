@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "cli.py", line 3262, in <module>
+  File "cli.py", line 3177, in main
+  File "cli.py", line 867, in install_game
+  File "legendary\core.py", line 282, in login
+  File "legendary\core.py", line 218, in _login
+ValueError: No saved credentials
+[PYI-19928:ERROR] Failed to execute script 'cli' due to unhandled exception!

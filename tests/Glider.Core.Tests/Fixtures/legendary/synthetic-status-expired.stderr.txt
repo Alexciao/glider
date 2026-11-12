@@ -1,0 +1,4 @@
+# Synthetic fixture rendered by generate_synthetic.py from the verbatim format strings of legendary 0.21.1 (core.py:266-271, cli.py:1603-1606); values are plausible, not captured from a live run.
+[Core] INFO: Logging in...
+[Core] ERROR: Stored credentials are no longer valid! Please login again.
+[cli] ERROR: Log in failed!

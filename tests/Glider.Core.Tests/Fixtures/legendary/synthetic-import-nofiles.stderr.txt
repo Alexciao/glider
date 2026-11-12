@@ -1,0 +1,5 @@
+# Synthetic fixture rendered by generate_synthetic.py from the verbatim format strings of legendary 0.21.1 (cli.py:1400-1410); values are plausible, not captured from a live run.
+[Core] INFO: Trying to re-use existing login session...
+[Core] INFO: Downloading latest manifest for "Fortnite"
+[cli] ERROR: No files belonging to Game "Fortnite" (Fortnite) found in the specified location, please verify that the path is correct.
+[cli] INFO: Did you mean "D:\Games\Fortnite"?

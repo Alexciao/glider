@@ -1,0 +1,2 @@
+# Synthetic fixture rendered by generate_synthetic.py from the verbatim format strings of legendary 0.21.1 (cli.py:1315,1332, lfs/utils.py:126-145); values are plausible, not captured from a live run.
+Verification progress: 1/6 (16.7%) [980.4 MiB/s]	Verification progress: 2/6 (33.3%) [980.4 MiB/s]	Verification progress: 3/6 (50.0%) [980.4 MiB/s]	Verification progress: 4/6 (66.7%) [980.4 MiB/s]	Verification progress: 5/6 (83.3%) [980.4 MiB/s]	Verification progress: 6/6 (100.0%) [980.4 MiB/s]	Verification progress: 6/6 (100.0%) [980.4 MiB/s]	

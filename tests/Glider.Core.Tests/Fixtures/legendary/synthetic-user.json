@@ -1,0 +1,16 @@
+{
+  "access_token": "eg1~REDACTED",
+  "account_id": "0123456789abcdef0123456789abcdef",
+  "app": "launcher",
+  "client_id": "34a02cf8f4414e29b15921876da36f9a",
+  "client_service": "launcher",
+  "displayName": "\u00c5sa \u65e5\u672c",
+  "expires_at": "2026-11-12T12:00:00.000Z",
+  "expires_in": 7200,
+  "in_app_id": "0123456789abcdef0123456789abcdef",
+  "internal_client": true,
+  "refresh_expires": 1987200,
+  "refresh_expires_at": "2026-12-05T10:00:00.000Z",
+  "refresh_token": "eg1~REDACTED",
+  "token_type": "bearer"
+}

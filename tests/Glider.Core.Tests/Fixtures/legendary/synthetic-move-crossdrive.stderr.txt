@@ -1,0 +1,3 @@
+# Synthetic fixture rendered by generate_synthetic.py from the verbatim format strings of legendary 0.21.1 (cli.py:2654-2657); values are plausible, not captured from a live run.
+[cli] INFO: Moving "Fortnite" from "D:/Games" to "E:\Games"
+[cli] ERROR: Moving to a different drive is not supported. Move the folder manually to "E:\Games\Fortnite" and run "legendary move Fortnite "E:\Games" --skip-move"

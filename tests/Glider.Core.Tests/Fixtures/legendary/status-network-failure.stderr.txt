@@ -1,0 +1,41 @@
+Traceback (most recent call last):
+  File "urllib3\connection.py", line 204, in _new_conn
+  File "urllib3\util\connection.py", line 85, in create_connection
+  File "urllib3\util\connection.py", line 73, in create_connection
+TimeoutError: timed out
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "urllib3\connectionpool.py", line 774, in urlopen
+  File "urllib3\connectionpool.py", line 1055, in _prepare_proxy
+  File "urllib3\connection.py", line 759, in connect
+  File "urllib3\connection.py", line 213, in _new_conn
+urllib3.exceptions.ConnectTimeoutError: (<HTTPSConnection(host='10.255.255.1', port=3128) at 0x1ccd310f8c0>, 'Connection to 10.255.255.1 timed out. (connect timeout=10.0)')
+
+The above exception was the direct cause of the following exception:
+
+urllib3.exceptions.ProxyError: ('Unable to connect to proxy', ConnectTimeoutError(<HTTPSConnection(host='10.255.255.1', port=3128) at 0x1ccd310f8c0>, 'Connection to 10.255.255.1 timed out. (connect timeout=10.0)'))
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "requests\adapters.py", line 645, in send
+  File "urllib3\connectionpool.py", line 842, in urlopen
+  File "urllib3\util\retry.py", line 543, in increment
+urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='api.legendary.gl', port=443): Max retries exceeded with url: /v1/version.json (Caused by ProxyError('Unable to connect to proxy', ConnectTimeoutError(<HTTPSConnection(host='10.255.255.1', port=3128) at 0x1ccd310f8c0>, 'Connection to 10.255.255.1 timed out. (connect timeout=10.0)')))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "cli.py", line 3262, in <module>
+  File "cli.py", line 3197, in main
+  File "cli.py", line 1610, in status
+  File "legendary\core.py", line 300, in check_for_updates
+  File "legendary\api\lgd.py", line 21, in get_version_information
+  File "requests\sessions.py", line 605, in get
+  File "requests\sessions.py", line 592, in request
+  File "requests\sessions.py", line 706, in send
+  File "requests\adapters.py", line 672, in send
+requests.exceptions.ProxyError: HTTPSConnectionPool(host='api.legendary.gl', port=443): Max retries exceeded with url: /v1/version.json (Caused by ProxyError('Unable to connect to proxy', ConnectTimeoutError(<HTTPSConnection(host='10.255.255.1', port=3128) at 0x1ccd310f8c0>, 'Connection to 10.255.255.1 timed out. (connect timeout=10.0)')))
+[PYI-21252:ERROR] Failed to execute script 'cli' due to unhandled exception!

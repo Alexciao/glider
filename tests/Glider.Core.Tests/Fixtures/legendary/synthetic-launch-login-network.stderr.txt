@@ -1,0 +1,6 @@
+# Synthetic fixture rendered by generate_synthetic.py from the verbatim format strings of legendary 0.21.1 (core.py:272-274, cli.py:634-637); values are plausible, not captured from a live run.
+[cli] INFO: Logging in...
+[Core] WARNING: Checking for Legendary updates failed: ConnectionError(MaxRetryError("HTTPSConnectionPool(host='api.legendary.gl', port=443): Max retries exceeded with url: /v1/version.json"))
+[Core] INFO: Logging in...
+[Core] ERROR: HTTP request for login failed: ConnectionError(MaxRetryError("HTTPSConnectionPool(host='account-public-service-prod03.ol.epicgames.com', port=443): Max retries exceeded with url: /account/api/oauth/token")), please try again later.
+[cli] ERROR: Login failed, cannot continue!

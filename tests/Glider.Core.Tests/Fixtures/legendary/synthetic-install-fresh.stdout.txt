@@ -1,0 +1,5 @@
+# Synthetic fixture rendered by generate_synthetic.py from the verbatim format strings of legendary 0.21.1 (cli.py:1158-1160); values are plausible, not captured from a live run.
+
+This game lists the following prerequisites to be installed:
+- EAC: FortniteGame/Binaries/Win64/EasyAntiCheat/EasyAntiCheat_EOS_Setup.exe install 9d8ea3b85e7c4bde8bb0c36d79ab3a4a
+

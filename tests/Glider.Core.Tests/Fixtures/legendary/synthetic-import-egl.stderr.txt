@@ -1,0 +1,6 @@
+# Synthetic fixture rendered by generate_synthetic.py from the verbatim format strings of legendary 0.21.1 (cli.py:1348-1446, core.py:1895-1924); values are plausible, not captured from a live run.
+[Core] INFO: Trying to re-use existing login session...
+[Core] INFO: Found EGL install metadata, verifying...
+[cli] INFO: Game install appears to be complete.
+[cli] INFO: Installation had Epic Games Launcher metadata for version "++Fortnite+Release-33.00-CL-38324456-Windows", verification will not be required.
+[cli] INFO: Game "Fortnite" has been imported.

@@ -1,0 +1,9 @@
+[cli] INFO: Logging in and downloading manifest for Fortnite
+Traceback (most recent call last):
+  File "cli.py", line 3262, in <module>
+  File "cli.py", line 3181, in main
+  File "cli.py", line 382, in list_files
+  File "legendary\core.py", line 282, in login
+  File "legendary\core.py", line 218, in _login
+ValueError: No saved credentials
+[PYI-28752:ERROR] Failed to execute script 'cli' due to unhandled exception!

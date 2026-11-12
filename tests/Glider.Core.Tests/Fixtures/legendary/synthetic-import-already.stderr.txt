@@ -1,0 +1,2 @@
+# Synthetic fixture rendered by generate_synthetic.py from the verbatim format strings of legendary 0.21.1 (cli.py:1360-1362); values are plausible, not captured from a live run.
+[cli] ERROR: Game is already installed!

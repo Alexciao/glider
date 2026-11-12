@@ -1,0 +1,9 @@
+# Synthetic fixture rendered by generate_synthetic.py from the verbatim format strings of legendary 0.21.1 (core.py:1596-1600); values are plausible, not captured from a live run.
+[Core] INFO: Trying to re-use existing login session...
+[cli] INFO: Preparing download for "Fortnite" (Fortnite)...
+[Core] INFO: Parsing game manifest...
+Traceback (most recent call last):
+  File "cli.py", line 3262, in <module>
+  File "legendary\core.py", line 1598, in prepare_download
+PermissionError: No write access to "C:\Program Files\Fortnite"
+[PYI-1720:ERROR] Failed to execute script 'cli' due to unhandled exception!

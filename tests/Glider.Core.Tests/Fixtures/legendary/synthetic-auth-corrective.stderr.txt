@@ -1,0 +1,5 @@
+# Synthetic fixture rendered by generate_synthetic.py from the verbatim format strings of legendary 0.21.1 (api/egs.py:126-133, cli.py:208); values are plausible, not captured from a live run.
+[cli] INFO: Testing existing login data if present...
+[EGS] ERROR: Please accept the updated EULA (PRIVACY_POLICY_ACCEPTANCE), open the following URL to take action: https://www.epicgames.com/id/login/correction
+[Core] ERROR: Logging in failed with InvalidCredentialsError('errors.com.epicgames.oauth.corrective_action_required'), please try again.
+[cli] ERROR: Login attempt failed, please see log for details.

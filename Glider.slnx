@@ -4,6 +4,7 @@
     <Project Path="src/Glider.Core/Glider.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/FakeLegendary/FakeLegendary.csproj" />
     <Project Path="tests/Glider.Core.Tests/Glider.Core.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">

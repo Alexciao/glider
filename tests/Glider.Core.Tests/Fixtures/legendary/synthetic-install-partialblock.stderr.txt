@@ -1,0 +1,9 @@
+# Synthetic fixture rendered by generate_synthetic.py from the verbatim format strings of legendary 0.21.1 (manager.py:766-775 with lines dropped); values are plausible, not captured from a live run.
+[DLManager] INFO: = Progress: 10.00% (100/1000), Running for 00:00:10, ETA: 00:01:30
+[DLManager] INFO:  - Downloaded: 50.00 MiB, Written: 80.00 MiB
+[DLManager] INFO: = Progress: 20.00% (200/1000), Running for 00:00:20, ETA: 00:01:20
+[DLManager] INFO:  - Downloaded: 100.00 MiB, Written: 160.00 MiB
+[DLManager] INFO:  - Cache usage: 96.00 MiB, active tasks: 16
+[DLManager] INFO:  + Download	- 5.00 MiB/s (raw) / 8.10 MiB/s (decompressed)
+[DLManager] INFO:  + Disk	- 8.10 MiB/s (write) / 0.00 MiB/s (read)
+[DLManager] INFO: = Progress: 30.00% (300/1000), Running for 00:00:30, ETA: 00:01:10

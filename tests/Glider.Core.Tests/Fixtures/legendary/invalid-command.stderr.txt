@@ -1,0 +1,3 @@
+usage: legendary_windows_x64.exe [-h] [-H] [-v] [-y] [-V] [-J] [-A <seconds>]
+                                 <command> ...
+legendary_windows_x64.exe: error: argument <command>: invalid choice: 'bogus-cmd' (choose from 'activate', 'alias', 'auth', 'clean-saves', 'cleanup', 'crossover', 'download-saves', 'egl-sync', 'eos-overlay', 'import', 'import-game', 'info', 'install', 'download', 'update', 'repair', 'launch', 'list', 'list-games', 'list-files', 'list-installed', 'list-saves', 'move', 'status', 'sync-saves', 'uninstall', 'verify', 'verify-game', 'achievements', 'get-token')
