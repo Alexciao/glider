@@ -1,7 +1,7 @@
 import { CircleCheck, FolderInput, FolderOpen, MoreHorizontal, RefreshCw, Trash2, Wrench, TriangleAlert } from "lucide-react";
 import type { AppSnapshot, InstallCandidate, JobInfo } from "../../ipc/contract.gen";
 import { actions } from "../../state/actions";
-import { isBusy } from "../../state/derive";
+import { PHASE_LABEL, isBusy } from "../../state/derive";
 import { buildOf, formatBytes, formatEta, formatPercent, formatPlaytime, formatRelativeTime, formatSpeed, prettyVersion } from "../../state/format";
 import { useJobProgress } from "../../state/progress";
 import { useUi } from "../../state/ui";
@@ -29,7 +29,7 @@ export function JobLine({ job }: { job: JobInfo }) {
     <div className="w-[min(440px,100%)]">
       <ProgressBar value={job.status === "running" && !p ? null : percent} tone={paused ? "warning" : "accent"} paused={paused} speed={downloading ? p?.downloadBytesPerSecond : null} label={`${job.kind} progress`} />
       <div className="mt-2 flex items-center justify-between gap-4 text-xs text-fg-muted tabular-nums">
-        <span>{p ? (downloading ? `${formatBytes(p.downloadedBytes)} of ${formatBytes(p.totalDownloadBytes)}` : formatPercent(percent)) : "Starting…"}</span>
+        <span>{p ? (downloading ? `${formatBytes(p.downloadedBytes)} of ${formatBytes(p.totalDownloadBytes)}` : `${PHASE_LABEL[p.phase]} · ${formatPercent(percent)}`) : "Starting…"}</span>
         {p && !paused && job.status === "running" && (
           <span>
             {downloading ? `${formatSpeed(p.downloadBytesPerSecond)}  ·  ` : ""}

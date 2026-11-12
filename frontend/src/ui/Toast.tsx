@@ -61,7 +61,7 @@ export function ToastRegion({ toasts, onDismiss }: { toasts: readonly ToastItem[
           </T.Close>
         </T.Root>
       ))}
-      <T.Viewport className="pointer-events-none fixed bottom-4 right-4 z-[60] m-0 flex list-none flex-col gap-2 p-0 outline-none" />
+      <T.Viewport className="pointer-events-none fixed right-4 top-[calc(var(--titlebar-height)+12px)] z-[60] m-0 flex list-none flex-col gap-2 p-0 outline-none" />
     </T.Provider>
   );
 }

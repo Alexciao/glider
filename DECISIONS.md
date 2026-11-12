@@ -39,3 +39,8 @@ One line of reasoning per decision. Newest at the bottom of each section.
 ## Process
 - **Model budget (user constraint, 2026-11-12)**: exactly one Fable 5.2 task, spent on the screenshot-driven design/UX critique; all other subagents (incl. architecture/perf and security reviews, in place of GPT-6-Luna) run on Opus 5.5 high (xhigh only when essential).
 - **MIT license for Glider's own code**: permissive and simple; Legendary stays a separate GPLv3 executable, so there's no linking concern.
+- **Playtime is tracked locally (v0.1.1)**: Legendary (checked `api/egs.py`, 0.20.x line; no playtime call) has no Epic server-side playtime support, and Epic's playtime service is not exposed through its API surface, so Core accumulates seconds from ProcessWatcher Running->Idle, flushes every 30 s and on exit into `state/game.json` (`PlaytimeSeconds`, `LastPlayedAt`); play outside Glider is not counted.
+- **Hero buttons**: Play and More share `heroButtonBase/heroButtonTone` (PrimaryAction.tsx) as a 2 px-gapped split group, outer radius 16 (radius-xl), inner 6; More follows Play's emphasis colours.
+- **Toasts moved top-right** (below the title bar) so they never cover the Library facts row at the bottom of the hero.
+- **Light theme**: surface-1/2 are now white translucents (lighter than the page) instead of dark tints, so cards read as raised, not darker than the page.
+- **`GameState.InstalledSizeBytes`** added (null from StateHub until Group D measures it); UI shows "Measuring…" while null.
