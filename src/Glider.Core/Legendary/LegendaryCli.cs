@@ -54,6 +54,9 @@ public sealed class LegendaryCli : ILegendary, IDisposable
 
     private string Config => _paths.LegendaryConfig;
 
+    /// <summary>Folders a recursive delete must never reach, on top of <see cref="DeleteGuard"/>'s system/user folders.</summary>
+    private string?[] ProtectedFolders => [_paths.Root, Path.GetDirectoryName(_paths.LegendaryExe)];
+
     public void Dispose() => Runner.Dispose();
 
     // ------------------------------------------------------------------ account
@@ -347,6 +350,8 @@ public sealed class LegendaryCli : ILegendary, IDisposable
 
         if (FolderMover.PathsEqual(source, destination))
         {
+            // Also the restart after a crash between `move --skip-move` and deleting the old copy.
+            AtomicFile.TryDelete(Path.Combine(destination, FolderMover.PartialMarker));
             return new LegendaryOutcome(true, null, null, installed.InstallSizeBytes);
         }
 
@@ -364,13 +369,44 @@ public sealed class LegendaryCli : ILegendary, IDisposable
             }
         }
 
-        // Cross-volume: copy ourselves, then let Legendary only rewrite its metadata, then remove the original.
-        if (Directory.Exists(destination) && Directory.EnumerateFileSystemEntries(destination).Any())
+        // Cross-volume: copy ourselves, then let Legendary only rewrite its metadata, then remove the original. The
+        // original is deleted recursively by us, so it must really be a game folder and nothing bigger.
+        if (!FortniteLayout.LooksLikeInstall(source))
         {
-            return Fail(Errors.PermissionDenied($"\"{destination}\" already exists."));
+            return Fail(Errors.InvalidFolder($"Glider can't find the game in \"{source}\", so it won't copy and delete that folder. Verify or locate the install first."));
         }
 
-        var size = FolderMover.TreeSize(source);
+        if (DeleteGuard.Refusal(source, ProtectedFolders) is { } unsafeSource)
+        {
+            return Fail(Errors.InvalidFolder($"Glider won't move \"{source}\" because {unsafeSource}. Move it manually, then locate it in Glider."));
+        }
+
+        var marker = Path.Combine(destination, FolderMover.PartialMarker);
+        if (Directory.Exists(destination) && Directory.EnumerateFileSystemEntries(destination).Any())
+        {
+            if (!File.Exists(marker))
+            {
+                return Fail(Errors.PermissionDenied($"\"{destination}\" already exists."));
+            }
+
+            // Our own partial copy from an interrupted move: Legendary still points at the source, so discard it.
+            _log.Info("legendary", $"Discarding the partial copy left by an interrupted move at \"{destination}\".");
+            if (!FolderMover.TryDeleteTree(destination, _log, ProtectedFolders))
+            {
+                return Fail(Errors.FilesLocked($"Couldn't remove the partial copy at \"{destination}\"."));
+            }
+        }
+
+        long size;
+        try
+        {
+            size = FolderMover.TreeSize(source);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return Fail(e is UnauthorizedAccessException ? Errors.PermissionDenied(e.Message) : Errors.FilesLocked(e.Message));
+        }
+
         var free = FreeBytes(newBase);
         if (free is { } freeBytes && freeBytes < size)
         {
@@ -379,11 +415,13 @@ public sealed class LegendaryCli : ILegendary, IDisposable
 
         try
         {
+            Directory.CreateDirectory(destination);
+            await File.WriteAllTextAsync(marker, "Partial copy made by Glider while moving Fortnite. Safe to delete.", CancellationToken.None);
             await FolderMover.CopyTreeAsync(source, destination, progress, _time, ct);
         }
         catch (Exception e)
         {
-            FolderMover.TryDeleteTree(destination, _log);
+            FolderMover.TryDeleteTree(destination, _log, ProtectedFolders);
             if (e is OperationCanceledException)
             {
                 throw;
@@ -402,13 +440,23 @@ public sealed class LegendaryCli : ILegendary, IDisposable
         var outcome = await MoveMetadataAsync(appName, newBase, skipMove: true, CancellationToken.None);
         if (!outcome.Success)
         {
-            FolderMover.TryDeleteTree(destination, _log);
-            return outcome;
+            // Discard the copy unless Legendary demonstrably points at it already (a misclassified failure must not
+            // leave Legendary pointing at a folder we just deleted). In that case the source is kept too.
+            if (await GetInstalledAsync(appName, CancellationToken.None) is not { } now || !FolderMover.PathsEqual(now.InstallPath, destination))
+            {
+                FolderMover.TryDeleteTree(destination, _log, ProtectedFolders);
+                return outcome;
+            }
+
+            _log.Warn("legendary", "move --skip-move reported a failure but Legendary now points at the new folder; keeping both copies.");
+            AtomicFile.TryDelete(marker);
+            return new LegendaryOutcome(true, null, null, size);
         }
 
+        AtomicFile.TryDelete(marker);
         sink?.OnPhase(JobPhase.Removing);
-        FolderMover.TryDeleteTree(source, _log);
-        return outcome with { InstallSizeBytes = size };
+        FolderMover.TryDeleteTree(source, _log, ProtectedFolders);
+        return new LegendaryOutcome(true, null, null, size);
     }
 
     public async Task<LegendaryOutcome> UninstallAsync(string appName, bool keepFiles, CancellationToken ct)

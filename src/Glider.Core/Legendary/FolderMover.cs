@@ -9,6 +9,10 @@ internal static class FolderMover
 {
     private const int BufferSize = 1 << 20;
 
+    /// <summary>Written into a move destination before copying and removed once Legendary points at it: a destination
+    /// that still has it is a partial copy from an interrupted move (crash, power cut) and may be discarded.</summary>
+    public const string PartialMarker = ".glider-partial-move";
+
     public static bool SameVolume(string a, string b) =>
         string.Equals(Path.GetPathRoot(Path.GetFullPath(a)), Path.GetPathRoot(Path.GetFullPath(b)), StringComparison.OrdinalIgnoreCase);
 
@@ -50,6 +54,12 @@ internal static class FolderMover
         foreach (var file in files)
         {
             ct.ThrowIfCancellationRequested();
+            if (string.Equals(Path.GetRelativePath(source, file.FullName), PartialMarker, StringComparison.OrdinalIgnoreCase))
+            {
+                done++;
+                continue; // a stale marker from an earlier move into this folder
+            }
+
             var target = Path.Combine(destination, Path.GetRelativePath(source, file.FullName));
             var input = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
             await using (input.ConfigureAwait(false))
@@ -82,20 +92,9 @@ internal static class FolderMover
         Report(progress, copied, total, done, files.Count, 0, time.GetElapsedTime(started));
     }
 
-    public static void TryDeleteTree(string path, ILog log)
-    {
-        try
-        {
-            if (Directory.Exists(path))
-            {
-                Directory.Delete(path, recursive: true);
-            }
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            log.Warn("legendary", $"Could not fully delete \"{path}\": {e.Message}");
-        }
-    }
+    /// <summary>Recursive delete through <see cref="Infrastructure.DeleteGuard"/> (never roots, links or system/user folders).</summary>
+    public static bool TryDeleteTree(string path, ILog log, params string?[] extraProtected) =>
+        Infrastructure.DeleteGuard.TryDeleteTree(path, log, extraProtected);
 
     private static void Report(IProgress<LegendaryProgress>? progress, long copied, long total, int done, int count, double bytesPerSecond, TimeSpan elapsed)
     {
