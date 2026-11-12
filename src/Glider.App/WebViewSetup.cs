@@ -89,61 +89,15 @@ internal static class WebViewSetup
         s.IsNonClientRegionSupportEnabled = true;
     }
 
-    /// <summary>Maps the UI host and serves AppPaths.Cache at https://app.glider/cache/.</summary>
+    /// <summary>
+    /// Maps https://app.glider/ → UI folder and https://cache.glider/ → AppPaths.Cache. (A WebResourceRequested handler cannot serve a
+    /// sub-path of a mapped host: verified that virtual-host requests never raise the event, so the cache gets its own host.)
+    /// </summary>
     public static void MapContent(CoreWebView2 web, string contentRoot, string cacheRoot)
     {
         web.SetVirtualHostNameToFolderMapping(HostConstants.AppHost, contentRoot, CoreWebView2HostResourceAccessKind.Allow);
-
-        var cacheFull = Path.GetFullPath(cacheRoot);
-        var cachePrefix = cacheFull.EndsWith(Path.DirectorySeparatorChar) ? cacheFull : cacheFull + Path.DirectorySeparatorChar;
-        var env = web.Environment;
-        web.AddWebResourceRequestedFilter(WebHost.CachePrefix + "*", CoreWebView2WebResourceContext.All);
-        web.WebResourceRequested += (_, e) =>
-        {
-            try
-            {
-                var uri = e.Request.Uri;
-                if (!uri.StartsWith(WebHost.CachePrefix, StringComparison.OrdinalIgnoreCase))
-                {
-                    return;
-                }
-
-                var rel = uri[WebHost.CachePrefix.Length..];
-                var cut = rel.IndexOfAny(['?', '#']);
-                if (cut >= 0)
-                {
-                    rel = rel[..cut];
-                }
-
-                var full = Path.GetFullPath(Path.Combine(cacheFull, Uri.UnescapeDataString(rel).Replace('/', Path.DirectorySeparatorChar)));
-                if (!full.StartsWith(cachePrefix, StringComparison.OrdinalIgnoreCase) || !File.Exists(full))
-                {
-                    e.Response = env.CreateWebResourceResponse(null, 404, "Not Found", "");
-                    return;
-                }
-
-                var stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
-                e.Response = env.CreateWebResourceResponse(stream, 200, "OK", $"Content-Type: {MimeFor(full)}\r\nCache-Control: no-cache");
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or UriFormatException)
-            {
-                HostLog.Warn("cache request failed", ex);
-                e.Response = env.CreateWebResourceResponse(null, 404, "Not Found", "");
-            }
-        };
+        web.SetVirtualHostNameToFolderMapping(HostConstants.CacheHost, cacheRoot, CoreWebView2HostResourceAccessKind.Allow);
     }
-
-    private static string MimeFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch
-    {
-        ".jpg" or ".jpeg" => "image/jpeg",
-        ".png" => "image/png",
-        ".webp" => "image/webp",
-        ".avif" => "image/avif",
-        ".gif" => "image/gif",
-        ".svg" => "image/svg+xml",
-        ".json" => "application/json",
-        _ => "application/octet-stream",
-    };
 
     /// <summary>Only https://app.glider/ may load in the main view; everything else opens in the system browser.</summary>
     public static void GuardNavigation(CoreWebView2 web, Action<string> openExternal)

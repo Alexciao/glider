@@ -10,8 +10,10 @@ internal static class HostConstants
 
     public const string AppOrigin = "https://app.glider/";
 
-    /// <summary>Art/metadata cache URL prefix. Served from AppPaths.Cache by a WebResourceRequested handler.</summary>
-    public const string CacheUrlPrefix = "https://app.glider/cache/";
+    /// <summary>Second virtual host: AppPaths.Cache is served at https://cache.glider/&lt;relative path&gt; (mirrored by Glider.Core.WebHost).</summary>
+    public const string CacheHost = "cache.glider";
+
+    public const string CacheUrlPrefix = "https://cache.glider/";
 
     // ---- HTML caption buttons (CSS px). The frontend lays them out top-right: min, max, close. ----
     public const int CaptionButtonWidth = 46;

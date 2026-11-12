@@ -10,17 +10,21 @@ namespace Glider.App;
 /// </summary>
 internal sealed class SingleInstance : IDisposable
 {
-    private static readonly string PipeName = "Glider.Activate." + (WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName);
+    private static string _pipeName = "";
 
     private readonly Mutex _mutex;
     private readonly CancellationTokenSource _cts = new();
 
     private SingleInstance(Mutex mutex) => _mutex = mutex;
 
+    private static string PipeName => _pipeName;
+
     /// <summary>Returns the owner object when this process is the first instance, otherwise signals the first one and returns null.</summary>
-    public static SingleInstance? TryAcquire()
+    /// <param name="scope">Empty for the real app; a non-empty scope (derived from --data-dir) isolates test instances from each other and from the user's.</param>
+    public static SingleInstance? TryAcquire(string scope = "")
     {
-        var mutex = new Mutex(true, HostConstants.MainMutexName, out var first);
+        _pipeName = "Glider.Activate." + (WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName) + scope;
+        var mutex = new Mutex(true, HostConstants.MainMutexName + scope, out var first);
         if (first)
         {
             return new SingleInstance(mutex);

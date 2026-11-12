@@ -59,11 +59,11 @@ public static class Program
 
         var options = HostOptions.Parse(args);
 
-        // Test runs and explicit data dirs are isolated from the user's real instance and data.
+        // Test runs use their own temp data dir; an explicit --data-dir gets its own single-instance scope.
         SingleInstance? single = null;
-        if (!options.IsTestRun && options.DataDir is null)
+        if (!options.IsTestRun)
         {
-            single = SingleInstance.TryAcquire();
+            single = SingleInstance.TryAcquire(options.DataDir is null ? "" : "." + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(options.DataDir.ToLowerInvariant())))[..12]);
             if (single is null)
             {
                 return 0; // the first instance was asked to come to the front
@@ -96,6 +96,9 @@ internal static class HostApp
     public static int Run(AppPaths paths, HostOptions options, SingleInstance? single)
     {
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+
+        // Awaits started before app.Run() (WebView2 init) must resume on the UI thread: COM objects here are STA-bound.
+        SynchronizationContext.SetSynchronizationContext(new System.Windows.Threading.DispatcherSynchronizationContext(app.Dispatcher));
         app.DispatcherUnhandledException += (_, e) =>
         {
             HostLog.Error("Unhandled UI exception", e.Exception);

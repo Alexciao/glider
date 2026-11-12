@@ -89,7 +89,10 @@ internal sealed class CaptionOverlays : IDisposable
     {
         protected OverlayBase(string className, nint parent)
         {
-            CreateWindow(className, Win32.WS_CHILD | Win32.WS_VISIBLE | Win32.WS_CLIPSIBLINGS, 0, parent, 0, 0, 1, 1);
+            // Layered with alpha 1/255: still hit-testable (unlike per-pixel-alpha-0 or color-keyed), but invisible. An un-layered,
+            // never-painted child window shows up as an opaque white rectangle over the page (verified by screenshot).
+            CreateWindow(className, Win32.WS_CHILD | Win32.WS_VISIBLE | Win32.WS_CLIPSIBLINGS, Win32.WS_EX_LAYERED, parent, 0, 0, 1, 1);
+            Win32.SetLayeredWindowAttributes(Handle, 0, 1, Win32.LWA_ALPHA);
         }
 
         protected override nint WndProc(nint hwnd, uint msg, nint wParam, nint lParam)

@@ -239,6 +239,8 @@ internal static unsafe partial class Win32
     public const uint WS_CLIPSIBLINGS = 0x04000000;
     public const uint WS_POPUP = 0x80000000;
     public const uint WS_EX_NOACTIVATE = 0x08000000;
+    public const uint WS_EX_LAYERED = 0x00080000;
+    public const uint LWA_ALPHA = 0x2;
     public const uint WS_EX_TOOLWINDOW = 0x00000080;
     public const int GWL_STYLE = -16;
     public const int GWL_EXSTYLE = -20;
@@ -338,6 +340,10 @@ internal static unsafe partial class Win32
 
     [LibraryImport("user32.dll", EntryPoint = "CreateWindowExW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     public static partial nint CreateWindowEx(uint exStyle, string className, string? windowName, uint style, int x, int y, int w, int h, nint parent, nint menu, nint instance, nint param);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool SetLayeredWindowAttributes(nint hwnd, uint colorKey, byte alpha, uint flags);
 
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

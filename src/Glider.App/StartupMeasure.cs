@@ -37,6 +37,15 @@ internal static class StartupMeasure
             }
         });
 
+    /// <summary>(host, webview2 processes) private working set in MB right now; used by the self-test to compare states.</summary>
+    public static (double HostMb, double WebViewMb) PrivateWorkingSetTotalsMb()
+    {
+        using var self = Process.GetCurrentProcess();
+        var host = Sample((uint)self.Id, self.ProcessName)?.PrivateWorkingSetMb ?? 0;
+        var web = Descendants((uint)self.Id).Select(p => Sample(p.Pid, p.Name)?.PrivateWorkingSetMb ?? 0).Sum();
+        return (host, Math.Round(web, 1));
+    }
+
     private static void Write(string file, int settleSeconds)
     {
         using var self = Process.GetCurrentProcess();

@@ -302,6 +302,7 @@ internal sealed partial class MainWindow : Window
             options.DefaultBackgroundColor = IsMicaActive ? DrawingColor.Transparent : DrawingColor.FromArgb(unchecked((int)ThemeState.BackgroundArgb));
             var controller = await env.CreateCoreWebView2ControllerAsync(_hwnd, options);
             StartupTimeline.Mark("controller-ready");
+            HostLog.Info($"WebView2 runtime {env.BrowserVersionString}");
             _controller = controller;
             ApplyDefaultBackground();
             UpdateWebBounds();
@@ -388,6 +389,11 @@ internal sealed partial class MainWindow : Window
 
     private void FocusWeb()
     {
+        if (_quitting)
+        {
+            return;
+        }
+
         try
         {
             _controller?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic);
@@ -417,7 +423,14 @@ internal sealed partial class MainWindow : Window
         }
 
         // Mica: fully transparent so the backdrop shows through. Solid (Windows 10): the theme color, so nothing ever paints white.
-        _controller.DefaultBackgroundColor = IsMicaActive ? DrawingColor.Transparent : DrawingColor.FromArgb(unchecked((int)ThemeState.BackgroundArgb));
+        try
+        {
+            _controller.DefaultBackgroundColor = IsMicaActive ? DrawingColor.Transparent : DrawingColor.FromArgb(unchecked((int)ThemeState.BackgroundArgb));
+        }
+        catch (Exception ex) when (ex is NotImplementedException or InvalidCastException or System.Runtime.InteropServices.COMException)
+        {
+            HostLog.Warn("DefaultBackgroundColor not settable", ex);
+        }
     }
 
     // ============================== memory ==============================

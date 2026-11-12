@@ -7,9 +7,10 @@ namespace Glider.Core;
 public static class WebHost
 {
     public const string Host = "app.glider";
-    public const string CachePrefix = "https://app.glider/cache/";
+    public const string CacheHost = "cache.glider";
+    public const string CachePrefix = "https://cache.glider/";
 
-    /// <summary>URL for a file under AppPaths.Cache, e.g. "art/hero.jpg" → https://app.glider/cache/art/hero.jpg.</summary>
+    /// <summary>URL for a file under AppPaths.Cache, e.g. "art/hero.jpg" → https://cache.glider/art/hero.jpg.</summary>
     public static string CacheUrl(string relativePath)
     {
         var segments = relativePath.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);

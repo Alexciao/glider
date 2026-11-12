@@ -88,6 +88,7 @@ internal sealed class TrayIcon : NativeWindow
         var d = NewData(Win32.NIF_MESSAGE | Win32.NIF_ICON | Win32.NIF_TIP | Win32.NIF_SHOWTIP);
         CopyTo(d.Tip, 128, "Glider");
         _added = Win32.Shell_NotifyIcon(Win32.NIM_ADD, ref d);
+        HostLog.Info($"tray icon added: {_added}");
         if (_added)
         {
             d.VersionOrTimeout = Win32.NOTIFYICON_VERSION_4;
@@ -110,7 +111,8 @@ internal sealed class TrayIcon : NativeWindow
         CopyTo(d.InfoTitle, 64, title);
         CopyTo(d.Info, 256, message);
         d.InfoFlags = Win32.NIIF_INFO;
-        Win32.Shell_NotifyIcon(Win32.NIM_MODIFY, ref d);
+        var ok = Win32.Shell_NotifyIcon(Win32.NIM_MODIFY, ref d);
+        HostLog.Info($"balloon \"{title}\": {ok}");
     }
 
     private void ShowMenu(int x, int y)
