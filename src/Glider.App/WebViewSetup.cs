@@ -7,16 +7,25 @@ namespace Glider.App;
 /// <summary>Everything about configuring a CoreWebView2 for the app UI: content folder, hardening, local URL serving, navigation guard.</summary>
 internal static class WebViewSetup
 {
+    /// <summary>Debug builds allow dev tools, context menus and F5/Ctrl+R; Release locks the page down.</summary>
+    public static readonly bool DeveloperMode = IsDebugBuild();
+
+    private static bool IsDebugBuild()
+    {
 #if DEBUG
-    public const bool DeveloperMode = true;
+        return true;
 #else
-    public const bool DeveloperMode = false;
+        return false;
 #endif
+    }
+
+    public const string DefaultBrowserArguments = "--disable-features=msSmartScreenProtection,msEdgeShopping,msEdgeCollections,msUndersideButton,msEdgeUpsell";
 
     public static CoreWebView2EnvironmentOptions CreateEnvironmentOptions() => new()
     {
         // Measured in docs/perf-host.md: only flags that measurably help are kept.
-        AdditionalBrowserArguments = "--disable-features=msSmartScreenProtection,msEdgeShopping,msEdgeCollections,msUndersideButton,msEdgeUpsell",
+        // GLIDER_WV2_ARGS replaces the default (diagnostics / perf experiments only).
+        AdditionalBrowserArguments = Environment.GetEnvironmentVariable("GLIDER_WV2_ARGS") ?? DefaultBrowserArguments,
         IsCustomCrashReportingEnabled = true,
         EnableTrackingPrevention = false,
     };

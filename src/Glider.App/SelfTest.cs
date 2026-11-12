@@ -52,6 +52,13 @@ internal static partial class SelfTest
                 }
             }
         };
+        Directory.CreateDirectory(dir);
+        win.BeforeReveal = () =>
+        {
+            Screenshot(win, Path.Combine(dir, "first-frame.png"), "firstFrame");
+            Win32.GetWindowRect(win.Hwnd, out var wr);
+            Report["firstFrame.cloaked"] = Win32.DwmGetWindowAttribute(win.Hwnd, Win32.DWMWA_CLOAKED, out var c, 4) == 0 ? c : -1;
+        };
         _ = Task.Run(() => RunAsync(rt, win, dir));
     }
 

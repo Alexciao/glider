@@ -66,4 +66,11 @@
     <Content Include="legendary\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- We use the raw Core API only; the WPF/WinForms wrapper assemblies and API docs are dead weight in the package. -->
+  <Target Name="PruneUnusedWebView2Assets" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="$([System.String]::Copy('%(Filename)').StartsWith('Microsoft.Web.WebView2.')) And ('%(Filename)' != 'Microsoft.Web.WebView2.Core' Or '%(Extension)' == '.xml') And '%(Filename)' != 'WebView2Loader'" />
+    </ItemGroup>
+  </Target>
+
 </Project>

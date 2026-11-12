@@ -133,7 +133,11 @@ internal static class HostApp
         rt.Platform.Attach(window, tray);
         StartupTimeline.Mark("tray");
 
-        single?.Listen(() => app.Dispatcher.BeginInvoke(() => rt.Platform.RestoreWindow()));
+        single?.Listen(() =>
+        {
+            HostLog.Info("activation requested by a second instance");
+            app.Dispatcher.BeginInvoke(() => rt.Platform.RestoreWindow());
+        });
 
         if (options.MeasureFile is not null)
         {

@@ -69,6 +69,9 @@ internal sealed partial class MainWindow : Window
         };
     }
 
+    /// <summary>Test hook, raised on the UI thread just before the window is uncloaked.</summary>
+    public Action? BeforeReveal { get; set; }
+
     public nint Hwnd => _hwnd;
 
     public bool IsRevealed => _revealed;
@@ -113,11 +116,12 @@ internal sealed partial class MainWindow : Window
         // A cloaked window is "visible" to Windows and WebView2 (so the page renders and paints) but DWM does not draw it.
         // It is uncloaked once the UI reports app.ready: no white/black flash, no half-painted frame.
         SetCloak(true);
+        // Kick off the controller first: the browser process spins up out-of-process while WPF spends ~200 ms in Show().
+        StartWebView();
         Show();
         WindowPlacementStore.Restore(_rt.Paths, _hwnd);
         ShowActivated = true;
         _safetyTimer.Start();
-        StartWebView();
     }
 
     private void SetCloak(bool cloak)
@@ -152,12 +156,16 @@ internal sealed partial class MainWindow : Window
             return; // hidden to the tray before the reveal: Restore() will show it
         }
 
+        BeforeReveal?.Invoke(); // test hook: grab the frame DWM is about to show
         SetCloak(false);
         StartupTimeline.Mark("revealed");
         Win32.SetForegroundWindow(_hwnd);
         FocusWeb();
         PublishWindowInfo();
         HostLog.Info("window revealed");
+
+        // Startup garbage (WPF/JIT/WebView2 init) is dead by now: one compacting GC + working-set trim, off the UI thread.
+        _ = Task.Delay(TimeSpan.FromSeconds(3)).ContinueWith(_ => MemoryTrimmer.Trim(), TaskScheduler.Default);
     }
 
     public void RestoreFromTray()
