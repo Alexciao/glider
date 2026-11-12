@@ -394,6 +394,24 @@ public sealed class GliderService : IGliderRpc, IDisposable
         return _c.Hub.BuildSnapshot().Egl;
     });
 
+    public Task<EglState> QuickScanEgl() => Rpc(nameof(QuickScanEgl), async ct =>
+    {
+        var egl = await _c.Egl.ScanAsync(ct);
+        var roots = _c.Options.DiskInfo.FixedDrives().Select(d => d.RootPath).ToList();
+        var folders = await Task.Run(() => Egl.InstallLocator.QuickScan(roots, ct), ct);
+        var extra = folders
+            .Where(f => !egl.Candidates.Any(c => Egl.EglPath.Same(c.InstallPath, f)))
+            .Select(f => Egl.EglService.MakeCandidate(f, null, null, CandidateSource.Manual))
+            .ToList();
+        if (extra.Count > 0)
+        {
+            egl = egl with { Candidates = [.. egl.Candidates, .. extra] };
+        }
+
+        _c.Hub.Mutate(s => s with { Egl = egl });
+        return _c.Hub.BuildSnapshot().Egl;
+    });
+
     // ================================================================== settings
 
     public Task<Settings> UpdateSettings(Settings settings) => Rpc(nameof(UpdateSettings), _ => ApplySettingsAsync(SettingsValidator.Validate(settings)));

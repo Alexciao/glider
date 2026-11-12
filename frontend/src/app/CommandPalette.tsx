@@ -116,6 +116,7 @@ function PaletteBody({ close }: { close: () => void }) {
         },
       },
       { id: "rescan", group: "App", label: "Re-scan for existing installs", icon: <RefreshCw size={15} />, run: () => void actions.rescanEgl() },
+      { id: "scanDrives", group: "App", label: "Scan all drives for an existing install", icon: <RefreshCw size={15} />, run: () => void actions.rescanEgl(true) },
       { id: "logs", group: "App", label: "Copy logs for a bug report", icon: <Wrench size={15} />, run: () => void actions.copyLogs() },
     );
     if (signedIn) cmds.push({ id: "signout", group: "App", label: "Sign out", icon: <LogOut size={15} />, run: () => void actions.signOut() });

@@ -794,6 +794,12 @@ export class MockBackend {
       this.emitState();
       return clone(this.s.egl);
     },
+    "egl.quickScan": async () => {
+      await this.sleep(1200);
+      this.s.egl.lastScan = iso();
+      this.emitState();
+      return clone(this.s.egl);
+    },
 
     // ---- game ----
     "game.adopt": async (req) => {

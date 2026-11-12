@@ -65,6 +65,9 @@ public interface IGliderRpc
     // ---- egl ----
     [RpcMethod("egl.rescan")] Task<EglState> RescanEgl();
 
+    /// <summary>Rescan plus a quick look for installs EGL doesn't know about on every fixed drive (known folders only).</summary>
+    [RpcMethod("egl.quickScan")] Task<EglState> QuickScanEgl();
+
     // ---- settings ----
     [RpcMethod("settings.update")] Task<Settings> UpdateSettings(Settings settings);
     [RpcMethod("settings.reset")] Task<Settings> ResetSettings();

@@ -290,13 +290,13 @@ public sealed class EglService : IEglService, IDisposable
             LastScan: _options.Time.GetUtcNow());
     }
 
-    private static InstallCandidate MakeCandidate(string location, string? version, long? size)
+    internal static InstallCandidate MakeCandidate(string location, string? version, long? size, CandidateSource source = CandidateSource.EpicGamesLauncher)
     {
         var folder = Directory.Exists(location);
         var exe = folder && FortniteLayout.LooksLikeInstall(location);
         return new InstallCandidate(
             Id: EglPath.CandidateId(location),
-            Source: CandidateSource.EpicGamesLauncher,
+            Source: source,
             InstallPath: location,
             Version: string.IsNullOrWhiteSpace(version) ? null : version,
             FolderExists: folder,

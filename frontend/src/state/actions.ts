@@ -191,8 +191,8 @@ export const actions = {
     return r?.path ?? null;
   },
 
-  async rescanEgl(): Promise<void> {
-    const r = await run("rescan", () => rpc().call("egl.rescan"), asToast(() => void actions.rescanEgl()));
+  async rescanEgl(drives = false): Promise<void> {
+    const r = await run("rescan", () => rpc().call(drives ? "egl.quickScan" : "egl.rescan"), asToast(() => void actions.rescanEgl(drives)));
     if (r) {
       const n = r.candidates.filter((c) => !c.isStale).length;
       toast({
