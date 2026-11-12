@@ -35,6 +35,7 @@ public sealed class Rig : IDisposable
     public FakeProcesses Processes { get; } = new();
     public FakeServices Services { get; } = new();
     public FakeDisk Disk { get; } = new();
+    public FakePublisherCheck Publisher { get; } = new();
     public FakeArt Art { get; } = new();
     public FakeOnboarding Onboarding { get; } = new();
     public IIdleSignal? Idle { get; }
@@ -47,6 +48,7 @@ public sealed class Rig : IDisposable
             ProcessStarter = Processes,
             ServiceQuery = Services,
             DiskInfo = Disk,
+            PublisherCheck = Publisher,
             ArtCache = Art,
             OnboardingStore = Onboarding,
             IdleSignal = Idle,

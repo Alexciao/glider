@@ -314,5 +314,5 @@ internal static class ErrorClassifier
         return null;
     }
 
-    private static string Tail(LegendaryRunResult run) => string.Join(" | ", run.Tail.TakeLast(5));
+    private static string Tail(LegendaryRunResult run) => Infrastructure.SecretRedactor.Redact(string.Join(" | ", run.Tail.TakeLast(5)));
 }

@@ -59,9 +59,10 @@ internal static class HostLog
         sb.AppendLine();
         try
         {
+            var text = Glider.Core.Infrastructure.SecretRedactor.Redact(sb.ToString());
             lock (Gate)
             {
-                File.AppendAllText(Path.Combine(dir, $"host-{DateTime.Now:yyyyMMdd}.log"), sb.ToString());
+                File.AppendAllText(Path.Combine(dir, $"host-{DateTime.Now:yyyyMMdd}.log"), text);
             }
         }
         catch (IOException)

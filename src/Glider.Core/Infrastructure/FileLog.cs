@@ -56,7 +56,7 @@ public sealed class FileLog : ILog, IAsyncDisposable
             sb.AppendLine().Append(exception);
         }
 
-        var text = sb.ToString();
+        var text = SecretRedactor.Redact(sb.ToString()); // log files get attached to bug reports
         AddToRing(text);
         _channel.Writer.TryWrite(new Entry(now, text, null));
     }

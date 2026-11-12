@@ -134,9 +134,13 @@ internal static class WebViewSetup
         web.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
     }
 
-    public static bool IsAppUri(string uri) =>
+    public static bool IsAppUri(string uri) => IsAppOrigin(uri) || uri == "about:blank";
+
+    /// <summary>Only the app's own pages may talk to the host (about:blank may be navigated to, but never sends RPCs).</summary>
+    public static bool IsAppOrigin(string uri) =>
         Uri.TryCreate(uri, UriKind.Absolute, out var u) &&
-        ((u.Scheme == Uri.UriSchemeHttps && string.Equals(u.Host, HostConstants.AppHost, StringComparison.OrdinalIgnoreCase)) || uri == "about:blank");
+        u.Scheme == Uri.UriSchemeHttps && u.IsDefaultPort && u.UserInfo.Length == 0 &&
+        string.Equals(u.Host, HostConstants.AppHost, StringComparison.OrdinalIgnoreCase);
 
     public static string BuildStartUrl(bool dark, bool mica) =>
         $"{HostConstants.AppOrigin}index.html?theme={(dark ? "dark" : "light")}&backdrop={(mica ? "mica" : "solid")}";

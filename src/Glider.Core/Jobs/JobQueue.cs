@@ -260,13 +260,33 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
 
     public async Task RestoreAsync(CancellationToken ct)
     {
-        var file = await _store.LoadAsync(ct);
+        PersistedJobFile? file;
+        try
+        {
+            file = await _store.LoadAsync(ct);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            // Whatever is on disk, the queue must come up: an un-restored queue never runs or saves anything.
+            _log.Error("jobs", "jobs.json could not be loaded; starting with an empty queue.", e);
+            file = null;
+        }
+
         lock (_lock)
         {
-            if (!_restored && file is not null)
+            if (!_restored && file?.Jobs is { } persisted)
             {
-                foreach (var job in file.Jobs.Where(j => j.Info is not null && j.Request is not null))
+                foreach (var job in persisted)
                 {
+                    // jobs.json is data: drop entries a crash, another build or a hand edit left unusable.
+                    if (job?.Info is null || job.Request is null || string.IsNullOrEmpty(job.Info.Id) ||
+                        !Enum.IsDefined(job.Info.Kind) || !Enum.IsDefined(job.Info.Status) || job.Request.Kind != job.Info.Kind)
+                    {
+                        _log.Warn("jobs", "Ignoring an unusable entry in jobs.json.");
+                        continue;
+                    }
+
+                    job.Baseline ??= new ProgressBaseline();
                     if (_jobs.Any(j => j.Info.Id == job.Info.Id))
                     {
                         continue;
@@ -598,11 +618,10 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         var app = _options.AppName;
         if (job.Step == JobStep.Main)
         {
-            if (mode == InstallMode.Install && job.GameFolder is null && job.Request.TargetPath is { } basePath)
+            if (mode == InstallMode.Install && job.GameFolder is null && ExpectedGameFolder(job.Request) is { } folder)
             {
                 // Legendary installs into <base>\<catalog FolderName> ("Fortnite"). Remember whether we create that folder,
                 // so cancelling a fresh install may delete it without ever touching pre-existing data.
-                var folder = Path.Combine(Path.GetFullPath(basePath), app);
                 lock (_lock)
                 {
                     job.GameFolder = folder;
@@ -777,8 +796,16 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
                 AtomicFile.TryDelete(LegendaryFiles.ResumeFile(_paths.LegendaryConfig, _options.AppName));
                 if (job.CreatedGameFolder && job.GameFolder is { } folder && Directory.Exists(folder))
                 {
+                    // jobs.json is data, not authority: only ever delete <base>\<app> recomputed from the request.
+                    var expected = ExpectedGameFolder(job.Request);
+                    if (expected is null || !FolderMover.PathsEqual(folder, expected))
+                    {
+                        _log.Error("jobs", $"Not removing \"{folder}\": it isn't the folder this install would have created ({expected ?? "no base path"}).");
+                        return;
+                    }
+
                     _log.Info("jobs", $"Removing the partial install at \"{folder}\".");
-                    FolderMover.TryDeleteTree(folder, _log);
+                    FolderMover.TryDeleteTree(folder, _log, _paths.Root, Path.GetDirectoryName(_paths.LegendaryExe), job.Request.TargetPath);
                 }
             }
             catch (Exception e)
@@ -792,6 +819,12 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             _background.Add(task);
         }
     }
+
+    /// <summary><c>&lt;base&gt;\&lt;app&gt;</c> for an install request with an absolute base path, else null.</summary>
+    private string? ExpectedGameFolder(JobRequest request) =>
+        request.TargetPath is { } basePath && Path.IsPathFullyQualified(basePath)
+            ? Path.TrimEndingDirectorySeparator(Path.Combine(Path.GetFullPath(basePath), _options.AppName))
+            : null;
 
     internal Task WhenCleanupDoneAsync()
     {

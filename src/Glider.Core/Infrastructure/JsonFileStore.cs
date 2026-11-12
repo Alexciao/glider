@@ -12,6 +12,9 @@ namespace Glider.Core.Infrastructure;
 public sealed class JsonFileStore<T> : IDisposable
     where T : class
 {
+    /// <summary>Largest file <see cref="LoadAsync"/> will read (state files are a few KB).</summary>
+    public const long MaxBytes = 16L * 1024 * 1024;
+
     private static readonly JsonWriterOptions WriterOptions = new() { Indented = true };
 
     private readonly JsonTypeInfo<T> _typeInfo;
@@ -38,6 +41,13 @@ public sealed class JsonFileStore<T> : IDisposable
     {
         foreach (var candidate in new[] { FilePath, AtomicFile.BackupPathFor(FilePath) })
         {
+            if (new FileInfo(candidate) is { Exists: true, Length: > MaxBytes } big)
+            {
+                // Glider's state files are a few KB; never allocate whatever a corrupt or planted file claims.
+                _log?.Warn("store", $"{Path.GetFileName(candidate)} is {big.Length} bytes, far too large; ignoring it.");
+                continue;
+            }
+
             var bytes = await AtomicFile.TryReadAllBytesAsync(candidate, ct).ConfigureAwait(false);
             if (bytes is null || bytes.Length == 0)
             {

@@ -109,7 +109,7 @@ public sealed class EglService : IEglService, IDisposable
 
             try
             {
-                var bytes = strict ? ReadStrict(f) : File.ReadAllBytes(f);
+                var bytes = strict ? ReadStrict(f) : ReadSmall(f);
                 var raw = EglJson.TryParseObject(bytes, out var error);
                 if (raw is null)
                 {
@@ -135,8 +135,28 @@ public sealed class EglService : IEglService, IDisposable
         return list;
     }
 
+    /// <summary>Largest EGL metadata file (.item, .mancpn, LauncherInstalled.dat) Glider reads; real ones are a few KB.</summary>
+    internal const long MaxMetadataBytes = 8L * 1024 * 1024;
+
+    /// <summary>File.ReadAllBytes that refuses oversized files (ProgramData is writable by other software): IOException.</summary>
+    internal static byte[] ReadSmall(string path)
+    {
+        var length = new FileInfo(path).Length; // FileNotFoundException when missing, like ReadAllBytes
+        if (length > MaxMetadataBytes)
+        {
+            throw new IOException($"\"{path}\" is {length} bytes; EGL metadata files are never that large.");
+        }
+
+        return File.ReadAllBytes(path);
+    }
+
     private byte[] ReadStrict(string path)
     {
+        if (File.Exists(path) && new FileInfo(path).Length > MaxMetadataBytes)
+        {
+            throw new GliderException(Errors.EglWriteFailed($"\"{path}\" is too large to be an EGL manifest; Glider won't write next to it."));
+        }
+
         for (var attempt = 1; ; attempt++)
         {
             try
@@ -179,7 +199,7 @@ public sealed class EglService : IEglService, IDisposable
                 return [];
             }
 
-            return LauncherInstalledDat.Parse(File.ReadAllBytes(path))
+            return LauncherInstalledDat.Parse(ReadSmall(path))
                 .Where(e => string.Equals(e.AppName, FortniteLayout.AppName, StringComparison.OrdinalIgnoreCase) &&
                             !string.IsNullOrWhiteSpace(e.InstallLocation))
                 .ToList();
@@ -282,7 +302,7 @@ public sealed class EglService : IEglService, IDisposable
             {
                 try
                 {
-                    var raw = EglJson.TryParseObject(File.ReadAllBytes(f), out _);
+                    var raw = EglJson.TryParseObject(ReadSmall(f), out _);
                     // Legendary compares mancpn['AppName'] == game.app_name exactly.
                     if (raw?.GetValueOrDefault("AppName") is string app && app == FortniteLayout.AppName)
                     {
@@ -588,7 +608,7 @@ public sealed class EglService : IEglService, IDisposable
 
         var egstore = Path.Combine(installPath, ".egstore");
         var mancpnPath = Path.Combine(egstore, guid + ".mancpn");
-        var existingMancpn = File.Exists(mancpnPath) ? EglJson.TryParseObject(File.ReadAllBytes(mancpnPath), out _) : null;
+        var existingMancpn = File.Exists(mancpnPath) ? EglJson.TryParseObject(ReadSmall(mancpnPath), out _) : null;
 
         var manifest = baseItem is null ? EglManifest.Empty() : EglManifest.FromJson(baseItem.Raw);
         ApplyExport(manifest, data, guid, installPath);
@@ -739,7 +759,7 @@ public sealed class EglService : IEglService, IDisposable
 
         try
         {
-            var patched = LauncherInstalledDat.Patch(File.ReadAllBytes(path), matchLocation, newLocation, newVersion);
+            var patched = LauncherInstalledDat.Patch(ReadSmall(path), matchLocation, newLocation, newVersion);
             if (patched is not null)
             {
                 tx.Stage(path, patched, Path.Combine("UnrealEngineLauncher", Path.GetFileName(path)));

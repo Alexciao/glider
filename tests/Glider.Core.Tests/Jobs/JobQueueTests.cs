@@ -650,3 +650,47 @@ public class JobQueuePersistenceTests
         Assert.Contains(second.Snapshot(), j => j.Id == job.Id);
     }
 }
+
+/// <summary>Security review: a jobs.json that parses but holds nulls must not brick the queue (RestoreAsync used to throw,
+/// leaving it un-restored, so nothing ever ran or saved again).</summary>
+public class JobQueueHostileJobsJsonTests
+{
+    [Theory]
+    [InlineData("""{"version":1,"jobs":null}""")]
+    [InlineData("""{"version":1,"jobs":[null,{"info":null,"request":null}]}""")]
+    [InlineData("""{"version":1,"jobs":[{"info":{"id":"a","kind":"verify","status":"queued","createdAt":"2026-01-01T00:00:00Z"},"request":{"kind":"verify"},"baseline":null}]}""")]
+    [InlineData("""{"version":1,"jobs":[{"info":{"id":null,"kind":"verify","status":"queued","createdAt":"2026-01-01T00:00:00Z"},"request":{"kind":"verify"}}]}""")]
+    [InlineData("""[1,2,3]""")]
+    public async Task QueueStillRunsJobs(string json)
+    {
+        await using var h = new QueueHarness(legendary: new StubLegendary(verifySucceeds: true));
+        Directory.CreateDirectory(h.Env.Paths.State);
+        await File.WriteAllTextAsync(JobQueue.PathFor(h.Env.Paths), json, TestContext.Current.CancellationToken);
+
+        var q = await h.StartAsync();
+        var job = q.Enqueue(new JobRequest(JobKind.Repair, null, null, null, null));
+        await QueueHarness.WaitForStatus(q, job.Id, JobStatus.Completed);
+        await q.DisposeAsync();
+        var onDisk = JsonSerializer.Deserialize(await File.ReadAllBytesAsync(JobQueue.PathFor(h.Env.Paths), TestContext.Current.CancellationToken),
+            EngineJsonContext.Default.PersistedJobFile)!;
+        Assert.Contains(onDisk.Jobs, j => j.Info.Id == job.Id);
+    }
+}
+
+public class JobQueueHugeJobsJsonTests
+{
+    [Fact]
+    public async Task AnOversizedJobsJsonIsIgnoredNotRead()
+    {
+        await using var h = new QueueHarness(legendary: new StubLegendary(verifySucceeds: true));
+        Directory.CreateDirectory(h.Env.Paths.State);
+        await using (var fs = File.Create(JobQueue.PathFor(h.Env.Paths)))
+        {
+            fs.SetLength(JsonFileStore<PersistedJobFile>.MaxBytes + 1); // sparse: cheap to create, must never be allocated
+        }
+
+        var q = await h.StartAsync();
+        Assert.Empty(q.Snapshot());
+        Assert.True(h.Env.Log.Contains("far too large"));
+    }
+}

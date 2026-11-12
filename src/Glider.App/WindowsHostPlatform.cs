@@ -68,6 +68,9 @@ internal sealed class WindowsHostPlatform : IHostPlatform
 
     public void OpenUrl(string url) => WebViewSetup.OpenExternalSafe(url);
 
+    /// <summary>Full path: with UseShellExecute=false a bare "explorer.exe" is looked up in the app and current directories first.</summary>
+    private static string ExplorerExe => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
+
     /// <summary>Folders open in Explorer; files are only revealed (selected), never executed.</summary>
     public void OpenPath(string path)
     {
@@ -75,11 +78,11 @@ internal sealed class WindowsHostPlatform : IHostPlatform
         {
             if (Directory.Exists(path))
             {
-                Process.Start(new ProcessStartInfo("explorer.exe") { ArgumentList = { Path.GetFullPath(path) }, UseShellExecute = false })?.Dispose();
+                Process.Start(new ProcessStartInfo(ExplorerExe) { ArgumentList = { Path.GetFullPath(path) }, UseShellExecute = false })?.Dispose();
             }
             else if (File.Exists(path))
             {
-                Process.Start(new ProcessStartInfo("explorer.exe") { ArgumentList = { "/select," + Path.GetFullPath(path) }, UseShellExecute = false })?.Dispose();
+                Process.Start(new ProcessStartInfo(ExplorerExe) { ArgumentList = { "/select," + Path.GetFullPath(path) }, UseShellExecute = false })?.Dispose();
             }
             else
             {

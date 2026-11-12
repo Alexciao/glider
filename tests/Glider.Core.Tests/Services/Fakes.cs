@@ -545,3 +545,17 @@ public sealed class FakeIdle : IIdleSignal
 {
     public TimeSpan IdleTime { get; set; }
 }
+
+public sealed class FakePublisherCheck : IPublisherCheck
+{
+    /// <summary>Null = trusted.</summary>
+    public string? Reason { get; set; }
+
+    public List<string> Checked { get; } = [];
+
+    public string? WhyUntrusted(string path)
+    {
+        Checked.Add(path);
+        return Reason;
+    }
+}

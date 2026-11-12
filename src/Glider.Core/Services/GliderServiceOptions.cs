@@ -10,6 +10,9 @@ public sealed class GliderServiceOptions
     public IServiceQuery ServiceQuery { get; init; } = new RegistryServiceQuery();
     public IDiskInfo DiskInfo { get; init; } = new SystemDiskInfo();
 
+    /// <summary>Authenticode check for the EAC setup before it is run elevated.</summary>
+    public IPublisherCheck PublisherCheck { get; init; } = new Game.AuthenticodePublisherCheck();
+
     /// <summary>Null = treat the user as idle (auto-update then only waits for the game to close).</summary>
     public IIdleSignal? IdleSignal { get; init; }
 

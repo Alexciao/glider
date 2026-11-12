@@ -131,7 +131,8 @@ public sealed class RpcDispatcher : IEventSink
                 GliderException ge => ge.Error,
                 OperationCanceledException => Errors.Cancelled(),
                 JsonException je => Errors.InvalidRequest(je.Message),
-                _ => Errors.Unknown(inner.ToString()),
+                // The UI gets the message only (no stack trace, redacted); the full exception goes to onError's log.
+                _ => Errors.Unknown(Infrastructure.SecretRedactor.Redact($"{inner.GetType().Name}: {inner.Message}")),
             };
             if (inner is not GliderException and not OperationCanceledException)
             {
