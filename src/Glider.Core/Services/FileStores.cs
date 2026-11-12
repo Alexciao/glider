@@ -56,7 +56,7 @@ public sealed class FileOnboardingStore : IOnboardingStore
 /// </summary>
 public sealed class HttpArtCache : IArtCache
 {
-    public const string CacheUrlPrefix = "https://app.glider/cache/";
+    public const string CacheUrlPrefix = WebHost.CachePrefix;
     private const long MaxImageBytes = 25L * 1024 * 1024;
 
     private static readonly string[] HeroTypes = ["DieselStoreFrontWide", "OfferImageWide", "DieselGameBox"];

@@ -54,7 +54,7 @@ a web UI, and it drives the bundled **Legendary** CLI (v0.21.1) as the Epic prot
 |---|---|
 | `%LocalAppData%\Glider\legendary\` | Legendary's isolated config (`LEGENDARY_CONFIG_PATH`): user.json, installed.json, metadata, manifests |
 | `%LocalAppData%\Glider\state\` | `settings.json`, `jobs.json` (persisted queue), `game.json` (our install record + EGL link) |
-| `%LocalAppData%\Glider\cache\` | Key art and metadata cache, served to the UI at `https://app.glider/cache/…` |
+| `%LocalAppData%\Glider\cache\` | Key art and metadata cache, served to the UI at `https://cache.glider/…` (`WebHost.CacheUrl`; one folder per WebView2 virtual host) |
 | `%LocalAppData%\Glider\logs\` | Rolling logs (`glider-YYYYMMDD.log`) |
 | `%LocalAppData%\Glider\backups\egl\` | Timestamped copies of any EGL file before Glider writes it |
 | `%LocalAppData%\Glider\webview2\` | WebView2 user data folder |
