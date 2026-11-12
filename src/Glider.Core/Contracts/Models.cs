@@ -93,7 +93,7 @@ public sealed record InstalledGame(
     bool NeedsVerification,
     DateTimeOffset? InstalledAt);
 
-/// <summary>Local URLs (https://app.glider/cache/...) to art cached on disk; null when not yet fetched.</summary>
+/// <summary>Local URLs (https://cache.glider/..., see WebHost.CacheUrl) to art cached on disk; null when not yet fetched.</summary>
 public sealed record GameArt(string? HeroUrl, string? TallUrl, string? LogoUrl);
 
 // ===================================== Jobs =====================================
