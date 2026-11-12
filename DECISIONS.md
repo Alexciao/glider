@@ -28,3 +28,10 @@ One line of reasoning per decision. Newest at the bottom of each section.
 - **Exit codes are not trusted; outcomes come from parsed output**: most Legendary failures exit 0.
 - **Stall watchdog + post-install verify**: Legendary retries failed chunks forever and doesn't abort on write failures.
 - **Unattended install = `-y install Fortnite --base-path <p> --skip-sdl --skip-dlcs`**: `-y` alone still prompts for SDL packs.
+
+## Host & packaging
+- **Self-contained over the 60 MB installer target**: the spike measured 72 MB minimum self-contained (before the 17.6 MB Legendary exe); "user installs nothing" wins, so we minimize size (en-only satellites, no Windows SDK projection, no WinForms) and report the real number.
+- **Plain `net10.0-windows` TFM (no `windows10.0.x` SDK projection)**: the projection adds a ~52 MB assembly to the self-contained output.
+- **Toasts = `Shell_NotifyIcon` balloon notifications**: Windows 10/11 render them as native toasts, with no WinRT projection or stale toolkit packages.
+- **Snap Layouts via a small child HWND over the HTML maximize button returning `HTMAXBUTTON`**: hit-testing in the top-level window doesn't work over WebView2 (verified in the spike).
+- **HTML `app-region: drag` for the title bar** (`IsNonClientRegionSupportEnabled`): verified to move the WPF window.
