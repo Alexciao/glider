@@ -40,3 +40,6 @@ One line of reasoning per decision. Newest at the bottom of each section.
 - **Model budget (user constraint, 2026-11-12)**: exactly one Fable 5.2 task, spent on the screenshot-driven design/UX critique; all other subagents (incl. architecture/perf and security reviews, in place of GPT-6-Luna) run on Opus 5.5 high (xhigh only when essential).
 - **MIT license for Glider's own code**: permissive and simple; Legendary stays a separate GPLv3 executable, so there's no linking concern.
 - FileLog: added FlushFileBuffers per drained batch for the 0-byte-while-open report; could not reproduce in a test (content was already flushed), so this targets NTFS stale-size metadata.
+- Self-update: GithubSource on git remote Alexciao/glider, check 45 s after start then every 12 h, applies on exit (no forced restart), skipped for dev/portable/test runs; announced once via Notice event.
+- Installer size (90.7 MB Setup, 154 MB publish) left as is: WPF forbids trimming, vpk 1.2.161 has no compression option and R2R/satellite flags are already set; <60 MB would need a framework-dependent build (product decision).
+- Data dir (%LocalAppData%\Glider) shared with Velopack's root left as is: moving existing data or hooking uninstall to copy Legendary auth out is not a tiny safe change; revisit with an explicit data-location migration.
