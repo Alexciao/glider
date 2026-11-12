@@ -31,9 +31,14 @@
     text-rendering: optimizeLegibility;
     background: transparent;
   }
+  /* html and body stay transparent so Mica shows through; the (translucent, on Mica) theme
+     background is painted on the root container instead. */
+  #root {
+    background: var(--g-bg);
+  }
   body {
     margin: 0;
-    background: var(--g-bg);
+    background: transparent;
     color: var(--g-fg);
     font-size: var(--text-sm);
     line-height: var(--text-sm--line-height);
@@ -68,7 +73,6 @@
   :focus-visible {
     outline: 2px solid var(--g-focus);
     outline-offset: 2px;
-    border-radius: inherit;
   }
   /* Scrollbars: thin, quiet, theme-aware. */
   * {

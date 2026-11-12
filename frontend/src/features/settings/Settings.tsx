@@ -16,7 +16,7 @@ import {
   Select,
   Slider,
   Switch,
-  TextField,
+  TextArea,
   cx,
 } from "../../ui";
 import { ErrorView } from "../common/ErrorView";
@@ -287,13 +287,13 @@ function Game({ s }: { s: SettingsT }) {
           description="Extra command-line options passed to Fortnite. Leave empty unless you know you need them."
         >
           <div className="mt-2.5">
-            <TextField
+            <TextArea
               aria-label="Launch arguments"
               placeholder="-windowed -nosplash"
               value={args}
-              onChange={(e) => setArgs(e.target.value)}
+              onChange={(e) => setArgs(e.target.value.replace(/[\r\n]+/g, " "))}
               onBlur={commitArgs}
-              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+              onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), e.currentTarget.blur())}
               className="font-mono text-xs"
             />
           </div>
@@ -423,7 +423,7 @@ function Egl({ s }: { s: SettingsT }) {
                 <div className="min-w-0 flex-1">
                   <PathText path={c.installPath} className="text-sm font-medium text-fg" tailSegments={3} />
                   <p className="mt-0.5 text-xs text-fg-muted tabular-nums">
-                    {issue ?? `Version ${prettyVersion(c.version)}${c.sizeBytes ? `, ${formatBytes(c.sizeBytes)}` : ""}`}
+                    {issue ?? `${c.version ? `Version ${prettyVersion(c.version)}` : "Version unknown"}${c.sizeBytes ? `, ${formatBytes(c.sizeBytes)}` : ""}`}
                   </p>
                 </div>
                 <Badge tone={status.tone}>{status.text}</Badge>
@@ -523,7 +523,7 @@ export function Settings() {
                 aria-current={active ? "page" : undefined}
                 onClick={() => go("settings", s.id)}
                 className={cx(
-                  "flex h-9 items-center gap-2.5 rounded-lg px-3 text-left text-sm font-medium outline-none transition-[background-color,color] duration-150 ease-out",
+                  "flex h-9 items-center gap-2.5 rounded-lg px-3 text-left text-sm font-medium transition-[background-color,color] duration-150 ease-out",
                   active ? "bg-surface-2 text-fg" : "text-fg-muted hover:bg-surface-hover hover:text-fg",
                 )}
               >

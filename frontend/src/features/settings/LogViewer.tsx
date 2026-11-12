@@ -90,7 +90,7 @@ export function LogViewer() {
               ref={scroller}
               tabIndex={0}
               aria-label="Log output"
-              className="selectable h-72 overflow-auto whitespace-pre px-4 py-3 font-mono text-2xs leading-[1.65] outline-none focus-visible:outline-offset-[-2px]"
+              className="selectable h-72 overflow-auto whitespace-pre px-4 py-3 font-mono text-2xs leading-[1.65] focus-visible:outline-offset-[-2px]"
             >
               {lines.length === 0 ? <span className="text-fg-subtle">No log lines yet.</span> : lines.map((l, i) => <div key={i} className={lineTone(l)}>{l || " "}</div>)}
             </pre>

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { connectRpc, rpc } from "../ipc/rpc";
+import { useEffect, useRef, useState } from "react";
+import { connectRpc, postHostTheme, rpc } from "../ipc/rpc";
 import { isHosted } from "../ipc/client";
 import { startBridge } from "../state/bridge";
 import { useApp } from "../state/store";
@@ -78,4 +78,11 @@ export function useThemeAndBackdrop(): void {
   useEffect(() => {
     if (backdrop) document.documentElement.dataset.backdrop = backdrop;
   }, [backdrop]);
+
+  // The native frame / Mica tint follows the *setting* (not the resolved theme), so "system" stays live.
+  const previousTheme = useRef<typeof theme>(undefined);
+  useEffect(() => {
+    if (theme && previousTheme.current !== undefined && previousTheme.current !== theme) postHostTheme(theme);
+    previousTheme.current = theme;
+  }, [theme]);
 }

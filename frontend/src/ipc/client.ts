@@ -77,6 +77,14 @@ export class RpcClient {
     });
   }
 
+  /**
+   * Optional raw web→host message outside the RPC protocol (e.g. {type:"host", op:"theme"}).
+   * `type` must stay the first key: the host sniffs it before parsing.
+   */
+  postHost(op: "theme" | "chrome", fields: Record<string, unknown> = {}): void {
+    this.transport.send({ type: "host", op, ...fields });
+  }
+
   on<E extends RpcEventName>(event: E, listener: Listener<E>): () => void {
     let set = this.listeners.get(event);
     if (!set) {

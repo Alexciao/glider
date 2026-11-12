@@ -1,14 +1,17 @@
 import { cx } from "./cx";
 
 /** Epic offers no avatar URL, so identity is initials on a hue derived from the account id. */
+const segmenter = typeof Intl !== "undefined" && "Segmenter" in Intl ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null;
+const graphemes = (text: string): string[] => (segmenter ? Array.from(segmenter.segment(text), (x) => x.segment) : [...text]);
+
 export function initialsOf(name: string): string {
   const parts = name
     .trim()
     .split(/[\s._-]+/)
     .filter(Boolean);
   if (parts.length === 0) return "?";
-  const first = [...parts[0]!][0] ?? "?";
-  const second = parts.length > 1 ? [...parts[parts.length - 1]!][0] : [...parts[0]!][1];
+  const first = graphemes(parts[0]!)[0] ?? "?";
+  const second = parts.length > 1 ? graphemes(parts[parts.length - 1]!)[0] : graphemes(parts[0]!)[1];
   return (first + (second ?? "")).toUpperCase();
 }
 

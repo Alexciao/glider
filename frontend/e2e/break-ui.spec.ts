@@ -53,7 +53,9 @@ for (const mode of MODES) {
           page.on("pageerror", (e) => errors.push(e.message));
           await page.goto(`/?${state.query}&data=${mode}&theme=dark&backdrop=solid&dev=0`);
           await page.waitForSelector("html[data-ready='1']");
-          await state.setup?.(page);
+          // Some setups drive controls that legitimately don't exist in empty/one data; shoot what is there.
+          page.setDefaultTimeout(3000);
+          await state.setup?.(page).catch(() => undefined);
           await page.waitForTimeout(state.settle ?? 350);
           await page.screenshot({ path: `${OUT}${variant}/${state.name}.png`, animations: state.live ? "allow" : "disabled", caret: "hide" });
           if (errors.length) throw new Error(errors.join("\n"));

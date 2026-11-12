@@ -19,6 +19,11 @@ export function mockController(): MockController | null {
   return mock;
 }
 
+/** Tell the native frame which theme the user picked, so Mica and the window chrome tint to match. Host only. */
+export function postHostTheme(theme: "dark" | "light" | "system"): void {
+  if (client && isHosted()) client.postHost("theme", { theme });
+}
+
 export async function connectRpc(search: string = typeof location === "undefined" ? "" : location.search): Promise<void> {
   if (client) return;
   const webview = getWebView();

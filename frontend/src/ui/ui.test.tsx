@@ -121,6 +121,8 @@ describe("Avatar & Badge", () => {
     expect(initialsOf("x")).toBe("X");
     expect(initialsOf("")).toBe("?");
     expect(initialsOf("😀 Joy")).toBe("😀J");
+    expect(initialsOf("🇮🇹 Sofia")).toBe("🇮🇹S"); // a flag is one grapheme, not two broken halves
+    expect(initialsOf("Wiśniewska_K_Jr")).toBe("WJ");
   });
   it("renders", () => {
     render(

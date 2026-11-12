@@ -27,7 +27,7 @@ function RailItem({
         aria-current={active ? "page" : undefined}
         onClick={() => go(page)}
         className={cx(
-          "group relative flex h-[54px] w-[60px] flex-col items-center justify-center gap-1 rounded-lg outline-none",
+          "group relative flex h-[54px] w-[60px] flex-col items-center justify-center gap-1 rounded-lg",
           "transition-[background-color,color,transform] duration-150 ease-out active:scale-95",
           active ? "bg-surface-2 text-fg" : "text-fg-subtle hover:bg-surface-hover hover:text-fg",
         )}

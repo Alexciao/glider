@@ -42,7 +42,7 @@ export function JobLine({ job }: { job: JobInfo }) {
 
 function Fact({ label, children, grow }: { label: string; children: React.ReactNode; grow?: boolean }) {
   return (
-    <div className={cx("min-w-0", grow && "flex-1")}>
+    <div className={cx("min-w-0 max-w-full", grow ? "min-w-[220px] flex-1" : "shrink-0")}>
       <dt className="text-xs text-fg-muted">{label}</dt>
       <dd className="mt-0.5 truncate text-sm font-medium text-fg">{children}</dd>
     </div>
@@ -86,7 +86,7 @@ export function Facts({ snap }: { snap: AppSnapshot }) {
     if (game.latestVersion) items.push(<Fact key="v" label="Latest version"><span className="tabular-nums">{prettyVersion(game.latestVersion)}</span></Fact>);
   }
   if (items.length === 0) return null;
-  return <dl className="mt-8 flex items-start gap-x-9 border-t border-border pt-5 max-[1100px]:gap-x-6">{items}</dl>;
+  return <dl className="mt-8 flex flex-wrap items-start gap-x-9 gap-y-4 border-t border-border pt-5 max-[1100px]:mt-6 max-[1100px]:gap-x-6">{items}</dl>;
 }
 
 export function MoreMenu({ snap }: { snap: AppSnapshot }) {

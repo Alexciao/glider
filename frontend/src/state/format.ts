@@ -86,13 +86,15 @@ export function formatRelativeTime(iso: string | null | undefined, now: number =
 }
 
 /**
- * Legendary versions look like "++Fortnite+Release-40.20-CL-47120934-Windows". Humans want "40.20".
- * Unknown shapes pass through untouched.
+ * Legendary versions look like "++Fortnite+Release-40.20-CL-47120934-Windows"; test branches add
+ * segments ("Release-Cert-Next-40.20-…"). Humans want "40.20": the first dotted number wins (the
+ * changelist is a plain integer). Shapes with no dotted number pass through, capped at 28 characters.
  */
 export function prettyVersion(raw: string | null | undefined): string {
   if (!raw) return "—";
-  const m = /Release-(\d+(?:\.\d+)*)/i.exec(raw);
-  return m ? m[1]! : raw;
+  const m = /(\d+\.\d+(?:\.\d+)*)/.exec(raw);
+  if (m) return m[1]!;
+  return raw.length > 28 ? `${raw.slice(0, 27)}…` : raw;
 }
 
 /** Changelist, for the technical line under a version when it adds information. */

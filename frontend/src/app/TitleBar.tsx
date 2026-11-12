@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { LogIn, LogOut, Settings as SettingsIcon } from "lucide-react";
 import { rpc } from "../ipc/rpc";
-import { useApp, useSnap } from "../state/store";
+import { useApp, useSnap, type MaxButtonState } from "../state/store";
 import { useUi } from "../state/ui";
 import { actions } from "../state/actions";
 import {
@@ -36,25 +36,29 @@ function CaptionButton({
   label,
   onClick,
   dim,
+  forced,
 }: {
   kind: keyof typeof glyph;
   label: string;
   onClick: () => void;
   dim: boolean;
+  /** Host-reported pointer state (the native overlay hides the real one from CSS). */
+  forced?: MaxButtonState;
 }) {
   return (
     <button
       type="button"
       aria-label={label}
       data-caption={kind === "restore" ? "maximize" : kind}
+      data-forced={forced && forced !== "idle" ? forced : undefined}
       onClick={onClick}
       // 46×40 exactly: the host parks a native overlay over the maximize button for Snap Layouts.
       className={cx(
         "app-no-drag grid h-10 w-[46px] place-items-center transition-colors duration-100",
-        "outline-none focus-visible:outline-offset-[-3px]",
+        "focus-visible:outline-offset-[-3px]",
         kind === "close"
           ? "hover:bg-[#c42b1c] hover:text-white active:bg-[#b02a1d] active:text-white"
-          : "hover:bg-surface-hover active:bg-surface-active",
+          : "hover:bg-surface-hover active:bg-surface-active data-[forced=hover]:bg-surface-hover data-[forced=down]:bg-surface-active",
         dim ? "text-fg-disabled" : "text-fg",
       )}
     >
@@ -67,11 +71,12 @@ function CaptionButton({
 
 export function CaptionButtons() {
   const { maximized, focused } = useApp((s) => s.window);
+  const maxButton = useApp((s) => s.maxButton);
   const call = (m: "window.minimize" | "window.toggleMaximize" | "window.close") => () => void rpc().call(m).catch(() => undefined);
   return (
     <div className="flex h-10">
       <CaptionButton kind="minimize" label="Minimize" onClick={call("window.minimize")} dim={!focused} />
-      <CaptionButton kind={maximized ? "restore" : "maximize"} label={maximized ? "Restore" : "Maximize"} onClick={call("window.toggleMaximize")} dim={!focused} />
+      <CaptionButton kind={maximized ? "restore" : "maximize"} label={maximized ? "Restore" : "Maximize"} onClick={call("window.toggleMaximize")} dim={!focused} forced={maxButton} />
       <CaptionButton kind="close" label="Close" onClick={call("window.close")} dim={!focused} />
     </div>
   );
@@ -97,7 +102,7 @@ function AccountMenu() {
           type="button"
           aria-label={`Account: ${name}`}
           data-open={open || undefined}
-          className="app-no-drag relative grid size-8 place-items-center rounded-full outline-none transition-transform duration-150 ease-out active:scale-95"
+          className="app-no-drag relative grid size-7 place-items-center rounded-full transition-transform duration-150 ease-out active:scale-95"
         >
           <Avatar name={name} seed={auth.account?.accountId} src={auth.account?.avatarUrl} size="sm" />
           {auth.status === "expired" && <span className="absolute right-0.5 top-0.5 size-2 rounded-full bg-warning ring-2 ring-[var(--g-bg-elevated)]" />}

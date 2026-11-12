@@ -43,6 +43,9 @@ export async function startBridge(): Promise<() => void> {
     c.on("progress", (p) => ingestProgress(progressTransform ? progressTransform(p) : p)),
     c.on("notice", pushNotice),
     c.on("window", (w) => useApp.getState().setWindow(w)),
+    c.on("caption", (e) => {
+      if (e.button === "max") useApp.getState().setMaxButton(e.state === "leave" ? "idle" : e.state);
+    }),
   ];
   const [snap, win] = await Promise.all([c.call("app.getSnapshot"), c.call("window.getInfo")]);
   if (!sawState) applySnapshot(snap);

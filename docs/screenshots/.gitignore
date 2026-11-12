@@ -1,0 +1,6 @@
+# Only dark-solid-1280x800 and light-solid-1280x800 are committed (see README.md).
+dark-mica-*/
+light-mica-*/
+dark-solid-960x600/
+light-solid-960x600/
+break-ui/

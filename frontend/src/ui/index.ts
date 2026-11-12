@@ -11,7 +11,7 @@ export { Sparkline } from "./Sparkline";
 export { Switch } from "./Switch";
 export { Select, type SelectOption } from "./Select";
 export { Slider } from "./Slider";
-export { TextField, NumberField } from "./TextField";
+export { TextField, TextArea, NumberField } from "./TextField";
 export { SegmentedControl } from "./SegmentedControl";
 export { Modal, AlertModal } from "./Dialog";
 export {

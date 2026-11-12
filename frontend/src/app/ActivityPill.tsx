@@ -63,7 +63,7 @@ export function ActivityPill() {
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.96, y: -2, transition: { duration: 0.12 } }}
           transition={spring.snappy}
-          className="app-no-drag pointer-events-auto relative flex h-7 items-center gap-2 overflow-hidden rounded-full border border-border-strong bg-surface-2 px-3.5 text-xs outline-none transition-colors duration-150 hover:bg-surface-3 active:scale-[0.98]"
+          className="app-no-drag pointer-events-auto relative flex h-7 items-center gap-2 overflow-hidden rounded-full border border-border-strong bg-surface-2 px-3.5 text-xs transition-colors duration-150 hover:bg-surface-3 active:scale-[0.98]"
         >
           <PillBody job={job} />
         </m.button>

@@ -7,9 +7,14 @@ import { share } from "./share";
  * replaces the snapshot wholesale (with structural sharing so unchanged branches keep identity)
  * and selects narrow slices. Optimistic patches are overwritten by the next real snapshot.
  */
+export type MaxButtonState = "idle" | "hover" | "down";
+
 interface AppStore {
   snapshot: AppSnapshot | null;
   window: WindowInfo;
+  /** The native Snap Layouts overlay swallows the maximize button's mouse events; the host reports them instead. */
+  maxButton: MaxButtonState;
+  setMaxButton: (s: MaxButtonState) => void;
   setSnapshot: (next: AppSnapshot) => void;
   /** Optimistic local edit, replaced by the backend's next snapshot. */
   patch: (fn: (s: AppSnapshot) => AppSnapshot) => void;
@@ -23,6 +28,8 @@ export const setSnapshotTransform = (fn: typeof transform): void => void (transf
 export const useApp = create<AppStore>((set) => ({
   snapshot: null,
   window: { maximized: false, focused: true },
+  maxButton: "idle",
+  setMaxButton: (maxButton) => set((s) => (s.maxButton === maxButton ? s : { maxButton })),
   setSnapshot: (raw) =>
     set((s) => {
       const next = transform ? transform(raw) : raw;

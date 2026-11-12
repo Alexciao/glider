@@ -93,7 +93,7 @@ export function PrimaryAction({ hero, runningSince, pending, moment, onPress }: 
       onClick={onPress}
       data-kind={hero.kind}
       className={cx(
-        "relative flex h-12 min-w-[132px] items-center justify-center overflow-hidden px-6 text-md font-semibold outline-none",
+        "relative flex h-12 min-w-[132px] items-center justify-center overflow-hidden px-6 text-md font-semibold",
         "transition-[background-color,color,box-shadow,border-color,scale] duration-200 ease-out",
         "enabled:active:scale-[0.97] disabled:cursor-default",
         primary

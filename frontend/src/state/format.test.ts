@@ -91,7 +91,9 @@ describe("versions and paths", () => {
   it("extracts the readable version from Legendary's app version", () => {
     expect(prettyVersion("++Fortnite+Release-40.20-CL-47120934-Windows")).toBe("40.20");
     expect(buildOf("++Fortnite+Release-40.20-CL-47120934-Windows")).toBe("47120934");
+    expect(prettyVersion("++Fortnite+Release-Cert-Next-40.20-CL-47120934-Windows-Shipping-Win64")).toBe("40.20");
     expect(prettyVersion("weird")).toBe("weird");
+    expect(prettyVersion("++Fortnite+Release-Experimental-Preview-Build-Windows")).toBe("++Fortnite+Release-Experime…");
     expect(prettyVersion(null)).toBe("—");
   });
   it("splits, joins and identifies drives", () => {

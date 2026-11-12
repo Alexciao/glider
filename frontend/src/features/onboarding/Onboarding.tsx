@@ -127,7 +127,7 @@ function CandidateCard({ c, latest, selected }: { c: InstallCandidate; latest: s
       id={id}
       disabled={!usable}
       className={cx(
-        "flex w-full items-start gap-3.5 rounded-xl border p-4 text-left outline-none transition-[background-color,border-color,opacity] duration-150",
+        "flex w-full items-start gap-3.5 rounded-xl border p-4 text-left transition-[background-color,border-color,opacity] duration-150",
         usable ? "bg-surface-1 hover:bg-surface-2" : "border-border bg-surface-1 opacity-60",
         selected ? "border-accent/70 bg-accent-soft hover:bg-accent-soft" : "border-border",
       )}
@@ -146,7 +146,7 @@ function CandidateCard({ c, latest, selected }: { c: InstallCandidate; latest: s
           <PathText path={c.installPath} className="text-sm font-semibold text-fg" tailSegments={2} />
         </span>
         <span className="mt-1 block text-xs text-fg-muted tabular-nums">
-          {issue ?? `Version ${prettyVersion(c.version)}${c.sizeBytes ? `  ·  ${formatBytes(c.sizeBytes)}` : ""}`}
+          {issue ?? `${c.version ? `Version ${prettyVersion(c.version)}` : "Version unknown"}${c.sizeBytes ? `  ·  ${formatBytes(c.sizeBytes)}` : ""}`}
         </span>
         <span className="mt-2.5 flex items-center gap-2">
           <Badge tone={status.tone} dot>

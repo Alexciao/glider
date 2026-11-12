@@ -63,7 +63,7 @@ function InstallDialog({ open }: { open: boolean }) {
 /* --------------------------------------------------------------- uninstall */
 
 const modeCard =
-  "flex w-full items-start gap-3 rounded-xl border p-3.5 text-left outline-none transition-[background-color,border-color] duration-150 " +
+  "flex w-full items-start gap-3 rounded-xl border p-3.5 text-left transition-[background-color,border-color] duration-150 " +
   "border-border bg-surface-1 hover:bg-surface-2";
 
 function RadioDot({ checked, danger }: { checked: boolean; danger?: boolean }) {

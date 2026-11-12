@@ -31,3 +31,9 @@ One line of reasoning per decision. Newest at the bottom of each section.
 ## Tooling
 - **`@testing-library/user-event` + `jest-dom` added**: Radix keyboard behaviour (roving focus, dialogs) needs real event sequences.
 - **Screenshots wait on `html[data-ready]`**, not sleeps; Mica is simulated by a blurred gradient behind the translucent page.
+
+## Delivery
+- **Only the 1280×800 dark and light solid screenshot sets are committed**: all 8 variants plus break-UI are ~120 MB of PNG; they regenerate in ~4 minutes and are git-ignored (`docs/screenshots/.gitignore`).
+- **`#root`, not `body`, paints `--g-bg`**: the host requires transparent `html`/`body` so Mica shows through.
+- **Focus rings come from one global `:focus-visible` rule**: components never use `outline-none` on interactive elements (an e2e test walks the Tab order and fails on a missing ring).
+- **`pnpm build` still emits the mock chunk** (needed for `vite preview` and screenshots) but nothing in the hosted entry statically imports it; `index.html` preloads only the app chunks.

@@ -29,6 +29,26 @@ export function TextField({ prefix, suffix, invalid, className, wrapperClassName
   );
 }
 
+export interface TextAreaProps extends Omit<ComponentProps<"textarea">, "rows"> {
+  invalid?: boolean;
+  rows?: number;
+}
+
+/** Long values (launch arguments) stay readable: the field grows with its content, capped at ~5 lines. */
+export function TextArea({ invalid, className, rows = 2, ...rest }: TextAreaProps) {
+  return (
+    <div className={cx(field, "h-auto items-start py-1.5", invalid ? "border-danger" : "border-border-strong hover:border-fg-disabled")}>
+      <textarea
+        rows={rows}
+        spellCheck={false}
+        aria-invalid={invalid || undefined}
+        className={cx("max-h-28 min-h-[2.5rem] w-full flex-1 resize-none bg-transparent leading-[1.55] outline-none [field-sizing:content] placeholder:text-fg-subtle", className)}
+        {...rest}
+      />
+    </div>
+  );
+}
+
 export interface NumberFieldProps {
   value: number;
   min: number;
