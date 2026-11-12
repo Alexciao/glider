@@ -630,6 +630,12 @@ public sealed class EglService : IEglService, IDisposable
         var folderName = m.GetString("MandatoryAppFolderName");
         var displayName = m.GetString("DisplayName");
         var ownershipToken = m.OwnershipToken;
+        if (!string.Equals(m.AppVersionString, data.Version, StringComparison.Ordinal))
+        {
+            // EGL's own key describing the manifest we're replacing. Legendary's items never carry it (and EGL accepts
+            // them), so drop it rather than leave a stale hash next to the new .egstore manifest.
+            m.Remainder.Remove("ManifestHash");
+        }
 
         v["AppName"] = data.AppName;
         v["AppVersionString"] = data.Version;

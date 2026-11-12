@@ -38,6 +38,8 @@ def dump(name, data):
 def export(base, version, size, tags, catalog, namespace, exe, path, guid):
     """from_lgd_game field by field; untracked values fall back to the existing .item (from_json)."""
     m = EGLManifest.from_json(base)
+    if m.app_version_string != version:
+        m.remainder.pop('ManifestHash', None)  # stale once the .egstore manifest is replaced (Glider decision)
     m.app_name = 'Fortnite'
     m.app_version_string = version
     # base_urls: kept (Glider doesn't track igame.base_urls)
