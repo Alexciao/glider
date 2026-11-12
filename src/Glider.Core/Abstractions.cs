@@ -130,8 +130,17 @@ public sealed record InstallArgs(
     int MaxSharedMemoryMb,
     string? PreferredCdn);
 
-/// <summary>Outcome of a long-running Legendary operation. Error is non-null on failure.</summary>
-public sealed record LegendaryOutcome(bool Success, GliderError? Error, long? DownloadSizeBytes, long? InstallSizeBytes);
+/// <summary>Sizes from Legendary's install/update analysis: compressed bytes to download, and the resulting install size.</summary>
+public sealed record LegendarySizes(long DownloadBytes, long InstallBytes);
+
+/// <summary>What one `verify` run found: files checked, and how many failed their hash or were missing.</summary>
+public sealed record VerifyCounts(int FilesChecked, int Corrupted, int Missing)
+{
+    public int Bad => Corrupted + Missing;
+}
+
+/// <summary>Outcome of a long-running Legendary operation. Error is non-null on failure. Counts is set by `verify` only.</summary>
+public sealed record LegendaryOutcome(bool Success, GliderError? Error, long? DownloadSizeBytes, long? InstallSizeBytes, VerifyCounts? Counts = null);
 
 /// <summary>The command `launch --json` resolved (Glider spawns and owns the game process).</summary>
 public sealed record LaunchCommand(string Executable, string WorkingDirectory, IReadOnlyList<string> Arguments, IReadOnlyDictionary<string, string> Environment);
@@ -173,6 +182,12 @@ public interface ILegendary
 
     /// <summary>Path of Legendary's current manifest file for the installed version (for EGL write-back).</summary>
     string? GetInstalledManifestPath(string appName, string version);
+
+    /// <summary>
+    /// Dry run of `update`: Legendary's own analysis of what the pending update would download and write, or null when it
+    /// can't be measured (nothing to update, needs a verify first, offline). Changes nothing on disk.
+    /// </summary>
+    Task<LegendarySizes?> GetUpdateSizesAsync(string appName, CancellationToken ct) => Task.FromResult<LegendarySizes?>(null);
 }
 
 // ============================== Game record ==============================

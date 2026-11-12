@@ -22,6 +22,15 @@ public sealed class GliderServiceOptions
     /// <summary>Null = <see cref="FileOnboardingStore"/> in state/.</summary>
     public IOnboardingStore? OnboardingStore { get; init; }
 
+    /// <summary>Null = sum of file lengths under the folder. Runs on a background thread; must honour the token.</summary>
+    public Func<string, CancellationToken, long>? MeasureDirectory { get; init; }
+
+    /// <summary>Installed-size measurements are at least this far apart (they walk ~100 GB of metadata).</summary>
+    public TimeSpan SizeMeasureMinInterval { get; init; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>A cached size for the same folder and version is trusted this long unless a job just changed the files.</summary>
+    public TimeSpan SizeCacheMaxAge { get; init; } = TimeSpan.FromHours(12);
+
     /// <summary>Host wires these from the engine's AutoTune; the fallbacks mirror Legendary's own defaults.</summary>
     public int AutoWorkers { get; init; } = Math.Min(2 * Environment.ProcessorCount, 16);
     public int AutoSharedMemoryMb { get; init; } = 2048;

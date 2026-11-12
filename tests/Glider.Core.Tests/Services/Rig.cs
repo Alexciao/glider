@@ -40,6 +40,11 @@ public sealed class Rig : IDisposable
     public FakeOnboarding Onboarding { get; } = new();
     public IIdleSignal? Idle { get; }
 
+    /// <summary>Replaces the on-disk size walk (set before first use of <see cref="Service"/>).</summary>
+    public Func<string, CancellationToken, long>? Measure { get; set; }
+
+    public TimeSpan SizeMinInterval { get; set; } = TimeSpan.Zero;
+
     public GliderService Service => _service ??= new GliderService(
         Paths, Host, Legendary, Jobs, Egl, Settings, Records, Log, Time, Sink,
         new GliderServiceOptions
@@ -52,6 +57,8 @@ public sealed class Rig : IDisposable
             ArtCache = Art,
             OnboardingStore = Onboarding,
             IdleSignal = Idle,
+            MeasureDirectory = Measure,
+            SizeMeasureMinInterval = SizeMinInterval,
             AppVersion = "0.1.0-test",
             LicensesDirectory = Path.Combine(Root, "licenses"),
         });

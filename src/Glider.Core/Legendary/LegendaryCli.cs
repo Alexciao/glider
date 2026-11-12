@@ -346,6 +346,21 @@ public sealed class LegendaryCli : ILegendary, IDisposable
         }
     }
 
+    public async Task<LegendarySizes?> GetUpdateSizesAsync(string appName, CancellationToken ct)
+    {
+        // No -y: Legendary prints its analysis (cli.py:1043-1050) and then asks "Do you wish to install?". stdin is closed so
+        // it can never answer yes, and we stop the process as soon as the summary is complete. Nothing is downloaded or written.
+        var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Update, ["update", appName, "--skip-sdl", "--skip-dlcs", "--update-only"])
+        {
+            Exclusive = true,
+            LowPriority = true,
+            Timeout = _options.InfoTimeout,
+            AbortWhen = f => f.SummaryComplete,
+        }, null, ct);
+        var f = run.Facts;
+        return f.SummaryComplete && f.DownloadSizeBytes is { } download ? new LegendarySizes(download, f.InstallSizeBytes ?? 0) : null;
+    }
+
     public async Task<LegendaryOutcome> VerifyAsync(string appName, IProgress<LegendaryProgress> progress, CancellationToken ct)
     {
         var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Verify, ["verify", appName])
@@ -356,7 +371,8 @@ public sealed class LegendaryCli : ILegendary, IDisposable
             Timeout = Timeout.InfiniteTimeSpan,
         }, progress, ct);
         var error = ErrorClassifier.Classify(LegendaryCommandKind.Verify, run);
-        return new LegendaryOutcome(error is null, error, null, null);
+        var f = run.Facts;
+        return new LegendaryOutcome(error is null, error, null, null, new VerifyCounts(f.VerifyFilesChecked, f.VerifyCorrupted, f.VerifyMissing));
     }
 
     public async Task<LegendaryOutcome> ImportAsync(string appName, string gamePath, CancellationToken ct)

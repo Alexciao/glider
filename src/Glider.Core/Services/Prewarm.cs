@@ -36,6 +36,7 @@ internal sealed class Prewarm
         await Step("drift verify", EnqueueDriftVerifyAsync);
 
         _c.Hub.Mutate(s => s with { Warm = true });
+        _c.Sizes.Request(filesChanged: false);
         _c.Log.Info("startup", "pre-warm finished");
         _updates.Evaluate();
     }

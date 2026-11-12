@@ -61,6 +61,7 @@ internal sealed class JobHooks : IJobHooks
             case JobKind.Repair:
             {
                 var rec = await _c.SyncRecordAsync(ct, keepNeedsVerification: false);
+                _c.Sizes.Request(filesChanged: true);
                 if (rec is not null)
                 {
                     await WriteBackIfSharedAsync(rec, ct);
@@ -78,12 +79,15 @@ internal sealed class JobHooks : IJobHooks
 
             case JobKind.Verify:
                 await _c.SyncRecordAsync(ct, r => r with { NeedsVerification = false });
-                _c.Notify(NoticeLevel.Success, "Verification complete", "All game files are OK.", toast: false);
+                _c.Sizes.Request(filesChanged: true);
+                var (vTitle, vMsg) = VerifyNotice(job.Verify);
+                _c.Notify(NoticeLevel.Success, vTitle, vMsg, toast: job.Verify is { FilesBad: > 0 });
                 return;
 
             case JobKind.Move:
             {
                 var rec = await _c.SyncRecordAsync(ct);
+                _c.Sizes.Request(filesChanged: true);
                 if (rec is not null && before?.EglInstallationGuid is { } guid)
                 {
                     await AfterSharedMoveAsync(rec, guid, ct);
@@ -95,9 +99,19 @@ internal sealed class JobHooks : IJobHooks
 
             case JobKind.Import:
                 await _c.SyncRecordAsync(ct);
+                _c.Sizes.Request(filesChanged: false);
                 return;
         }
     }
+
+    private static string N(int n) => n.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
+
+    internal static (string Title, string Message) VerifyNotice(VerifyReport? r) => r switch
+    {
+        null => ("Verification complete", "All game files are OK."),
+        { FilesBad: 0 } => ("Verification complete", $"Checked {N(r.FilesChecked)} files. All game files are OK."),
+        _ => ("Repair complete", $"Checked {N(r.FilesChecked)} files: {N(r.FilesBad)} damaged or missing, {N(r.FilesFixed)} fixed. All game files are OK now."),
+    };
 
     private async Task WriteBackIfSharedAsync(GameRecord rec, CancellationToken ct)
     {
@@ -166,6 +180,9 @@ internal sealed class JobHooks : IJobHooks
             await _c.SaveRecordAsync(rec with { NeedsVerification = true });
         }
 
-        _c.Notify(NoticeLevel.Error, e.Title, e.Message, e.Fix);
+        var message = job.Kind == JobKind.Verify && job.Verify is { FilesBad: > 0 } r && e.Code == ErrorCode.Corrupted
+            ? $"Checked {N(r.FilesChecked)} files: {N(r.FilesBad)} damaged or missing, {N(r.FilesFixed)} fixed, {N(r.FilesBad - r.FilesFixed)} still bad. Try again, or check your disk."
+            : e.Message;
+        _c.Notify(NoticeLevel.Error, e.Title, message, e.Fix);
     }
 }

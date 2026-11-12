@@ -330,6 +330,7 @@ export class MockBackend {
       fromVersion: null,
       toVersion: null,
       blockedReason: null,
+      verify: null,
       ...extra,
     };
     this.s.jobs.push(info);

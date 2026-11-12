@@ -58,6 +58,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
             Onboarding = onboarding,
             Shutdown = _shutdown.Token,
         };
+        _c.Sizes = new InstalledSizeMeter(_c);
         _auth = new AuthService(_c);
         _updates = new UpdateChecker(_c);
         _install = new InstallService(_c, _updates);
@@ -75,6 +76,10 @@ public sealed class GliderService : IGliderRpc, IDisposable
     public Task WarmupTask { get; private set; } = Task.CompletedTask;
 
     internal LaunchService LaunchServiceForTests => _launch;
+
+    internal Task UpdateSizeTaskForTests => _updates.UpdateSizeTask;
+
+    internal InstalledSizeMeter SizesForTests => _c.Sizes;
 
     /// <summary>
     /// Publishes the first snapshot from cached state immediately, then pre-warms in the background and starts
@@ -150,6 +155,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
     public void Dispose()
     {
         _shutdown.Cancel();
+        _c.Sizes.Dispose();
         _c.Hub.Dispose();
         _shutdown.Dispose();
     }

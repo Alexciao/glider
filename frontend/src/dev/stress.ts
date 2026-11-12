@@ -49,6 +49,7 @@ function job(i: number, kind: JobKind, status: JobInfo["status"], ageMinutes: nu
     fromVersion: ODD_VERSION,
     toVersion: ODD_VERSION.replace("40.20", "40.30"),
     blockedReason: status === "waiting" ? "Epic Games Launcher is verifying, repairing and updating Fortnite and three other games" : null,
+    verify: null,
   };
 }
 

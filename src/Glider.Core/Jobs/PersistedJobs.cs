@@ -37,6 +37,11 @@ internal sealed class PersistedJob
     /// <summary>Automatic repair already attempted after a failed verify (never loop).</summary>
     public bool AutoRepairAttempted { get; set; }
 
+    /// <summary>Verify jobs: files checked / found bad by the first verify, kept so a restart in the repair step can still report them.</summary>
+    public int VerifyChecked { get; set; }
+
+    public int VerifyBad { get; set; }
+
     /// <summary>Progress bookkeeping that spans pause/resume/restart (Legendary restarts its counters every run).</summary>
     public ProgressBaseline Baseline { get; set; } = new();
 
@@ -48,6 +53,8 @@ internal sealed class PersistedJob
         CreatedGameFolder = CreatedGameFolder,
         GameFolder = GameFolder,
         AutoRepairAttempted = AutoRepairAttempted,
+        VerifyChecked = VerifyChecked,
+        VerifyBad = VerifyBad,
         Baseline = Baseline.Clone(),
     };
 }

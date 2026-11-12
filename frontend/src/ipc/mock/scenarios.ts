@@ -118,6 +118,7 @@ function job(id: string, kind: JobKind, status: JobInfo["status"], createdAt: nu
     fromVersion: null,
     toVersion: null,
     blockedReason: null,
+    verify: null,
     ...extra,
   };
 }

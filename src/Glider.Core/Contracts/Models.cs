@@ -81,7 +81,9 @@ public sealed record GameState(
     GameArt? Art,
     /// <summary>Latest manifest sizes when known (used by the install screen before planning).</summary>
     long? DownloadSizeBytes,
-    long? InstallSizeBytes);
+    long? InstallSizeBytes,
+    /// <summary>Real bytes on disk, measured in the background and cached; null = not measured yet.</summary>
+    long? InstalledSizeBytes);
 
 public sealed record InstalledGame(
     string InstallPath,
@@ -128,7 +130,12 @@ public sealed record JobInfo(
     string? TargetPath,
     string? FromVersion,
     string? ToVersion,
-    string? BlockedReason);
+    string? BlockedReason,
+    /// <summary>Verify jobs only: what the verify -> repair -> verify run found and fixed. Null until the first verify finishes.</summary>
+    VerifyReport? Verify = null);
+
+/// <summary>Files checked, files bad (damaged or missing) at the first verify, files fixed by the repair, and whether the final verify passed.</summary>
+public sealed record VerifyReport(int FilesChecked, int FilesBad, int FilesFixed, bool Verified);
 
 /// <summary>Speeds and ETA are EMA-smoothed by the backend; raw values feed the sparkline history.</summary>
 public sealed record JobProgress(
