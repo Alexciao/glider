@@ -41,9 +41,11 @@ public sealed class GliderRuntime : IAsyncDisposable
         EglEnvironment? eglEnvironment = null,
         IIdleSignal? idleSignal = null,
         TimeProvider? time = null,
+        GliderRuntimeOptions? options = null,
         CancellationToken ct = default)
     {
         time ??= TimeProvider.System;
+        options ??= new GliderRuntimeOptions();
         paths.EnsureCreated();
         var log = new FileLog(paths.Logs, time);
         try
@@ -56,15 +58,22 @@ public sealed class GliderRuntime : IAsyncDisposable
             log.MinimumLevel = settings.Current.LogLevel;
 
             var tune = AutoTune.ForCurrentMachine();
-            var legendary = new LegendaryCli(paths, log, time: time);
+            var legendary = new LegendaryCli(paths, log, options.Legendary, time);
             var hooks = new DeferredJobHooks();
             var jobs = new JobQueue(paths, legendary, settings, hooks, log, time, new JobQueueOptions { AutoTune = tune });
-            var egl = new EglService(eglEnvironment ?? EglEnvironment.ForMachine(), paths, log, settings: settings, records: records);
+            var egl = new EglService(eglEnvironment ?? EglEnvironment.ForMachine(), paths, log, options.EglProcesses, settings, records, options.Egl);
+            var defaults = new GliderServiceOptions();
             var service = new GliderService(paths, host, legendary, jobs, egl, settings, records, log, time, events, new GliderServiceOptions
             {
                 AutoWorkers = tune.Workers,
                 AutoSharedMemoryMb = tune.SharedMemoryMb,
                 IdleSignal = idleSignal,
+                ProcessMonitor = options.ProcessMonitor ?? defaults.ProcessMonitor,
+                ProcessStarter = options.ProcessStarter ?? defaults.ProcessStarter,
+                ServiceQuery = options.ServiceQuery ?? defaults.ServiceQuery,
+                DiskInfo = options.DiskInfo ?? defaults.DiskInfo,
+                ArtCache = options.ArtCache,
+                ProcessPollInterval = options.ProcessPollInterval ?? defaults.ProcessPollInterval,
             });
             hooks.Target = service.Hooks;
             await service.StartAsync();
@@ -86,4 +95,18 @@ public sealed class GliderRuntime : IAsyncDisposable
         _legendary.Dispose();
         await _log.DisposeAsync();
     }
+}
+
+/// <summary>Optional seams for <see cref="GliderRuntime.StartAsync"/>. Null = the real implementation; end-to-end tests swap a few.</summary>
+public sealed class GliderRuntimeOptions
+{
+    public LegendaryOptions? Legendary { get; init; }
+    public EglServiceOptions? Egl { get; init; }
+    public IProcessProbe? EglProcesses { get; init; }
+    public IProcessMonitor? ProcessMonitor { get; init; }
+    public IGameProcessStarter? ProcessStarter { get; init; }
+    public IServiceQuery? ServiceQuery { get; init; }
+    public IDiskInfo? DiskInfo { get; init; }
+    public IArtCache? ArtCache { get; init; }
+    public TimeSpan? ProcessPollInterval { get; init; }
 }
