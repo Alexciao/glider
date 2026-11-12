@@ -11,7 +11,7 @@ Releases/
 node_modules/
 frontend/dist/
 # Bundled binaries are fetched by build/fetch-legendary (hash-verified), never committed
-src/Glider.App/legendary/*.exe
+src/Glider.App/legendary/
 # Built frontend copied into the host
 src/Glider.App/wwwroot/
 # OS / editors
