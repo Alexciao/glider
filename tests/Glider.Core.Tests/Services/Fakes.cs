@@ -495,6 +495,14 @@ public sealed class FakeProcesses : IProcessMonitor, IGameProcessStarter
     public IReadOnlyList<RunningProcess> Find(string processName) =>
         _running.TryGetValue(processName, out var p) ? [p] : [];
 
+    public List<string> Closed { get; } = [];
+
+    public void Close(RunningProcess process)
+    {
+        Closed.Add(process.Name);
+        Remove(process.Name);
+    }
+
     public RunningProcess Start(LaunchCommand command)
     {
         if (StartError is { } e)

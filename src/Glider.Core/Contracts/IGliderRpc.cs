@@ -54,6 +54,8 @@ public interface IGliderRpc
     /// <c>game.launch</c> starts the game without waiting for Legendary. Returns at once, never fails; safe to call repeatedly.
     /// </summary>
     [RpcMethod("game.prepareLaunch")] Task PrepareLaunch();
+    /// <summary>Closes the running game (graceful first, then kill). Backs <c>FixAction.CloseGame</c>. No-op when it is not running.</summary>
+    [RpcMethod("game.close")] Task CloseGame();
     [RpcMethod("game.openInstallFolder")] Task OpenInstallFolder();
 
     // ---- jobs ----

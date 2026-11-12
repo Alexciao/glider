@@ -189,6 +189,12 @@ public sealed class FileLog : ILog, IAsyncDisposable
                     try
                     {
                         await writer.FlushAsync().ConfigureAwait(false);
+                        // NTFS reports a stale 0-byte size for a file held open for append until its metadata is committed.
+                        // One FlushFileBuffers per drained batch keeps the on-disk length truthful for anyone looking.
+                        if (writer.BaseStream is FileStream fs)
+                        {
+                            fs.Flush(flushToDisk: true);
+                        }
                     }
                     catch (IOException)
                     {

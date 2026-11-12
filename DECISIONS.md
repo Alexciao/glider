@@ -56,3 +56,7 @@ One line of reasoning per decision. Newest at the bottom of each section.
 - **Locate-folder also accepts a parent holding a differently named game folder and a folder inside the install** (up to 4 levels up); first matching child wins.
 - **`InstallCandidate.Reason`** is a human-readable string (null when usable); frontend `candidateIssue` is unchanged.
 - **Adopt in place and write-back needed no code change**: `legendary import` registers the folder without copying and write-back already backs up and writes atomically; new tests pin both on a non-C: path with spaces.
+- FileLog: added FlushFileBuffers per drained batch for the 0-byte-while-open report; could not reproduce in a test (content was already flushed), so this targets NTFS stale-size metadata.
+- Self-update: GithubSource on git remote Alexciao/glider, check 45 s after start then every 12 h, applies on exit (no forced restart), skipped for dev/portable/test runs; announced once via Notice event.
+- Installer size (90.7 MB Setup, 154 MB publish) left as is: WPF forbids trimming, vpk 1.2.161 has no compression option and R2R/satellite flags are already set; <60 MB would need a framework-dependent build (product decision).
+- Data dir (%LocalAppData%\Glider) shared with Velopack's root left as is: moving existing data or hooking uninstall to copy Legendary auth out is not a tiny safe change; revisit with an explicit data-location migration.

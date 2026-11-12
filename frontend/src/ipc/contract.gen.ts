@@ -344,6 +344,7 @@ export interface RpcMethods {
   "egl.rescan": { params: void; result: EglState };
   "game.adopt": { params: AdoptRequest; result: AdoptResult };
   "game.checkForUpdates": { params: void; result: UpdateCheckResult };
+  "game.close": { params: void; result: void };
   "game.install": { params: InstallRequest; result: JobInfo };
   "game.launch": { params: void; result: LaunchResult };
   "game.move": { params: MoveRequest; result: JobInfo };
@@ -396,6 +397,7 @@ export const RPC_METHODS = [
   "egl.rescan",
   "game.adopt",
   "game.checkForUpdates",
+  "game.close",
   "game.install",
   "game.launch",
   "game.move",

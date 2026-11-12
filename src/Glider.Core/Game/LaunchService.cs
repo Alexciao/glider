@@ -234,6 +234,18 @@ internal sealed class LaunchService
         }
     }
 
+    /// <summary>Closes the game (Shipping plus any launcher stubs). The watcher notices the exit and drives the state back to Idle.</summary>
+    public Task CloseGameAsync() => Task.Run(() =>
+    {
+        foreach (var name in new[] { FortniteLayout.ShippingProcessName }.Concat(ProcessWatcher.LauncherNames))
+        {
+            foreach (var p in _c.Options.ProcessMonitor.Find(name))
+            {
+                _c.Options.ProcessMonitor.Close(p);
+            }
+        }
+    });
+
     /// <summary>Startup / pre-launch: adopt a game that is already running.</summary>
     public bool DetectExisting()
     {
