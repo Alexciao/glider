@@ -93,6 +93,7 @@ internal sealed class UpdateChecker
         _c.Hub.Mutate(s => s with { CheckingForUpdates = true });
         try
         {
+            await ReconcileInstalledVersionAsync(ct);
             await FetchAsync(ct);
         }
         catch (Exception e) when (!userInitiated && e is not OperationCanceledException)
@@ -116,6 +117,33 @@ internal sealed class UpdateChecker
         }
 
         return Result();
+    }
+
+    /// <summary>
+    /// The installed side of the comparison: Legendary's installed.json is the source of truth, our record is a copy that only
+    /// jobs and the startup drift check refresh. Re-read it so a build installed outside a Glider job (EGL, a manual
+    /// `legendary update`) neither shows a phantom update nor hides a real one. Skipped while a job is writing the install.
+    /// </summary>
+    private async Task ReconcileInstalledVersionAsync(CancellationToken ct)
+    {
+        if (_c.Records.Current is not { } rec || _c.Hub.ActiveJobs().Count > 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var installed = await _c.Legendary.GetInstalledAsync(ServiceContext.App, ct);
+            if (installed is { Version.Length: > 0 } && !string.Equals(installed.Version, rec.Version, StringComparison.Ordinal))
+            {
+                _c.Log.Info("update", $"installed version changed outside Glider: {rec.Version} -> {installed.Version}");
+                await _c.SyncRecordAsync(ct);
+            }
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            _c.Log.Warn("update", "couldn't re-read the installed version", e);
+        }
     }
 
     private UpdateCheckResult Result()
