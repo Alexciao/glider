@@ -58,6 +58,20 @@ internal sealed partial class EacService
             return false;
         }
 
+        // Elevating a file from a user-writable folder: it must stay inside the game folder and be Epic-signed, or any
+        // program of this user could swap it and borrow Glider's UAC prompt.
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(gamePath)) + Path.DirectorySeparatorChar;
+        if (!Path.GetFullPath(exe).StartsWith(root, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new GliderException(Errors.EacSetupFailed($"The anti-cheat setup path points outside the game folder ({exe})."));
+        }
+
+        if (_c.Options.PublisherCheck.WhyUntrusted(exe) is { } why)
+        {
+            _c.Log.Error("eac", $"Not running {exe} elevated: {why}.");
+            throw new GliderException(Errors.EacSetupFailed($"Glider won't run {Path.GetFileName(exe)} as administrator because {why}. Repair Fortnite to restore it."));
+        }
+
         onInstalling();
         _c.Log.Info("eac", $"installing Easy Anti-Cheat: {Path.GetFileName(exe)} {args}");
         var exit = await _c.Host.RunElevatedAsync(exe, args, ct);

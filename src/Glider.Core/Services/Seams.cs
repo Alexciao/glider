@@ -28,6 +28,13 @@ public interface IServiceQuery
     bool IsInstalled(string serviceName);
 }
 
+/// <summary>Is this executable signed by its expected publisher? Checked before anything is run elevated.</summary>
+public interface IPublisherCheck
+{
+    /// <summary>Null when trusted; otherwise why not (shown in the error detail).</summary>
+    string? WhyUntrusted(string path);
+}
+
 public sealed record FixedDrive(string RootPath, long FreeBytes, long TotalBytes);
 
 public interface IDiskInfo

@@ -188,3 +188,72 @@ public class LaunchTests
         Assert.Equal(0, rig.Host.HideCount);
     }
 }
+
+/// <summary>Security review: Glider must not borrow its UAC prompt for a swapped file in the user-writable game folder.</summary>
+public class EacElevationSafetyTests
+{
+    private static async Task<Rig> ReadyWithoutEac()
+    {
+        var rig = new Rig();
+        var rec = rig.Install("v2");
+        var setup = Path.Combine(rec.InstallPath, EacService.SetupRelative.Replace('\\', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(setup)!);
+        File.WriteAllText(setup, "");
+        await rig.StartWarmAsync();
+        return rig;
+    }
+
+    [Fact]
+    public async Task AnUnsignedSetupIsNeverRunElevated()
+    {
+        using var rig = await ReadyWithoutEac();
+        rig.Publisher.Reason = "it has no valid digital signature";
+
+        var e = await Assert.ThrowsAsync<GliderException>(() => rig.Service.Launch());
+        Assert.Equal(ErrorCode.EacSetupFailed, e.Error.Code);
+        Assert.Contains("signature", e.Error.Detail, StringComparison.Ordinal);
+        Assert.Empty(rig.Host.Elevated);
+        Assert.Empty(rig.Processes.Started);
+        Assert.EndsWith("EasyAntiCheat_EOS_Setup.exe", Assert.Single(rig.Publisher.Checked), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task APrerequisitePathOutsideTheGameFolderIsRefused()
+    {
+        using var rig = await ReadyWithoutEac();
+        var outside = Path.Combine(rig.Root, "EasyAntiCheat_Evil.exe");
+        File.WriteAllText(outside, "");
+        rig.Legendary.Info = rig.Legendary.Info with
+        {
+            Prerequisites = new PrerequisiteInfo("EAC", @"..\EasyAntiCheat_Evil.exe", "install x", []),
+        };
+        await rig.Service.CheckForUpdates(); // refresh LastGameInfo with the manifest's prerequisites
+
+        var e = await Assert.ThrowsAsync<GliderException>(() => rig.Service.Launch());
+        Assert.Equal(ErrorCode.EacSetupFailed, e.Error.Code);
+        Assert.Empty(rig.Host.Elevated);
+    }
+
+    [Fact]
+    public void TheRealCheckRejectsAnUnsignedFile()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var path = Path.Combine(Path.GetTempPath(), $"glider-unsigned-{Guid.NewGuid():N}.exe");
+        File.WriteAllBytes(path, [0x4D, 0x5A, 0, 0]);
+        try
+        {
+            Assert.NotNull(new AuthenticodePublisherCheck().WhyUntrusted(path));
+            // CoreLib carries an embedded Microsoft Authenticode signature: valid, but not Epic's.
+            var microsoftSigned = typeof(object).Assembly.Location;
+            Assert.Contains("not by Epic", new AuthenticodePublisherCheck().WhyUntrusted(microsoftSigned) ?? "", StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+}
