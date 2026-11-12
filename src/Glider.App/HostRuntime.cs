@@ -20,7 +20,7 @@ internal sealed class HostRuntime
         EnvTask = StartEnvironment(paths);
 
         // 2) Core's service layer is built on the thread pool, in parallel with window construction.
-        RpcTask = Task.Run(() => Composition.Build(paths, Platform, Sink));
+        RpcTask = Task.Run(() => Composition.BuildAsync(paths, Platform, Sink));
         Bridge.Dispatcher = RpcTask.ContinueWith(
             t =>
             {

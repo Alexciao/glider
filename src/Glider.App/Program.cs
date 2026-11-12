@@ -181,22 +181,8 @@ internal static class HostApp
 
     private static void DisposeRpc(HostRuntime rt)
     {
-        try
-        {
-            switch (rt.Rpc)
-            {
-                case IAsyncDisposable ad:
-                    ad.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(3));
-                    break;
-                case IDisposable d:
-                    d.Dispose();
-                    break;
-            }
-        }
-        catch (Exception ex)
-        {
-            HostLog.Warn("Disposing the RPC service failed", ex);
-        }
+        _ = rt;
+        Composition.Dispose();
     }
 
     /// <summary>A missing WebView2 runtime is reported immediately (even when starting in the tray).</summary>

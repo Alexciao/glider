@@ -1,16 +1,63 @@
+using System.Runtime.InteropServices;
 using Glider.Core;
 using Glider.Core.Contracts;
+using Glider.Core.Services;
 
 namespace Glider.App;
 
 /// <summary>
-/// THE integration point with Glider.Core. Replace the body with Core's service layer when the branches merge, e.g.
-/// <c>return new GliderService(paths, host, events, ...)</c> (plus whatever startup it needs). Called once, on a thread-pool
-/// thread, in parallel with window creation — it must not touch the UI thread. Anything IAsyncDisposable/IDisposable returned
-/// is disposed on exit.
+/// The integration point with Glider.Core: builds and starts <see cref="GliderRuntime"/> (the real object graph).
+/// Called once, on a thread-pool thread, in parallel with window creation — it must not touch the UI thread.
 /// </summary>
 internal static class Composition
 {
-    public static IGliderRpc Build(AppPaths paths, IHostPlatform host, IEventSink events) =>
-        new PlaceholderRpc(paths, host, events); // TODO(integration): replace with Core's GliderService
+    public static GliderRuntime? Runtime { get; private set; }
+
+    public static async Task<IGliderRpc> BuildAsync(AppPaths paths, IHostPlatform host, IEventSink events)
+    {
+        Runtime = await GliderRuntime.StartAsync(paths, host, events, idleSignal: new WindowsIdleSignal()).ConfigureAwait(false);
+        return Runtime.Rpc;
+    }
+
+    public static void Dispose()
+    {
+        try
+        {
+            Runtime?.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(3));
+        }
+        catch (Exception ex)
+        {
+            HostLog.Warn("Disposing the Core runtime failed", ex);
+        }
+    }
+}
+
+/// <summary>Time since the last keyboard/mouse input (for "auto-update only when idle").</summary>
+internal sealed partial class WindowsIdleSignal : IIdleSignal
+{
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LastInputInfo
+    {
+        public uint CbSize;
+        public uint DwTime;
+    }
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetLastInputInfo(ref LastInputInfo info);
+
+    public TimeSpan IdleTime
+    {
+        get
+        {
+            var info = new LastInputInfo { CbSize = (uint)Marshal.SizeOf<LastInputInfo>() };
+            if (!GetLastInputInfo(ref info))
+            {
+                return TimeSpan.Zero;
+            }
+
+            var idleMs = unchecked((uint)Environment.TickCount - info.DwTime);
+            return TimeSpan.FromMilliseconds(idleMs);
+        }
+    }
 }
