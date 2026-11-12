@@ -66,7 +66,7 @@ Exec dotnet @('publish', 'src/Glider.App', '-c', $Configuration, '-r', 'win-x64'
     '-p:PublishReadyToRun=true', '-p:SatelliteResourceLanguages=en', '-p:DebugType=none',
     "-p:Version=$Version", '-o', $publish)
 
-if (-not (Test-Path (Join-Path $publish 'Glider.App.exe'))) { throw "publish did not produce Glider.App.exe" }
+if (-not (Test-Path (Join-Path $publish 'Glider.exe'))) { throw "publish did not produce Glider.exe" }
 if (-not (Test-Path (Join-Path $publish 'legendary/legendary.exe'))) { throw "publish output is missing legendary/legendary.exe (host csproj must include it as content)" }
 if (-not (Test-Path (Join-Path $publish 'wwwroot/index.html'))) { throw "publish output is missing wwwroot/index.html (host csproj must include wwwroot/** as content)" }
 
@@ -79,7 +79,7 @@ if ($Pack) {
     Exec dotnet @('tool', 'restore')
     if (Test-Path $releases) { Remove-Item $releases -Recurse -Force }
     Exec dotnet @('vpk', 'pack', '--packId', 'Glider', '--packTitle', 'Glider', '--packAuthors', 'Glider contributors',
-        '--packVersion', $Version, '--packDir', $publish, '--mainExe', 'Glider.App.exe', '--icon', $icon,
+        '--packVersion', $Version, '--packDir', $publish, '--mainExe', 'Glider.exe', '--icon', $icon,
         '--framework', 'webview2', '--outputDir', $releases)
 }
 
