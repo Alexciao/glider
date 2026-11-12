@@ -8,9 +8,11 @@ import { STATES } from "./states";
  * docs/screenshots/<theme>-<backdrop>-<WxH>/<state>.png.
  *
  * Filters (regex / comma lists), handy while iterating:
- *   SHOT_ONLY=library,dialog  SHOT_VARIANTS=dark-solid-1280x800
+ *   SHOT_ONLY=library,dialog  SHOT_VARIANTS=dark-solid-1280x800  SHOT_OUT=/abs/dir (default docs/screenshots)
  */
-const OUT = fileURLToPath(new URL("../../docs/screenshots/", import.meta.url));
+const OUT = process.env.SHOT_OUT
+  ? `${process.env.SHOT_OUT.replace(/[\\/]+$/, "")}/`
+  : fileURLToPath(new URL("../../docs/screenshots/", import.meta.url));
 
 const THEMES = ["dark", "light"] as const;
 const BACKDROPS = ["solid", "mica"] as const;
@@ -22,14 +24,19 @@ const SIZES = [
 const only = process.env.SHOT_ONLY?.split(",").filter(Boolean);
 const variantFilter = process.env.SHOT_VARIANTS?.split(",").filter(Boolean);
 
-/** A blurred, desaturated "wallpaper" behind the page so translucent Mica surfaces read like the real thing. */
-const WALLPAPER: Record<(typeof THEMES)[number], string> = {
-  dark: `radial-gradient(900px 600px at 12% 18%, #4b3a8f 0%, transparent 62%),
-         radial-gradient(800px 560px at 88% 82%, #146a85 0%, transparent 60%),
-         radial-gradient(700px 480px at 62% 8%, #8a2f63 0%, transparent 58%), #1c2140`,
-  light: `radial-gradient(900px 600px at 12% 18%, #b9c6ff 0%, transparent 62%),
-          radial-gradient(800px 560px at 88% 82%, #9fe0ee 0%, transparent 60%),
-          radial-gradient(700px 480px at 62% 8%, #ffd0c2 0%, transparent 58%), #e9ecf6`,
+/**
+ * Mica, simulated: what the WebView actually sees behind a transparent page is the desktop wallpaper,
+ * heavily blurred and laid under the system tint (#202020 dark / #f3f3f3 light). The wallpaper here is
+ * deliberately loud (the user picks it, not us) and the tint is lighter than the real material, so a
+ * surface that still reads as intentional in these shots has margin on a real desktop.
+ */
+const WALLPAPER = `radial-gradient(900px 640px at 8% 12%, #ff6a00 0%, transparent 64%),
+  radial-gradient(860px 600px at 92% 88%, #00c2a8 0%, transparent 62%),
+  radial-gradient(760px 520px at 70% 6%, #e0109a 0%, transparent 60%),
+  radial-gradient(700px 520px at 20% 96%, #2f6bff 0%, transparent 60%), #6b2bd6`;
+const MICA_TINT: Record<(typeof THEMES)[number], string> = {
+  dark: "rgb(32 32 32 / 0.62)",
+  light: "rgb(243 243 243 / 0.58)",
 };
 
 async function ready(page: Page) {
@@ -52,7 +59,8 @@ for (const theme of THEMES) {
             page.on("pageerror", (e) => errors.push(e.message));
             await page.goto(`/?${state.query}&theme=${theme}&backdrop=${backdrop}&dev=0`);
             await ready(page);
-            if (backdrop === "mica") await page.addStyleTag({ content: `html{background:${WALLPAPER[theme]} !important}` });
+            if (backdrop === "mica")
+              await page.addStyleTag({ content: `html{background:linear-gradient(${MICA_TINT[theme]},${MICA_TINT[theme]}),${WALLPAPER} !important}` });
             await state.setup?.(page);
             await page.waitForTimeout(state.settle ?? 350);
             await page.screenshot({

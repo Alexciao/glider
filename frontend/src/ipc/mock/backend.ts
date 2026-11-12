@@ -37,7 +37,7 @@ import { freeBytes, joinPath, samePath, trimSlashes } from "./disk";
 import { Errors, errorForCode, fail, toGliderError } from "./errors";
 import { LICENSES } from "./licenses";
 import { generateLogs, logFileName } from "./logs";
-import type { MockController, MockOptions, ScenarioName } from "./options";
+import type { MockArt, MockController, MockOptions, ScenarioName } from "./options";
 import { SCENARIOS, buildScenario, type JobMeta } from "./scenarios";
 import { JobSim, TICK_MS, TICK_S, buildJobSim } from "./sim";
 
@@ -63,7 +63,7 @@ interface Resolved {
   timeScale: number;
   timeScaleExplicit: boolean;
   freeze: boolean;
-  art: "default" | "none";
+  art: MockArt;
   backdrop: "mica" | "solid";
   latency: number;
   seed: number;
