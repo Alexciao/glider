@@ -271,6 +271,15 @@ public sealed class FakeLegendary(CallLog log) : ILegendary
     }
 
     public string? GetInstalledManifestPath(string appName, string version) => $"manifests/{version}.manifest";
+
+    /// <summary>What Legendary's `update` dry run reports for the pending update (null = couldn't measure).</summary>
+    public LegendarySizes? UpdateSizes { get; set; }
+
+    public Task<LegendarySizes?> GetUpdateSizesAsync(string appName, CancellationToken ct)
+    {
+        log.Add("legendary.updateSizes");
+        return Task.FromResult(UpdateSizes);
+    }
 }
 
 public sealed class FakeJobQueue(CallLog log) : IJobQueue
