@@ -538,7 +538,7 @@ public sealed class LegendaryCli : ILegendary, IDisposable
             a.Add(sharedMemoryMb.ToString(CultureInfo.InvariantCulture));
         }
 
-        if (!string.IsNullOrWhiteSpace(args.PreferredCdn))
+        if (!string.IsNullOrWhiteSpace(args.PreferredCdn) && char.IsAsciiLetterOrDigit(args.PreferredCdn.Trim()[0]))
         {
             a.Add("--preferred-cdn");
             a.Add(args.PreferredCdn.Trim());

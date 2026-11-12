@@ -206,3 +206,22 @@ public class CrossDriveMoveSafetyTests
         }
     }
 }
+
+public class PreferredCdnArgumentTests
+{
+    [Theory]
+    [InlineData("-y")]
+    [InlineData("--base-path")]
+    [InlineData(".fastly")]
+    public async Task AFlagLookingCdnIsDroppedNotPassedToLegendary(string cdn)
+    {
+        using var dir = new TempDir();
+        var paths = new AppPaths(dir.Path, "legendary.exe");
+        using var store = await SettingsStore.LoadAsync(paths, new TestLog(), TestContext.Current.CancellationToken);
+        var saved = await store.UpdateAsync(Settings.Default with { PreferredCdn = cdn });
+        Assert.Null(saved.PreferredCdn);
+
+        var args = LegendaryCli.InstallArguments(new InstallArgs("Fortnite", InstallMode.Update, null, 0, 0, cdn), installed: true, 0, false);
+        Assert.DoesNotContain("--preferred-cdn", args);
+    }
+}

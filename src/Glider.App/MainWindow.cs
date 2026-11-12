@@ -325,7 +325,7 @@ internal sealed partial class MainWindow : Window
 
             web.WebMessageReceived += (_, e) =>
             {
-                if (WebViewSetup.IsAppUri(e.Source))
+                if (WebViewSetup.IsAppOrigin(e.Source))
                 {
                     _rt.Bridge.HandleIncoming(e.WebMessageAsJson);
                 }

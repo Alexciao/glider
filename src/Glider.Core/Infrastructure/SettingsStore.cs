@@ -142,7 +142,8 @@ public sealed class SettingsStore : ISettingsStore, IDisposable
         }
 
         var h = host.Trim();
-        if (h.Length > 253)
+        // Passed to Legendary as the value of --preferred-cdn: a leading '-' would read as another flag to argparse.
+        if (h.Length > 253 || !char.IsAsciiLetterOrDigit(h[0]))
         {
             return null;
         }

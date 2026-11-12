@@ -430,7 +430,8 @@ internal static class SettingsValidator
         Check(s.SharedMemoryMb is null or >= 256 and <= 16384, "sharedMemoryMb must be 256–16384 or null");
         Check(s.UpdateCheckIntervalMinutes is >= 5 and <= 1440, "updateCheckIntervalMinutes must be 5–1440");
         Check(s.LaunchArgs is not null && s.LaunchArgs.Length <= 2048 && !s.LaunchArgs.Contains('\n') && !s.LaunchArgs.Contains('\r'), "launchArgs must be one line (≤2048 chars)");
-        Check(s.PreferredCdn is null || (s.PreferredCdn.Length is > 0 and <= 253 && !s.PreferredCdn.Any(char.IsWhiteSpace)), "preferredCdn must be a host name");
+        Check(s.PreferredCdn is null || (s.PreferredCdn.Length is > 0 and <= 253 && char.IsAsciiLetterOrDigit(s.PreferredCdn[0]) &&
+                                         s.PreferredCdn.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-')), "preferredCdn must be a host name");
         Check(s.DefaultInstallBase is null || Path.IsPathFullyQualified(s.DefaultInstallBase), "defaultInstallBase must be a full path");
         Check(Enum.IsDefined(s.LogLevel) && Enum.IsDefined(s.Theme), "unknown enum value");
         return s;
