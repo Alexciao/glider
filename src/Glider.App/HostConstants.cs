@@ -25,9 +25,10 @@ internal static class HostConstants
     /// <summary>Thickness (CSS px) of the top resize strip that sits over the page, so the window can be resized from its top edge.</summary>
     public const int TopResizeStrip = 4;
 
-    // ---- theme colors: window background + WebView2 default background (must match the CSS --bg on Windows 10 "solid") ----
-    public const uint DarkBackgroundArgb = 0xFF202020;
-    public const uint LightBackgroundArgb = 0xFFF3F3F3;
+    // ---- theme colors: window background + WebView2 default background. Must equal the sRGB value of the solid (non-Mica) CSS
+    // --g-bg in frontend/src/styles/tokens.css: dark oklch(0.165 0.006 265), light oklch(0.975 0.002 265). ----
+    public const uint DarkBackgroundArgb = 0xFF0D0E11;
+    public const uint LightBackgroundArgb = 0xFFF6F7F8;
 
     public const string MainMutexName = @"Local\Glider.SingleInstance";
     public const string WebViewProfileEpic = "GliderEpic";

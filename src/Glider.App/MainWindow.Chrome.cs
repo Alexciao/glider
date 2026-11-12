@@ -39,14 +39,25 @@ internal sealed partial class MainWindow
                 break;
 
             case Win32.WM_DPICHANGED:
-                Dispatcher.BeginInvoke(() => _overlays?.Layout(_maximized));
+                Dispatcher.BeginInvoke(() =>
+                {
+                    _overlays?.Layout(_maximized);
+                    ApplyBackdrop(); // DWM can drop the extended frame / tint when the window moves between monitors
+                });
                 break;
 
             case Win32.WM_ACTIVATE:
-                _focused = (wParam & 0xFFFF) != 0;
-                if (_focused)
+                var active = (wParam & 0xFFFF) != 0;
+                _focused = active;
+                if (active)
                 {
                     FocusWeb();
+                }
+
+                if (active != _active)
+                {
+                    _active = active;
+                    Dispatcher.BeginInvoke(ApplyBackdrop); // inactive => Windows shows its flat fallback instead of Mica
                 }
 
                 PublishWindowInfo();
@@ -56,12 +67,12 @@ internal sealed partial class MainWindow
                 FocusWeb();
                 break;
 
-            case Win32.WM_SETTINGCHANGE:
-                if (lParam != 0 && System.Runtime.InteropServices.Marshal.PtrToStringUni(lParam) == ImmersiveColorSet && ThemeState.Mode == ThemeChoice.System)
-                {
-                    Dispatcher.BeginInvoke(ApplyBackdrop);
-                }
-
+            // Theme (system app mode), accent/colorization and "Transparency effects" all arrive as one of these.
+            case Win32.WM_SETTINGCHANGE when lParam != 0 && System.Runtime.InteropServices.Marshal.PtrToStringUni(lParam) == ImmersiveColorSet:
+            case Win32.WM_THEMECHANGED:
+            case Win32.WM_DWMCOLORIZATIONCOLORCHANGED:
+            case Win32.WM_POWERBROADCAST when wParam == Win32.PBT_APMPOWERSTATUSCHANGE: // Battery Saver toggles with the power status
+                Dispatcher.BeginInvoke(ApplyBackdrop);
                 break;
 
             case Win32.WM_ENDSESSION:
@@ -130,6 +141,7 @@ internal sealed partial class MainWindow
     private void OnSize(int sizeType)
     {
         var wasMinimized = _minimized;
+        var wasMaximized = _maximized;
         _minimized = sizeType == Win32.SIZE_MINIMIZED;
         _maximized = sizeType == Win32.SIZE_MAXIMIZED || (_minimized && _maximized);
 
@@ -137,6 +149,10 @@ internal sealed partial class MainWindow
         {
             UpdateWebBounds();
             _overlays?.Layout(_maximized);
+            if (_maximized != wasMaximized)
+            {
+                ApplyBackdrop(); // re-assert the extended frame + backdrop after the frame geometry changed
+            }
         }
 
         if (_minimized && !wasMinimized)
@@ -155,20 +171,38 @@ internal sealed partial class MainWindow
 
     /// <summary>
     /// Windows 11 22621+: DWMWA_SYSTEMBACKDROP_TYPE = Mica + immersive dark mode + frame extended over the client area, with a fully
-    /// transparent WPF surface and WebView2 background. Otherwise a solid theme-colored window (Windows 10, older 11).
+    /// transparent WPF surface (AllowsTransparency stays false: it is incompatible with DWM backdrops) and WebView2 background.
+    /// Otherwise (Windows 10, older 11, transparency effects off, Battery Saver) a solid theme-colored window. See <see cref="BackdropPolicy"/>.
+    /// Idempotent: called on theme / activation / DPI / maximize / power changes.
     /// </summary>
     private void ApplyBackdrop()
     {
-        var dark = ThemeState.IsDark ? 1 : 0;
+        if (_hwnd == 0 || _quitting)
+        {
+            return;
+        }
+
+        var isDark = ThemeState.IsDark;
+        var dark = isDark ? 1 : 0;
         Win32.DwmSetWindowAttribute(_hwnd, Win32.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
 
+        var decision = BackdropPolicy.Decide(HostEnvironment.SupportsMica, HostEnvironment.TransparencyEffectsEnabled(), HostEnvironment.BatterySaverOn(), _active);
         var mica = false;
         if (HostEnvironment.SupportsMica)
         {
-            var kind = Win32.DWMSBT_MAINWINDOW;
-            mica = Win32.DwmSetWindowAttribute(_hwnd, Win32.DWMWA_SYSTEMBACKDROP_TYPE, ref kind, sizeof(int)) == 0;
+            var kind = decision.Mica ? Win32.DWMSBT_MAINWINDOW : Win32.DWMSBT_NONE;
+            if (decision.Mica && _lastDark is { } was && was != isDark)
+            {
+                // DWM keeps painting the old light/dark tint until the backdrop is set again from scratch.
+                var none = Win32.DWMSBT_NONE;
+                Win32.DwmSetWindowAttribute(_hwnd, Win32.DWMWA_SYSTEMBACKDROP_TYPE, ref none, sizeof(int));
+            }
+
+            mica = Win32.DwmSetWindowAttribute(_hwnd, Win32.DWMWA_SYSTEMBACKDROP_TYPE, ref kind, sizeof(int)) == 0 && decision.Mica;
         }
 
+        _lastDark = isDark;
+        var wasMica = IsMicaActive;
         IsMicaActive = mica;
         var margins = mica ? new MARGINS { Left = -1, Right = -1, Top = -1, Bottom = -1 } : new MARGINS { Left = 1, Right = 1, Top = 1, Bottom = 1 };
         Win32.DwmExtendFrameIntoClientArea(_hwnd, ref margins);
@@ -183,6 +217,32 @@ internal sealed partial class MainWindow
 
         ApplyDefaultBackground();
         HostEnvironment.ActiveBackdrop = mica ? BackdropKind.Mica : BackdropKind.Solid;
+        PushSurface(mica, mica && decision.TranslucentPage, force: wasMica != mica);
+    }
+
+    /// <summary>Tells the page whether to let the backdrop through (data-surface) and which backdrop kind it sits on (data-backdrop).</summary>
+    private void PushSurface(bool mica, bool translucent, bool force)
+    {
+        if (!force && _lastTranslucent == translucent)
+        {
+            return;
+        }
+
+        _lastTranslucent = translucent;
+        if (_web is null)
+        {
+            return; // the start URL carries the backdrop; the first state is pushed once the page exists
+        }
+
+        try
+        {
+            var script = $"(()=>{{const d=document.documentElement.dataset;d.backdrop='{(mica ? "mica" : "solid")}';if({(translucent ? "true" : "false")})delete d.surface;else d.surface='solid';}})()";
+            _ = _web.ExecuteScriptAsync(script);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
+        {
+            HostLog.Warn("Pushing the backdrop state to the page failed", ex);
+        }
     }
 
     // ============================== UI → host control messages ==============================

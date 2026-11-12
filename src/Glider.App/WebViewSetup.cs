@@ -142,8 +142,8 @@ internal static class WebViewSetup
         u.Scheme == Uri.UriSchemeHttps && u.IsDefaultPort && u.UserInfo.Length == 0 &&
         string.Equals(u.Host, HostConstants.AppHost, StringComparison.OrdinalIgnoreCase);
 
-    public static string BuildStartUrl(bool dark, bool mica) =>
-        $"{HostConstants.AppOrigin}index.html?theme={(dark ? "dark" : "light")}&backdrop={(mica ? "mica" : "solid")}";
+    public static string BuildStartUrl(bool dark, bool mica, bool translucent = true) =>
+        $"{HostConstants.AppOrigin}index.html?theme={(dark ? "dark" : "light")}&backdrop={(mica ? "mica" : "solid")}{(mica && !translucent ? "&surface=solid" : "")}";
 
     public static void OpenExternalSafe(string url)
     {
