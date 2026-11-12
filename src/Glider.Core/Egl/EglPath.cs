@@ -59,4 +59,12 @@ public static class EglPath
 
         return p;
     }
+
+    /// <summary>Last path component, splitting on either slash (Python's <c>ntpath.basename</c> after trimming).</summary>
+    public static string LeafName(string path)
+    {
+        var p = TrimTrailingSeparators(path);
+        var i = p.LastIndexOfAny(['\\', '/']);
+        return i >= 0 ? p[(i + 1)..] : p;
+    }
 }

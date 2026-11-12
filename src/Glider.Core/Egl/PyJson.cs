@@ -65,7 +65,7 @@ internal static class PyJson
         }
 
         var big = BigInteger.Parse(raw, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
-        return big >= long.MinValue && big <= long.MaxValue ? (long)big : big;
+        return big >= long.MinValue && big <= long.MaxValue ? (object)(long)big : big;
     }
 
     /// <summary>Equivalent of <c>json.dumps(value, indent=4, sort_keys=True)</c> with the given newline.</summary>

@@ -61,7 +61,7 @@ internal sealed class EglFileTransaction
             return;
         }
 
-        var backups = CreateBackups(changed);
+        var backups = await CreateBackupsAsync(changed).ConfigureAwait(false);
 
         // From here on we don't honour cancellation mid-way: a half-applied set is worse than finishing.
         var committed = new List<(Staged File, string? Backup)>();
@@ -81,7 +81,7 @@ internal sealed class EglFileTransaction
         }
     }
 
-    private Dictionary<string, string> CreateBackups(List<Staged> changed)
+    private async Task<Dictionary<string, string>> CreateBackupsAsync(List<Staged> changed)
     {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var existing = changed.Where(s => File.Exists(s.Target)).ToList();
@@ -103,7 +103,7 @@ internal sealed class EglFileTransaction
             {
                 var dest = Path.Combine(dir, s.BackupRelative);
                 Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-                File.Copy(s.Target, dest, overwrite: false);
+                await RetryAsync(() => File.Copy(s.Target, dest, overwrite: true), s.Target).ConfigureAwait(false);
                 map[s.Target] = dest;
                 index.Append(s.BackupRelative).Append('\t').Append(s.Target).Append('\n');
             }
@@ -170,13 +170,16 @@ internal sealed class EglFileTransaction
         }
     }
 
-    private async Task WriteWithRetriesAsync(string target, byte[] content)
+    private Task WriteWithRetriesAsync(string target, byte[] content) => RetryAsync(() => WriteAtomic(target, content), target);
+
+    /// <summary>Runs a file operation, retrying sharing violations / transient denials, then fails with clear copy.</summary>
+    private async Task RetryAsync(Action op, string target)
     {
         for (var attempt = 1; ; attempt++)
         {
             try
             {
-                WriteAtomic(target, content);
+                op();
                 return;
             }
             catch (Exception ex) when (IsTransient(ex) && attempt < _options.WriteAttempts)

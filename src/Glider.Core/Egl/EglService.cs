@@ -76,8 +76,12 @@ public sealed class EglService : IEglService, IDisposable
             Manifest.InstallSize, Manifest.IsIncompleteInstall, Manifest.NeedsValidation);
     }
 
-    /// <summary>Every parsable <c>*.item</c> in a directory (top level only). Invalid files are logged and skipped.</summary>
-    internal List<ItemFile> ReadItems(string dir)
+    /// <summary>
+    /// Every parsable <c>*.item</c> in a directory (top level only). Invalid files are logged and skipped. With
+    /// <paramref name="strict"/> (write paths), a file that can't be <i>read</i> (locked/denied) is retried and then fails
+    /// the operation: skipping it could make Glider write a second .item for an install EGL already has.
+    /// </summary>
+    internal List<ItemFile> ReadItems(string dir, bool strict = false)
     {
         var list = new List<ItemFile>();
         if (!Directory.Exists(dir))
@@ -105,7 +109,7 @@ public sealed class EglService : IEglService, IDisposable
 
             try
             {
-                var bytes = File.ReadAllBytes(f);
+                var bytes = strict ? ReadStrict(f) : File.ReadAllBytes(f);
                 var raw = EglJson.TryParseObject(bytes, out var error);
                 if (raw is null)
                 {
@@ -131,8 +135,28 @@ public sealed class EglService : IEglService, IDisposable
         return list;
     }
 
+    private byte[] ReadStrict(string path)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return File.ReadAllBytes(path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && ex is not FileNotFoundException)
+            {
+                if (attempt >= _options.WriteAttempts)
+                {
+                    throw new GliderException(ex is UnauthorizedAccessException ? Errors.EglAccessDenied(path) : Errors.EglFileLocked(path), ex);
+                }
+
+                Thread.Sleep(_options.WriteRetryDelay);
+            }
+        }
+    }
+
     /// <summary>Fortnite game manifests: AppName == Fortnite and MainGameAppName empty or Fortnite (DLC excluded).</summary>
-    internal List<ItemFile> FortniteItems(string? dir = null) => ReadItems(dir ?? _env.ManifestsDir)
+    internal List<ItemFile> FortniteItems(string? dir = null, bool strict = false) => ReadItems(dir ?? _env.ManifestsDir, strict)
         .Where(i => string.Equals(i.Manifest.AppName, FortniteLayout.AppName, StringComparison.OrdinalIgnoreCase) &&
                     (i.Manifest.MainGameAppName.Length == 0 ||
                      string.Equals(i.Manifest.MainGameAppName, i.Manifest.AppName, StringComparison.OrdinalIgnoreCase)))
@@ -554,7 +578,7 @@ public sealed class EglService : IEglService, IDisposable
             throw new GliderException(Errors.EglWriteFailed($"Legendary manifest not found: {data.LegendaryManifestPath ?? "(none)"}"));
         }
 
-        var items = FortniteItems();
+        var items = FortniteItems(strict: true);
         var byLocation = FindIn(items, installPath);
         // The .item EGL already has for this folder wins over the caller's guid: two items for one folder would make
         // EGL show (and manage) the game twice.
@@ -636,7 +660,7 @@ public sealed class EglService : IEglService, IDisposable
         }
 
         v["MainGameAppName"] = data.AppName;
-        v["MandatoryAppFolderName"] = string.IsNullOrEmpty(folderName) ? Path.GetFileName(installPath) : folderName;
+        v["MandatoryAppFolderName"] = string.IsNullOrEmpty(folderName) ? EglPath.LeafName(installPath) : folderName;
         SetLocation(m, installPath);
         v["OwnershipToken"] = ownershipToken; // bool => "true"/"false", as from_lgd_game's igame.requires_ot
         v["bIsIncompleteInstall"] = false;
@@ -665,7 +689,7 @@ public sealed class EglService : IEglService, IDisposable
 
     private async Task UpdateLocationCoreAsync(string installationGuid, string newInstallPath, CancellationToken ct)
     {
-        var item = FortniteItems().FirstOrDefault(i => string.Equals(i.Guid, installationGuid, StringComparison.OrdinalIgnoreCase))
+        var item = FortniteItems(strict: true).FirstOrDefault(i => string.Equals(i.Guid, installationGuid, StringComparison.OrdinalIgnoreCase))
                    ?? throw new GliderException(Errors.EglWriteFailed($"No EGL manifest with InstallationGuid {installationGuid}"));
         var newPath = EglPath.TrimTrailingSeparators(newInstallPath);
         var oldPath = item.Manifest.InstallLocation;
