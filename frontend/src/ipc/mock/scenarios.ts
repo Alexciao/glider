@@ -32,7 +32,8 @@ import {
   iso,
 } from "./constants";
 import { Errors } from "./errors";
-import type { ScenarioInfo, ScenarioName } from "./options";
+import { stressArt } from "./artStress";
+import type { MockArt, ScenarioInfo, ScenarioName } from "./options";
 
 export const SCENARIOS: readonly ScenarioInfo[] = [
   { name: "fresh", label: "Fresh", description: "First run: signed out, nothing installed, no Epic Games Launcher." },
@@ -62,7 +63,7 @@ export interface JobMeta {
 
 export interface BuildConfig {
   backdrop: "mica" | "solid";
-  art: "default" | "none";
+  art: MockArt;
 }
 
 export interface ScenarioBuild {
@@ -135,7 +136,7 @@ export function buildScenario(name: ScenarioName, cfg: BuildConfig, now: number)
     lastUpdateCheck: null,
     runState: "idle",
     runningSince: null,
-    art: cfg.art === "none" ? null : { ...GAME_ART },
+    art: cfg.art === "none" ? null : cfg.art === "default" ? { ...GAME_ART } : stressArt(cfg.art),
     downloadSizeBytes: FULL_DOWNLOAD_BYTES,
     installSizeBytes: FULL_INSTALL_BYTES,
   };

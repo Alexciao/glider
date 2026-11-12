@@ -23,6 +23,9 @@ export interface ScenarioInfo {
   description: string;
 }
 
+export const MOCK_ART = ["default", "none", "busy", "bright", "white"] as const;
+export type MockArt = (typeof MOCK_ART)[number];
+
 export interface MockOptions {
   /** Initial scenario (default "fresh"). */
   scenario?: ScenarioName;
@@ -34,7 +37,8 @@ export interface MockOptions {
   freeze?: boolean;
   /** The next mutating call fails with this error. */
   fail?: ErrorCode;
-  art?: "default" | "none";
+  /** Key art: the default scene, none (the no-art fallback) or a worst-case stand-in (busy / bright / white). */
+  art?: MockArt;
   backdrop?: "mica" | "solid";
   /** Multiplier on simulated latencies (default 1; tests use 0). */
   latency?: number;
@@ -98,7 +102,7 @@ const finite = (v: string | null): number | undefined => {
 const truthy = (v: string | null): boolean | undefined =>
   v === null ? undefined : v === "" || v === "1" || v.toLowerCase() === "true";
 
-/** `?scenario= &seek= &timescale= &freeze=1 &fail= &art=none &backdrop= &latency= &seed= &eac=0` */
+/** `?scenario= &seek= &timescale= &freeze=1 &fail= &art=none|busy|bright|white &backdrop= &latency= &seed= &eac=0` */
 export function parseMockOptions(search: string): MockOptions {
   const q = new URLSearchParams(search);
   const o: MockOptions = {};
@@ -118,8 +122,8 @@ export function parseMockOptions(search: string): MockOptions {
   const failCode = q.get("fail");
   if (failCode && (ERROR_CODES as readonly string[]).includes(failCode)) o.fail = failCode as ErrorCode;
 
-  if (q.get("art") === "none") o.art = "none";
-  else if (q.get("art") === "default") o.art = "default";
+  const art = q.get("art");
+  if (art && (MOCK_ART as readonly string[]).includes(art)) o.art = art as MockArt;
 
   const backdrop = q.get("backdrop");
   if (backdrop === "mica" || backdrop === "solid") o.backdrop = backdrop;

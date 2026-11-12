@@ -132,6 +132,12 @@ export const STATES: ShotState[] = [
   // --------------------------------------------------------------- library
   { name: "library-installed", query: "scenario=installed" },
   { name: "library-installed-no-art", query: "scenario=installed&art=none" },
+  // Worst-case key art: the hero must stay AA on anything Epic's catalog can serve.
+  { name: "library-art-busy", query: "scenario=installed&art=busy" },
+  { name: "library-art-bright", query: "scenario=installed&art=bright" },
+  { name: "library-art-white", query: "scenario=installed&art=white" },
+  { name: "library-art-busy-downloading", query: "scenario=downloading&freeze=1&seek=0.42&timescale=1&art=busy", settle: 900 },
+  { name: "library-art-bright-error", query: "scenario=diskFull&art=bright", settle: 700 },
   { name: "library-update-available", query: "scenario=updateAvailable" },
   { name: "library-downloading", query: "scenario=downloading&freeze=1&seek=0.42&timescale=1", settle: 900 },
   {

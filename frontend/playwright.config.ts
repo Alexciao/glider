@@ -1,6 +1,5 @@
 import { defineConfig } from "@playwright/test";
-
-const PORT = Number(process.env.GLIDER_E2E_PORT ?? 5199);
+import { E2E_PORT as PORT } from "./e2e/tools/port.mjs";
 
 /**
  * Headless Chromium against the Vite dev server with the mock backend (no WebView2, no native GUI).
