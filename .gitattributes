@@ -6,3 +6,4 @@
 *.exe binary
 docs/research/fixtures/** -text
 tests/Glider.Core.Tests/Fixtures/** -text
+DECISIONS.md merge=union
