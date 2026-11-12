@@ -1,4 +1,6 @@
 using Glider.Core.Contracts;
+using Glider.Core.Egl;
+using Glider.Core.Services;
 using Glider.Core.Tests.Egl;
 
 namespace Glider.Core.Tests.EndToEnd;
@@ -80,6 +82,34 @@ public sealed class EndToEndTests
         Assert.Equal(1, h.Count("import"));
         Assert.Equal(0, h.Count("install"));
         Assert.Equal(0, h.Count("verify"));
+    }
+
+    [Fact]
+    public async Task QuickScanFindsAnInstallEglDoesNotKnowAndAdoptsItInPlace()
+    {
+        await using var h = await EndToEndHarness.StartAsync(V1);
+        var game = h.Tree.CreateGame(h.Tree.Drive("D", "Games", "FN Custom Name"), "22222222222222222222222222222222");
+        h.Disk.Drives.Add(new FixedDrive(h.Tree.Drive("D"), 1, 1));
+        await h.Rpc.RescanEgl();
+        Assert.Empty(h.Snapshot.Egl.Candidates); // no .item, no LauncherInstalled.dat entry
+
+        var egl = await h.Rpc.QuickScanEgl();
+
+        var c = Assert.Single(egl.Candidates);
+        Assert.Equal(CandidateSource.Manual, c.Source);
+        Assert.True(EglPath.Same(c.InstallPath, game));
+        Assert.True(c.ExecutableFound);
+        var before = EglTreeHasher.Hash(h.Egl, game);
+
+        var result = await h.Rpc.Adopt(new AdoptRequest(c.Id, null, VerifyMode.Auto));
+
+        // In place: Legendary was only asked to import (no install, no copy), the folder is untouched and now Glider's.
+        Assert.Equal(InstallStatus.Installed, result.Game.InstallStatus);
+        Assert.True(EglPath.Same(result.Game.Installed!.InstallPath, game));
+        Assert.Equal(1, h.Count("import"));
+        Assert.Equal(0, h.Count("install"));
+        Assert.Contains(game, h.Legendary.Invocations().Single(i => i.Command == "import").Args);
+        EglTreeHasher.AssertSame(before, EglTreeHasher.Hash(h.Egl, game));
     }
 
     [Fact]

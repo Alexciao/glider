@@ -28,6 +28,7 @@ internal sealed class EndToEndHarness : IAsyncDisposable
     public EglProbe EglProcesses { get; } = new();
     public Services.FakeHost Host { get; } = new(new Services.CallLog());
     public Services.FakeSink Sink { get; } = new();
+    public Services.FakeDisk Disk { get; } = new();
     public GameProcesses GameProcesses { get; } = new();
     public Services.FakeServices EacInstalled { get; } = new() { Installed = { "EasyAntiCheat_EOS" } };
     public GliderRuntime Runtime { get; private set; } = null!;
@@ -63,7 +64,7 @@ internal sealed class EndToEndHarness : IAsyncDisposable
             Egl = EglTestTree.FastOptions(),
             ProcessMonitor = GameProcesses,
             ProcessStarter = GameProcesses,
-            DiskInfo = new Services.FakeDisk(),
+            DiskInfo = Disk,
             ServiceQuery = EacInstalled,
             ArtCache = new Services.FakeArt(),
         });
