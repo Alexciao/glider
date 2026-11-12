@@ -1,0 +1,224 @@
+/*
+ * Glider design tokens. Every component consumes these; no raw colors/sizes in components.
+ *
+ * Layers:
+ *   1. Raw theme variables (--g-*) defined per theme ([data-theme]) and backdrop ([data-backdrop]).
+ *   2. Tailwind v4 @theme inline mapping, exposing them as utilities (bg-surface-1, text-fg-muted…).
+ *
+ * Color is OKLCH. Neutrals carry a whisper of cool hue (h≈265) so the UI reads "graphite", not grey.
+ * One accent ("glide blue") is reserved for progress, focus and selection; primary actions use a
+ * high-contrast neutral fill (white-on-dark / ink-on-light), keeping the UI calm and restrained.
+ */
+
+@theme {
+  /* Reset Tailwind's palette: we only want our tokens. */
+  --color-*: initial;
+
+  /* ---------- Typography ---------- */
+  --font-sans: "Inter Variable", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+
+  /* Type scale (size / line-height). Desktop base is 13px. */
+  --text-2xs: 0.6875rem;   /* 11 */
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.75rem;      /* 12 */
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;    /* 13 — body */
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem;   /* 14 */
+  --text-base--line-height: 1.25rem;
+  --text-md: 1rem;         /* 16 */
+  --text-md--line-height: 1.5rem;
+  --text-lg: 1.25rem;      /* 20 */
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.5rem;       /* 24 */
+  --text-xl--line-height: 2rem;
+  --text-2xl: 2rem;        /* 32 */
+  --text-2xl--line-height: 2.5rem;
+  --text-3xl: 2.75rem;     /* 44 — hero */
+  --text-3xl--line-height: 3rem;
+
+  --tracking-tight: -0.02em;
+  --tracking-tighter: -0.03em;
+  --tracking-wide: 0.04em;
+
+  /* ---------- Spacing: 4px grid (Tailwind multiplies this) ---------- */
+  --spacing: 0.25rem;
+
+  /* ---------- Radii ---------- */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+
+  /* ---------- Motion ---------- */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);       /* entering, most UI */
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);    /* moving on screen */
+  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);        /* exiting */
+  --duration-instant: 90ms;
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --duration-slow: 280ms;
+
+  /* ---------- Layout ---------- */
+  --titlebar-height: 40px;
+  --sidebar-width: 64px;
+}
+
+/* =========================== Dark (default) =========================== */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* App background. On Mica it is translucent so the backdrop shows through. */
+  --g-bg: oklch(0.165 0.006 265);
+  --g-bg-elevated: oklch(0.2 0.007 265);
+
+  /* Surfaces are layered translucency on top of bg → they work on Mica and solid alike. */
+  --g-surface-1: oklch(1 0 0 / 0.035);
+  --g-surface-2: oklch(1 0 0 / 0.06);
+  --g-surface-3: oklch(1 0 0 / 0.09);
+  --g-surface-hover: oklch(1 0 0 / 0.075);
+  --g-surface-active: oklch(1 0 0 / 0.11);
+  --g-overlay: oklch(0.12 0.006 265 / 0.72);
+  --g-popover: oklch(0.215 0.007 265);
+
+  --g-border: oklch(1 0 0 / 0.08);
+  --g-border-strong: oklch(1 0 0 / 0.14);
+  --g-highlight: oklch(1 0 0 / 0.06); /* 1px inner top highlight on raised surfaces */
+
+  --g-fg: oklch(0.97 0.003 265);
+  --g-fg-muted: oklch(0.76 0.008 265);
+  --g-fg-subtle: oklch(0.6 0.01 265);
+  --g-fg-disabled: oklch(0.45 0.01 265);
+
+  /* Primary action: neutral, highest contrast. */
+  --g-primary: oklch(0.97 0.003 265);
+  --g-primary-hover: oklch(1 0 0);
+  --g-primary-fg: oklch(0.17 0.006 265);
+
+  --g-accent: oklch(0.72 0.15 252);
+  --g-accent-hover: oklch(0.77 0.14 252);
+  --g-accent-fg: oklch(0.16 0.03 252);
+  --g-accent-soft: oklch(0.72 0.15 252 / 0.16);
+  --g-focus: oklch(0.75 0.15 252);
+
+  --g-success: oklch(0.76 0.15 155);
+  --g-success-soft: oklch(0.76 0.15 155 / 0.14);
+  --g-warning: oklch(0.82 0.14 80);
+  --g-warning-soft: oklch(0.82 0.14 80 / 0.14);
+  --g-danger: oklch(0.69 0.19 25);
+  --g-danger-soft: oklch(0.69 0.19 25 / 0.14);
+
+  --g-shadow-sm: 0 1px 2px oklch(0 0 0 / 0.3);
+  --g-shadow-md: 0 4px 12px -2px oklch(0 0 0 / 0.35), 0 1px 3px oklch(0 0 0 / 0.25);
+  --g-shadow-lg: 0 16px 40px -8px oklch(0 0 0 / 0.5), 0 4px 12px -4px oklch(0 0 0 / 0.3);
+  --g-shadow-glow: 0 0 0 1px oklch(1 0 0 / 0.06), 0 8px 32px -6px oklch(0.72 0.15 252 / 0.35);
+
+  /* Hero scrim over key art (keeps text AA on any art). */
+  --g-scrim: linear-gradient(180deg, oklch(0.165 0.006 265 / 0) 0%, oklch(0.165 0.006 265 / 0.55) 55%, oklch(0.165 0.006 265 / 0.96) 100%);
+}
+
+[data-theme="dark"][data-backdrop="mica"] {
+  --g-bg: oklch(0.165 0.006 265 / 0.62);
+  --g-bg-elevated: oklch(0.2 0.007 265 / 0.8);
+}
+
+/* =========================== Light =========================== */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --g-bg: oklch(0.975 0.002 265);
+  --g-bg-elevated: oklch(1 0 0);
+
+  --g-surface-1: oklch(0.2 0.01 265 / 0.03);
+  --g-surface-2: oklch(0.2 0.01 265 / 0.05);
+  --g-surface-3: oklch(0.2 0.01 265 / 0.08);
+  --g-surface-hover: oklch(0.2 0.01 265 / 0.06);
+  --g-surface-active: oklch(0.2 0.01 265 / 0.1);
+  --g-overlay: oklch(0.3 0.01 265 / 0.35);
+  --g-popover: oklch(1 0 0);
+
+  --g-border: oklch(0.2 0.01 265 / 0.1);
+  --g-border-strong: oklch(0.2 0.01 265 / 0.17);
+  --g-highlight: oklch(1 0 0 / 0.7);
+
+  --g-fg: oklch(0.2 0.01 265);
+  --g-fg-muted: oklch(0.42 0.012 265);
+  --g-fg-subtle: oklch(0.54 0.012 265);
+  --g-fg-disabled: oklch(0.7 0.01 265);
+
+  --g-primary: oklch(0.2 0.01 265);
+  --g-primary-hover: oklch(0.12 0.01 265);
+  --g-primary-fg: oklch(0.98 0.002 265);
+
+  --g-accent: oklch(0.55 0.19 258);
+  --g-accent-hover: oklch(0.5 0.19 258);
+  --g-accent-fg: oklch(0.99 0 0);
+  --g-accent-soft: oklch(0.55 0.19 258 / 0.12);
+  --g-focus: oklch(0.55 0.19 258);
+
+  --g-success: oklch(0.55 0.15 155);
+  --g-success-soft: oklch(0.55 0.15 155 / 0.12);
+  --g-warning: oklch(0.6 0.14 70);
+  --g-warning-soft: oklch(0.7 0.14 80 / 0.16);
+  --g-danger: oklch(0.55 0.2 25);
+  --g-danger-soft: oklch(0.55 0.2 25 / 0.1);
+
+  --g-shadow-sm: 0 1px 2px oklch(0.2 0.01 265 / 0.08);
+  --g-shadow-md: 0 4px 12px -2px oklch(0.2 0.01 265 / 0.12), 0 1px 3px oklch(0.2 0.01 265 / 0.08);
+  --g-shadow-lg: 0 16px 40px -8px oklch(0.2 0.01 265 / 0.2), 0 4px 12px -4px oklch(0.2 0.01 265 / 0.1);
+  --g-shadow-glow: 0 0 0 1px oklch(0.2 0.01 265 / 0.06), 0 8px 32px -6px oklch(0.55 0.19 258 / 0.3);
+
+  --g-scrim: linear-gradient(180deg, oklch(0.975 0.002 265 / 0) 0%, oklch(0.975 0.002 265 / 0.5) 55%, oklch(0.975 0.002 265 / 0.97) 100%);
+}
+
+[data-theme="light"][data-backdrop="mica"] {
+  --g-bg: oklch(0.975 0.002 265 / 0.66);
+  --g-bg-elevated: oklch(1 0 0 / 0.85);
+}
+
+/* Expose theme variables as Tailwind utilities. */
+@theme inline {
+  --color-bg: var(--g-bg);
+  --color-bg-elevated: var(--g-bg-elevated);
+  --color-surface-1: var(--g-surface-1);
+  --color-surface-2: var(--g-surface-2);
+  --color-surface-3: var(--g-surface-3);
+  --color-surface-hover: var(--g-surface-hover);
+  --color-surface-active: var(--g-surface-active);
+  --color-overlay: var(--g-overlay);
+  --color-popover: var(--g-popover);
+  --color-border: var(--g-border);
+  --color-border-strong: var(--g-border-strong);
+  --color-highlight: var(--g-highlight);
+  --color-fg: var(--g-fg);
+  --color-fg-muted: var(--g-fg-muted);
+  --color-fg-subtle: var(--g-fg-subtle);
+  --color-fg-disabled: var(--g-fg-disabled);
+  --color-primary: var(--g-primary);
+  --color-primary-hover: var(--g-primary-hover);
+  --color-primary-fg: var(--g-primary-fg);
+  --color-accent: var(--g-accent);
+  --color-accent-hover: var(--g-accent-hover);
+  --color-accent-fg: var(--g-accent-fg);
+  --color-accent-soft: var(--g-accent-soft);
+  --color-focus: var(--g-focus);
+  --color-success: var(--g-success);
+  --color-success-soft: var(--g-success-soft);
+  --color-warning: var(--g-warning);
+  --color-warning-soft: var(--g-warning-soft);
+  --color-danger: var(--g-danger);
+  --color-danger-soft: var(--g-danger-soft);
+  --color-transparent: transparent;
+  --color-current: currentColor;
+  --color-white: oklch(1 0 0);
+  --color-black: oklch(0 0 0);
+
+  --shadow-sm: var(--g-shadow-sm);
+  --shadow-md: var(--g-shadow-md);
+  --shadow-lg: var(--g-shadow-lg);
+  --shadow-glow: var(--g-shadow-glow);
+}

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Glider</title>
+    <script>
+      // Resolve theme before first paint to avoid any flash. The host passes ?theme=&backdrop=.
+      (function () {
+        var q = new URLSearchParams(location.search);
+        var t = q.get("theme") || "system";
+        if (t === "system") t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        document.documentElement.dataset.theme = t;
+        document.documentElement.dataset.backdrop = q.get("backdrop") || "solid";
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
