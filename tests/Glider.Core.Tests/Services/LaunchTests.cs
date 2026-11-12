@@ -5,6 +5,21 @@ namespace Glider.Core.Tests.Services;
 
 public class LaunchTests
 {
+    [Fact]
+    public async Task CloseGameClosesShippingAndStubs()
+    {
+        using var rig = new Rig();
+        rig.Processes.Add(FortniteLayout.ShippingProcessName);
+        rig.Processes.Add("FortniteLauncher");
+        rig.Processes.Add("unrelated");
+
+        await rig.Service.CloseGame();
+
+        Assert.Equal([FortniteLayout.ShippingProcessName, "FortniteLauncher"], rig.Processes.Closed);
+        Assert.Empty(rig.Processes.Find(FortniteLayout.ShippingProcessName));
+        await rig.Service.CloseGame(); // not running: a no-op
+    }
+
     private static async Task<(Rig Rig, List<RunState> States)> Ready(bool eacInstalled = true, bool withSetup = true)
     {
         var rig = new Rig();

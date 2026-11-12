@@ -330,6 +330,8 @@ public sealed class GliderService : IGliderRpc, IDisposable
         }
     });
 
+    public Task CloseGame() => Rpc(nameof(CloseGame), _ => _launch.CloseGameAsync());
+
     public Task OpenInstallFolder() => Rpc(nameof(OpenInstallFolder), () =>
     {
         var rec = _c.Records.Current ?? throw new GliderException(Errors.NotInstalled());

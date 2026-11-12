@@ -39,3 +39,4 @@ One line of reasoning per decision. Newest at the bottom of each section.
 ## Process
 - **Model budget (user constraint, 2026-11-12)**: exactly one Fable 5.2 task, spent on the screenshot-driven design/UX critique; all other subagents (incl. architecture/perf and security reviews, in place of GPT-6-Luna) run on Opus 5.5 high (xhigh only when essential).
 - **MIT license for Glider's own code**: permissive and simple; Legendary stays a separate GPLv3 executable, so there's no linking concern.
+- FileLog: added FlushFileBuffers per drained batch for the 0-byte-while-open report; could not reproduce in a test (content was already flushed), so this targets NTFS stale-size metadata.

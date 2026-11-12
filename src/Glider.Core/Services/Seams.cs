@@ -14,6 +14,9 @@ public interface IProcessMonitor
 {
     /// <summary>Processes whose name (without .exe) equals <paramref name="processName"/>.</summary>
     IReadOnlyList<RunningProcess> Find(string processName);
+
+    /// <summary>Asks the process to close, then kills it (and its children) if it has not exited shortly after.</summary>
+    void Close(RunningProcess process);
 }
 
 /// <summary>Spawns the game from the command Legendary resolved. Never logs arguments (they carry a live exchange code).</summary>
@@ -93,6 +96,29 @@ public sealed class SystemProcessMonitor : IProcessMonitor
         }
 
         return result;
+    }
+
+    public void Close(RunningProcess process)
+    {
+        try
+        {
+            using var p = Process.GetProcessById(process.Id);
+            if (p.ProcessName != process.Name)
+            {
+                return; // pid reused by something else
+            }
+
+            if (p.CloseMainWindow() && p.WaitForExit(3000))
+            {
+                return;
+            }
+
+            p.Kill(entireProcessTree: true);
+        }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            // Already gone, or protected/elevated: nothing more we can do.
+        }
     }
 }
 
