@@ -1,0 +1,7 @@
+# Synthetic fixture rendered by generate_synthetic.py from the verbatim format strings of legendary 0.21.1 (cli.py:1240-1346, lfs/utils.py:157); values are plausible, not captured from a live run.
+[cli] INFO: Loading installed manifest for "Fortnite"
+[cli] INFO: Verifying "Fortnite" version "++Fortnite+Release-33.00-CL-38324456-Windows"
+[LFS Utils] CRITICAL: Could not verify "FortniteGame/Content/Paks/pakchunk2-WindowsClient.ucas"; opening failed with: PermissionError(13, 'The process cannot access the file because it is being used by another process')
+[cli] ERROR: Other failure (see log), treating file as missing: "FortniteGame/Content/Paks/pakchunk2-WindowsClient.ucas"
+[cli] ERROR: Verification failed, 0 file(s) corrupted, 1 file(s) are missing.
+[cli] INFO: Run "legendary repair Fortnite" to repair your game installation.

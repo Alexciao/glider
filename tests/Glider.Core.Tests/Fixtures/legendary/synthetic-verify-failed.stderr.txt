@@ -1,0 +1,8 @@
+# Synthetic fixture rendered by generate_synthetic.py from the verbatim format strings of legendary 0.21.1 (cli.py:1240-1346, lfs/utils.py:157); values are plausible, not captured from a live run.
+[cli] INFO: Loading installed manifest for "Fortnite"
+[cli] INFO: Verifying "Fortnite" version "++Fortnite+Release-33.00-CL-38324456-Windows"
+[cli] ERROR: File does not match hash: "FortniteGame/Content/Paks/pakchunk3-WindowsClient.ucas"
+[cli] ERROR: File is missing: "FortniteGame/Content/Paks/pakchunk7-WindowsClient.ucas"
+[cli] ERROR: File is missing: "FortniteGame/Content/Paks/pakchunk8-WindowsClient.ucas"
+[cli] ERROR: Verification failed, 1 file(s) corrupted, 2 file(s) are missing.
+[cli] INFO: Run "legendary repair Fortnite" to repair your game installation.

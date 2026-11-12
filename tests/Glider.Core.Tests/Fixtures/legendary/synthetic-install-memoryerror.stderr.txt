@@ -1,0 +1,17 @@
+# Synthetic fixture rendered by generate_synthetic.py from the verbatim format strings of legendary 0.21.1 (downloader/mp/manager.py:419-432 (uncaught MemoryError)); values are plausible, not captured from a live run.
+[Core] INFO: Trying to re-use existing login session...
+[cli] INFO: Saving install tags for "Fortnite" to config: ,Startup,FrontEnd,FortniteBR
+[cli] INFO: Preparing download for "Fortnite" (Fortnite)...
+[Core] INFO: Parsing game manifest...
+[Core] INFO: Install path: D:\Games\Fortnite
+[DLM] INFO: Found 1874 files to skip based on install tag.
+[DLM] INFO: Remaining files after filtering: 3122
+[Core] INFO: Selected CDN: epicgames-download1.akamaized.net (https)
+Traceback (most recent call last):
+  File "cli.py", line 3262, in <module>
+  File "cli.py", line 3177, in main
+  File "cli.py", line 990, in install_game
+  File "legendary\core.py", line 1700, in prepare_download
+  File "legendary\downloader\mp\manager.py", line 431, in run_analysis
+MemoryError: Current shared memory cache is smaller than required: 2048.0 MiB < 2150.0 MiB. Try running legendary with "--enable-reordering" to reduce memory usage, or use "--max-shared-memory 2182" to increase the limit.
+[PYI-20988:ERROR] Failed to execute script 'cli' due to unhandled exception!

@@ -1,0 +1,6 @@
+# Synthetic fixture rendered by generate_synthetic.py from the verbatim format strings of legendary 0.21.1 (cli.py:1055-1067); values are plausible, not captured from a live run.
+
+Installation requirements check returned the following results:
+ - Warning: This game is not marked for offline use (may still work).
+ ! Failure: Not enough available disk space! 12.34 GiB < 48.28 GiB
+

@@ -1,0 +1,4 @@
+# Synthetic fixture rendered by generate_synthetic.py from the verbatim format strings of legendary 0.21.1 (cli.py:1240-1346, lfs/utils.py:157); values are plausible, not captured from a live run.
+[cli] INFO: Loading installed manifest for "Fortnite"
+[cli] INFO: Verifying "Fortnite" version "++Fortnite+Release-33.00-CL-38324456-Windows"
+[cli] INFO: Verification finished successfully.

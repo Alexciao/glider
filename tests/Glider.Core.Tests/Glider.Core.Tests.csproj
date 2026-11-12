@@ -15,6 +15,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Glider.Core\Glider.Core.csproj" />
     <ProjectReference Include="..\..\tools\Glider.ContractGen\Glider.ContractGen.csproj" />
+    <!-- Copies FakeLegendary(.exe) next to the tests; tests point AppPaths.LegendaryExe at it. -->
+    <ProjectReference Include="..\FakeLegendary\FakeLegendary.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />

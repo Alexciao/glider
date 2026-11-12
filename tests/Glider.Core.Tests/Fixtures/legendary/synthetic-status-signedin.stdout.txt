@@ -1,0 +1,2 @@
+# Synthetic fixture rendered by generate_synthetic.py from the verbatim format strings of legendary 0.21.1 (cli.py:1620-1627); values are plausible, not captured from a live run.
+{"account": "\u00c5sa \u65e5\u672c", "games_available": 3, "games_installed": 1, "egl_sync_enabled": false, "config_directory": "C:/Users/tester/AppData/Local/Glider/legendary"}

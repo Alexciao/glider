@@ -1,0 +1,739 @@
+using System.Globalization;
+using System.Text.Json;
+using Glider.Core.Contracts;
+using Glider.Core.Infrastructure;
+
+namespace Glider.Core.Legendary;
+
+public sealed class LegendaryOptions
+{
+    /// <summary>Kill a download/verify that shows no progress for this long (Legendary retries failed chunks forever).</summary>
+    public TimeSpan StallTimeout { get; init; } = TimeSpan.FromSeconds(90);
+
+    /// <summary>status / auth / launch --json / --version.</summary>
+    public TimeSpan QuickTimeout { get; init; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>info --json downloads the full CDN manifest.</summary>
+    public TimeSpan InfoTimeout { get; init; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>import may download the latest manifest and counts every file.</summary>
+    public TimeSpan ImportTimeout { get; init; } = TimeSpan.FromMinutes(20);
+
+    /// <summary>Deleting a 100+ GB install can take a while on a slow disk.</summary>
+    public TimeSpan UninstallTimeout { get; init; } = TimeSpan.FromHours(2);
+
+    /// <summary>Ceiling for the automatic MemoryError retry. Null = <see cref="AutoTune.MaxSharedMemoryMb"/> of this machine.</summary>
+    public int? SharedMemoryRetryCeilingMb { get; init; }
+
+    public LegendaryRunnerOptions Runner { get; init; } = new();
+}
+
+/// <summary>
+/// <see cref="ILegendary"/> over the bundled legendary.exe, using the recipes of legendary.md §10. Every run is
+/// classified from its output (exit codes are unreliable); failures surface as <see cref="GliderError"/>s.
+/// </summary>
+public sealed class LegendaryCli : ILegendary, IDisposable
+{
+    private const string NotLoggedIn = "<not logged in>";
+
+    private readonly AppPaths _paths;
+    private readonly ILog _log;
+    private readonly TimeProvider _time;
+    private readonly LegendaryOptions _options;
+
+    public LegendaryCli(AppPaths paths, ILog log, LegendaryOptions? options = null, TimeProvider? time = null)
+    {
+        _paths = paths;
+        _log = log;
+        _time = time ?? TimeProvider.System;
+        _options = options ?? new LegendaryOptions();
+        Runner = new LegendaryProcessRunner(paths, log, _time, _options.Runner);
+    }
+
+    internal LegendaryProcessRunner Runner { get; }
+
+    private string Config => _paths.LegendaryConfig;
+
+    public void Dispose() => Runner.Dispose();
+
+    // ------------------------------------------------------------------ account
+
+    public async Task<string> GetVersionAsync(CancellationToken ct)
+    {
+        var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Version, ["--version"]) { CaptureStdout = true, Timeout = _options.QuickTimeout }, null, ct);
+        // legendary version "0.21.1", codename "Lowlife"
+        var line = run.Stdout.Split('\n').FirstOrDefault(l => l.StartsWith("legendary version \"", StringComparison.Ordinal));
+        if (line is null)
+        {
+            throw new GliderException(ErrorClassifier.Classify(LegendaryCommandKind.Version, run) ?? Errors.LegendaryFailed("No version output."));
+        }
+
+        var start = line.IndexOf('"', StringComparison.Ordinal) + 1;
+        var end = line.IndexOf('"', start);
+        return end > start ? line[start..end] : line.Trim();
+    }
+
+    public async Task<LegendaryAccount?> GetAccountOfflineAsync(CancellationToken ct)
+    {
+        var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Status, ["status", "--offline", "--json"]) { CaptureStdout = true, Timeout = _options.QuickTimeout }, null, ct);
+        var parsed = await AccountFromStatusAsync(run, ct);
+        return parsed is { } status ? status.Account : throw new GliderException(ErrorClassifier.Classify(LegendaryCommandKind.Status, run)!);
+    }
+
+    public async Task<LegendaryAccount?> RefreshSessionAsync(CancellationToken ct)
+    {
+        var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Status, ["status", "--json"]) { CaptureStdout = true, Timeout = _options.QuickTimeout }, null, ct);
+        if (await AccountFromStatusAsync(run, ct) is { } status)
+        {
+            return status.Account;
+        }
+
+        var f = run.Facts;
+        if (f.VersionCheckCrash && !f.LoginFailed && !f.CredentialsInvalid && !f.LoginHttpFailed && !f.NoSavedCredentials)
+        {
+            // status logs in first, then force-fetches api.legendary.gl (cli.py:1610) unguarded. The Epic session is
+            // fine; only Legendary's own API is unreachable. Report the (refreshed) account from user.json.
+            _log.Warn("legendary", "api.legendary.gl unreachable during status; session refresh itself succeeded.");
+            return await ReadAccountAsync(null, ct);
+        }
+
+        throw new GliderException(ErrorClassifier.Classify(LegendaryCommandKind.Status, run)!);
+    }
+
+    public async Task<LegendaryAccount> SignInWithCodeAsync(string authorizationCode, CancellationToken ct)
+    {
+        var code = authorizationCode?.Trim().Trim('"') ?? "";
+        if (code.Length == 0)
+        {
+            throw new GliderException(Errors.AuthFailed("Empty authorization code."));
+        }
+
+        for (var attempt = 0; ; attempt++)
+        {
+            var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.AuthCode, ["auth", "--code", code, "--disable-webview"])
+            {
+                Exclusive = true,
+                RedactedArguments = [2],
+                Timeout = _options.QuickTimeout,
+            }, null, ct);
+
+            if (run.Facts.CredentialsStillValid && run.Facts.SignedInAs is null && attempt == 0)
+            {
+                // `auth` is a no-op while signed in (cli.py:100-104) and hasn't used the code yet: replace the session.
+                _log.Info("legendary", "Replacing the existing Legendary session with the new sign-in.");
+                await SignOutAsync(ct);
+                continue;
+            }
+
+            var error = ErrorClassifier.Classify(LegendaryCommandKind.AuthCode, run);
+            if (error is not null || run.Facts.SignedInAs is null)
+            {
+                throw new GliderException(error ?? Errors.AuthFailed(run.Facts.Detail));
+            }
+
+            return await ReadAccountAsync(run.Facts.SignedInAs, ct) ?? new LegendaryAccount(run.Facts.SignedInAs, "");
+        }
+    }
+
+    public async Task SignOutAsync(CancellationToken ct)
+    {
+        var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.AuthDelete, ["auth", "--delete"]) { Exclusive = true, Timeout = _options.QuickTimeout }, null, ct);
+        var error = ErrorClassifier.Classify(LegendaryCommandKind.AuthDelete, run);
+        AtomicFile.TryDelete(LegendaryFiles.UserJson(Config)); // belt and braces: no token may survive sign-out
+        if (error is not null && File.Exists(LegendaryFiles.UserJson(Config)))
+        {
+            throw new GliderException(error);
+        }
+    }
+
+    // ------------------------------------------------------------------ game info
+
+    public async Task<LegendaryGameInfo> GetGameInfoAsync(string appName, CancellationToken ct)
+    {
+        var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Info, ["info", appName, "--json"]) { CaptureStdout = true, Timeout = _options.InfoTimeout }, null, ct);
+        using var doc = LegendaryFiles.JsonFromStdout(run.Stdout);
+        if (doc is null)
+        {
+            throw new GliderException(ErrorClassifier.Classify(LegendaryCommandKind.Info, run)!);
+        }
+
+        var root = doc.RootElement;
+        var game = LegendaryFiles.Obj(root, "game");
+        var manifest = LegendaryFiles.Obj(root, "manifest");
+        if (game is null)
+        {
+            throw new GliderException(File.Exists(LegendaryFiles.UserJson(Config))
+                ? Errors.LegendaryFailed($"Epic returned no information for {appName}; it may not be on this account.")
+                : Errors.NotSignedIn());
+        }
+
+        using var metadataDoc = await LegendaryFiles.ReadJsonAsync(LegendaryFiles.Metadata(Config, appName), ct);
+        var metadata = metadataDoc is null ? null : LegendaryFiles.Obj(metadataDoc.RootElement, "metadata");
+        var tags = await ChosenInstallTagsAsync(appName, ct);
+        var (download, install) = Sizes(manifest, tags);
+
+        return new LegendaryGameInfo(
+            LegendaryFiles.Str(game.Value, "app_name") ?? appName,
+            LegendaryFiles.Str(game.Value, "title") ?? appName,
+            LegendaryFiles.Str(game.Value, "version") ?? (manifest is { } m ? LegendaryFiles.Str(m, "build_version") : null) ?? "",
+            download,
+            install,
+            metadata is { } md && LegendaryFiles.Obj(md, "customAttributes") is { } ca && LegendaryFiles.Obj(ca, "FolderName") is { } fn
+                ? LegendaryFiles.Str(fn, "value") : null,
+            manifest is { } m2 ? LegendaryFiles.NullIfEmpty(LegendaryFiles.Str(m2, "launch_exe")) : null,
+            metadata is { } md2 ? LegendaryFiles.Str(md2, "id") : null,
+            metadata is { } md3 ? LegendaryFiles.Str(md3, "namespace") : null,
+            metadata is { } md4 ? KeyImages(md4) : [],
+            manifest is { } m3 ? Prerequisites(m3) : null);
+    }
+
+    public async Task<LegendaryInstalledGame?> GetInstalledAsync(string appName, CancellationToken ct)
+    {
+        using var doc = await LegendaryFiles.ReadJsonAsync(LegendaryFiles.InstalledJson(Config), ct);
+        return doc is null ? null : LegendaryFiles.ParseInstalled(doc.RootElement, appName);
+    }
+
+    public string? GetInstalledManifestPath(string appName, string version)
+    {
+        using var doc = LegendaryFiles.ReadJson(LegendaryFiles.InstalledJson(Config));
+        var platform = "Windows";
+        if (doc is not null && doc.RootElement.TryGetProperty(appName, out var g) && LegendaryFiles.Str(g, "platform") is { Length: > 0 } p)
+        {
+            platform = p;
+        }
+
+        // lgndry.py:241-260: <app>_<platform>_<version>.manifest, falling back to <app>_<version>.manifest
+        foreach (var stem in new[] { $"{appName}_{platform}_{version}", $"{appName}_{version}" })
+        {
+            var path = Path.Combine(LegendaryFiles.ManifestsDir(Config), LegendaryFiles.CleanFilename(stem) + ".manifest");
+            if (File.Exists(path))
+            {
+                return path;
+            }
+        }
+
+        return null;
+    }
+
+    // ------------------------------------------------------------------ long-running operations
+
+    public async Task<LegendaryOutcome> InstallAsync(InstallArgs args, IProgress<LegendaryProgress> progress, CancellationToken ct)
+    {
+        var before = await GetInstalledAsync(args.AppName, ct);
+        if (args.Mode == InstallMode.Install && before is null && string.IsNullOrWhiteSpace(args.BasePath))
+        {
+            throw new GliderException(Errors.InvalidRequest("Install needs a base path."));
+        }
+
+        if (args.Mode != InstallMode.Install && before is null)
+        {
+            return Fail(Errors.NotInstalled());
+        }
+
+        var kind = args.Mode switch
+        {
+            InstallMode.Update => LegendaryCommandKind.Update,
+            InstallMode.Repair => LegendaryCommandKind.Repair,
+            _ => LegendaryCommandKind.Install,
+        };
+        var location = before?.InstallPath ?? args.BasePath!;
+        var sharedMemory = args.MaxSharedMemoryMb;
+        var repairAndUpdate = false;
+        var ceiling = _options.SharedMemoryRetryCeilingMb ?? AutoTune.MaxSharedMemoryMb(AutoTune.TotalMemoryBytes());
+
+        for (var attempt = 0; ; attempt++)
+        {
+            var command = new LegendaryCommand(kind, InstallArguments(args, before is not null, sharedMemory, repairAndUpdate))
+            {
+                Exclusive = true,
+                LowPriority = true,
+                StallTimeout = _options.StallTimeout,
+                Timeout = Timeout.InfiniteTimeSpan,
+                // A failed SDL download makes Legendary fall back to a stale hardcoded tag table (core.py:449-453): a fresh
+                // install would miss most files and an update would *delete* them as "untagged". Stop before it starts.
+                AbortWhen = f => f.SdlDownloadFailed,
+            };
+            var run = await RunAsync(command, progress, ct);
+            var f = run.Facts;
+
+            if (attempt == 0 && f.SharedMemorySuggestedMiB is { } need)
+            {
+                var next = (int)Math.Ceiling((need + 128) / 256.0) * 256;
+                var current = sharedMemory > 0 ? sharedMemory : 2048;
+                if (next > current && next <= ceiling)
+                {
+                    _log.Info("legendary", $"Download cache too small ({current} MiB); retrying with {next} MiB.");
+                    sharedMemory = next;
+                    continue;
+                }
+            }
+
+            if (attempt == 0 && kind == LegendaryCommandKind.Repair && f.ManifestMissing && !repairAndUpdate)
+            {
+                _log.Info("legendary", "Installed manifest missing; repairing against the latest manifest.");
+                repairAndUpdate = true;
+                continue;
+            }
+
+            if (run.AbortedEarly && f.SdlDownloadFailed)
+            {
+                return Fail(Errors.Network("Couldn't download Fortnite's file list (SDL data) from api.legendary.gl. Nothing was changed."));
+            }
+
+            var error = ErrorClassifier.Classify(kind, run, FreeBytes(location));
+            if (error is null && kind != LegendaryCommandKind.Repair && await GetInstalledAsync(args.AppName, ct) is null)
+            {
+                error = Errors.LegendaryFailed("Legendary finished but did not register the install.");
+            }
+
+            if (error is not null)
+            {
+                _log.Warn("legendary", $"{kind} failed: {error.Code} {error.Detail}");
+            }
+
+            return new LegendaryOutcome(error is null, error, f.DownloadSizeBytes, f.InstallSizeBytes);
+        }
+    }
+
+    public async Task<LegendaryOutcome> VerifyAsync(string appName, IProgress<LegendaryProgress> progress, CancellationToken ct)
+    {
+        var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Verify, ["verify", appName])
+        {
+            Exclusive = true,
+            LowPriority = true,
+            StallTimeout = _options.StallTimeout,
+            Timeout = Timeout.InfiniteTimeSpan,
+        }, progress, ct);
+        var error = ErrorClassifier.Classify(LegendaryCommandKind.Verify, run);
+        return new LegendaryOutcome(error is null, error, null, null);
+    }
+
+    public async Task<LegendaryOutcome> ImportAsync(string appName, string gamePath, CancellationToken ct)
+    {
+        var path = FolderMover.Normalize(gamePath);
+        var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Import, ["-y", "import", appName, path, "--skip-dlcs"])
+        {
+            Exclusive = true,
+            Timeout = _options.ImportTimeout,
+        }, null, ct);
+        var error = ErrorClassifier.Classify(LegendaryCommandKind.Import, run);
+        var installed = error is null ? await GetInstalledAsync(appName, ct) : null;
+        if (error is null && installed is null)
+        {
+            error = Errors.LegendaryFailed("Legendary finished the import but did not register the install.");
+        }
+
+        return new LegendaryOutcome(error is null, error, null, installed?.InstallSizeBytes);
+    }
+
+    public async Task<LegendaryOutcome> MoveAsync(string appName, string newBasePath, bool skipMove, IProgress<LegendaryProgress>? progress, CancellationToken ct)
+    {
+        var installed = await GetInstalledAsync(appName, ct);
+        if (installed is null)
+        {
+            return Fail(Errors.NotInstalled());
+        }
+
+        var newBase = FolderMover.Normalize(newBasePath);
+        var source = FolderMover.Normalize(installed.InstallPath);
+        var destination = Path.Combine(newBase, Path.GetFileName(source));
+        var sink = progress as ILegendaryProgressSink;
+        sink?.OnPhase(JobPhase.Moving);
+
+        if (skipMove)
+        {
+            return await MoveMetadataAsync(appName, newBase, skipMove: true, ct);
+        }
+
+        if (FolderMover.PathsEqual(source, destination))
+        {
+            return new LegendaryOutcome(true, null, null, installed.InstallSizeBytes);
+        }
+
+        if (FolderMover.IsInside(newBase, source))
+        {
+            return Fail(Errors.InvalidRequest("The destination is inside the current install folder."));
+        }
+
+        if (FolderMover.SameVolume(source, newBase))
+        {
+            var renamed = await MoveMetadataAsync(appName, newBase, skipMove: false, ct);
+            if (renamed.Success || !renamed.Error!.Detail.ContainsOrdinal("different drive"))
+            {
+                return renamed;
+            }
+        }
+
+        // Cross-volume: copy ourselves, then let Legendary only rewrite its metadata, then remove the original.
+        if (Directory.Exists(destination) && Directory.EnumerateFileSystemEntries(destination).Any())
+        {
+            return Fail(Errors.PermissionDenied($"\"{destination}\" already exists."));
+        }
+
+        var size = FolderMover.TreeSize(source);
+        var free = FreeBytes(newBase);
+        if (free is { } freeBytes && freeBytes < size)
+        {
+            return Fail(Errors.InsufficientSpace(size, freeBytes));
+        }
+
+        try
+        {
+            await FolderMover.CopyTreeAsync(source, destination, progress, _time, ct);
+        }
+        catch (Exception e)
+        {
+            FolderMover.TryDeleteTree(destination, _log);
+            if (e is OperationCanceledException)
+            {
+                throw;
+            }
+
+            _log.Error("legendary", "Copying the install failed.", e);
+            return Fail(e switch
+            {
+                UnauthorizedAccessException => Errors.PermissionDenied(e.Message),
+                IOException io when IsDiskFull(io) => Errors.InsufficientSpace(size, FreeBytes(newBase) ?? 0, e.Message),
+                IOException => Errors.FilesLocked(e.Message),
+                _ => Errors.Unknown(e.Message),
+            });
+        }
+
+        var outcome = await MoveMetadataAsync(appName, newBase, skipMove: true, CancellationToken.None);
+        if (!outcome.Success)
+        {
+            FolderMover.TryDeleteTree(destination, _log);
+            return outcome;
+        }
+
+        sink?.OnPhase(JobPhase.Removing);
+        FolderMover.TryDeleteTree(source, _log);
+        return outcome with { InstallSizeBytes = size };
+    }
+
+    public async Task<LegendaryOutcome> UninstallAsync(string appName, bool keepFiles, CancellationToken ct)
+    {
+        List<string> args = ["-y", "uninstall", appName, "--skip-uninstaller"];
+        if (keepFiles)
+        {
+            args.Add("--keep-files");
+        }
+
+        var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Uninstall, args) { Exclusive = true, Timeout = _options.UninstallTimeout }, null, ct);
+        var error = ErrorClassifier.Classify(LegendaryCommandKind.Uninstall, run);
+        return new LegendaryOutcome(error is null, error, null, null);
+    }
+
+    public async Task<LaunchCommand> GetLaunchCommandAsync(string appName, bool skipVersionCheck, string extraArgs, CancellationToken ct)
+    {
+        List<string> args = ["launch", appName, "--json"];
+        if (skipVersionCheck)
+        {
+            args.Add("--skip-version-check");
+        }
+
+        // User args are appended by us, not passed through Legendary: argparse would swallow anything that looks
+        // like one of its own flags (parse_known_args, cli.py:3114), e.g. "-y".
+        var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Launch, args)
+        {
+            CaptureStdout = true,
+            SensitiveStdout = true, // live exchange code
+            Timeout = _options.QuickTimeout,
+        }, null, ct);
+        using var doc = LegendaryFiles.JsonFromStdout(run.Stdout);
+        if (doc is null || LegendaryFiles.Str(doc.RootElement, "game_executable") is null)
+        {
+            throw new GliderException(ErrorClassifier.Classify(LegendaryCommandKind.Launch, run)!);
+        }
+
+        return ParseLaunch(doc.RootElement, CommandLineSplitter.Split(extraArgs));
+    }
+
+    // ------------------------------------------------------------------ helpers
+
+    internal static IReadOnlyList<string> InstallArguments(InstallArgs args, bool installed, int sharedMemoryMb, bool repairAndUpdate)
+    {
+        var verb = args.Mode switch
+        {
+            InstallMode.Update => "update",
+            InstallMode.Repair => "repair",
+            _ => "install",
+        };
+        List<string> a = ["-y", verb, args.AppName];
+        if (args.Mode == InstallMode.Install && !installed && !string.IsNullOrWhiteSpace(args.BasePath))
+        {
+            a.Add("--base-path");
+            a.Add(FolderMover.Normalize(args.BasePath));
+        }
+
+        a.Add("--skip-sdl");
+        a.Add("--skip-dlcs");
+        if (args.Mode == InstallMode.Update)
+        {
+            a.Add("--update-only");
+        }
+
+        if (repairAndUpdate)
+        {
+            a.Add("--repair-and-update");
+        }
+
+        if (args.MaxWorkers > 0)
+        {
+            a.Add("--max-workers");
+            a.Add(args.MaxWorkers.ToString(CultureInfo.InvariantCulture));
+        }
+
+        if (sharedMemoryMb > 0)
+        {
+            a.Add("--max-shared-memory");
+            a.Add(sharedMemoryMb.ToString(CultureInfo.InvariantCulture));
+        }
+
+        if (!string.IsNullOrWhiteSpace(args.PreferredCdn))
+        {
+            a.Add("--preferred-cdn");
+            a.Add(args.PreferredCdn.Trim());
+        }
+
+        return a;
+    }
+
+    internal static LaunchCommand ParseLaunch(JsonElement root, IReadOnlyList<string> extraArgs)
+    {
+        var directory = LegendaryFiles.Str(root, "game_directory") ?? "";
+        var relative = (LegendaryFiles.Str(root, "game_executable") ?? "").Replace('\\', '/').TrimStart('/');
+        var exe = Path.GetFullPath(Path.Combine(directory, relative.Replace('/', Path.DirectorySeparatorChar)));
+        var workingDirectory = LegendaryFiles.Str(root, "working_directory") is { Length: > 0 } wd
+            ? Path.GetFullPath(wd.Replace('/', Path.DirectorySeparatorChar))
+            : Path.GetDirectoryName(exe)!;
+
+        var arguments = new List<string>();
+        var wrapper = LegendaryFiles.Strings(root, "launch_command");
+        var executable = exe;
+        if (wrapper.Count > 0)
+        {
+            executable = wrapper[0];
+            arguments.AddRange(wrapper.Skip(1));
+            arguments.Add(exe);
+        }
+
+        // Legendary's order (cli.py:694-701): game parameters, user parameters, EGL auth parameters.
+        arguments.AddRange(LegendaryFiles.Strings(root, "game_parameters"));
+        arguments.AddRange(LegendaryFiles.Strings(root, "user_parameters"));
+        arguments.AddRange(extraArgs);
+        arguments.AddRange(LegendaryFiles.Strings(root, "egl_parameters"));
+
+        var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (LegendaryFiles.Obj(root, "environment") is { } e)
+        {
+            foreach (var p in e.EnumerateObject())
+            {
+                if (p.Value.ValueKind == JsonValueKind.String)
+                {
+                    env[p.Name] = p.Value.GetString()!;
+                }
+            }
+        }
+
+        return new LaunchCommand(executable, workingDirectory, arguments, env);
+    }
+
+    /// <summary>
+    /// The tags `install --skip-sdl` will use, so sizes match what will actually be downloaded: the installed tags, else
+    /// the saved [app] install_tags, else the cached SDL "__required" pack plus the untagged bucket (cli.py:965-971).
+    /// </summary>
+    internal async Task<IReadOnlySet<string>?> ChosenInstallTagsAsync(string appName, CancellationToken ct)
+    {
+        var installed = await GetInstalledAsync(appName, ct);
+        if (installed is { InstallTags.Count: > 0 })
+        {
+            return installed.InstallTags.Append("").ToHashSet(StringComparer.Ordinal);
+        }
+
+        var ini = await AtomicFile.TryReadAllBytesAsync(LegendaryConfigFile.PathIn(Config), ct);
+        if (ini is not null && IniValue(System.Text.Encoding.UTF8.GetString(ini), appName, "install_tags") is { } saved)
+        {
+            return saved.Split(',').Select(t => t.Trim()).Append("").ToHashSet(StringComparer.Ordinal);
+        }
+
+        using var sdl = await LegendaryFiles.ReadJsonAsync(LegendaryFiles.SdlCache(Config, appName), ct);
+        if (sdl is not null && LegendaryFiles.Obj(sdl.RootElement, "data") is { } data && LegendaryFiles.Obj(data, "__required") is { } req)
+        {
+            return LegendaryFiles.Strings(req, "tags").Append("").ToHashSet(StringComparer.Ordinal);
+        }
+
+        return null;
+    }
+
+    internal static (long Download, long Install) Sizes(JsonElement? manifest, IReadOnlySet<string>? tags)
+    {
+        if (manifest is not { } m)
+        {
+            return (0, 0);
+        }
+
+        var download = LegendaryFiles.Long(m, "download_size") ?? 0;
+        var install = LegendaryFiles.Long(m, "disk_size") ?? 0;
+        if (tags is null)
+        {
+            return (download, install);
+        }
+
+        // Per-tag sums double-count files/chunks carrying several chosen tags, so this errs high (safe for space checks);
+        // never exceed the full manifest totals.
+        var tagDownload = SumTags(m, "tag_download_size", tags);
+        var tagInstall = SumTags(m, "tag_disk_size", tags);
+        return (tagDownload is > 0 and var d ? Math.Min(d, download) : download, tagInstall is > 0 and var i ? Math.Min(i, install) : install);
+    }
+
+    private static long? SumTags(JsonElement manifest, string property, IReadOnlySet<string> tags)
+    {
+        if (!manifest.TryGetProperty(property, out var list) || list.ValueKind != JsonValueKind.Array || list.GetArrayLength() == 0)
+        {
+            return null;
+        }
+
+        long sum = 0;
+        foreach (var entry in list.EnumerateArray())
+        {
+            if (LegendaryFiles.Str(entry, "tag") is { } tag && tags.Contains(tag))
+            {
+                sum += LegendaryFiles.Long(entry, "size") ?? 0;
+            }
+        }
+
+        return sum;
+    }
+
+    private static List<KeyImage> KeyImages(JsonElement metadata)
+    {
+        if (!metadata.TryGetProperty("keyImages", out var list) || list.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var images = new List<KeyImage>();
+        foreach (var img in list.EnumerateArray())
+        {
+            if (LegendaryFiles.Str(img, "type") is { } type && LegendaryFiles.Str(img, "url") is { } url)
+            {
+                images.Add(new KeyImage(type, url, LegendaryFiles.Int(img, "width"), LegendaryFiles.Int(img, "height")));
+            }
+        }
+
+        return images;
+    }
+
+    private static PrerequisiteInfo? Prerequisites(JsonElement manifest)
+    {
+        if (LegendaryFiles.Obj(manifest, "prerequisites") is not { } p)
+        {
+            return null;
+        }
+
+        return new PrerequisiteInfo(LegendaryFiles.Str(p, "name"), LegendaryFiles.Str(p, "path"), LegendaryFiles.Str(p, "args"), LegendaryFiles.Strings(p, "ids"));
+    }
+
+    private static string? IniValue(string ini, string section, string key)
+    {
+        var inSection = false;
+        foreach (var raw in ini.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.StartsWith('[') && line.EndsWith(']'))
+            {
+                inSection = line[1..^1] == section;
+                continue;
+            }
+
+            if (!inSection)
+            {
+                continue;
+            }
+
+            var idx = line.IndexOfAny(['=', ':']);
+            if (idx > 0 && line[..idx].Trim() == key)
+            {
+                return line[(idx + 1)..].Trim();
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<LegendaryOutcome> MoveMetadataAsync(string appName, string newBase, bool skipMove, CancellationToken ct)
+    {
+        List<string> args = ["-y", "move", appName, newBase];
+        if (skipMove)
+        {
+            args.Add("--skip-move");
+        }
+
+        var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Move, args) { Exclusive = true, Timeout = _options.ImportTimeout }, null, ct);
+        var error = ErrorClassifier.Classify(LegendaryCommandKind.Move, run);
+        if (error is not null && run.Facts.MoveCrossDrive)
+        {
+            error = error with { Detail = "different drive" };
+        }
+
+        return new LegendaryOutcome(error is null, error, null, null);
+    }
+
+    private readonly record struct StatusAccount(LegendaryAccount? Account);
+
+    /// <summary>Null when stdout had no status JSON; otherwise the account (null inside = signed out).</summary>
+    private async Task<StatusAccount?> AccountFromStatusAsync(LegendaryRunResult run, CancellationToken ct)
+    {
+        using var doc = LegendaryFiles.JsonFromStdout(run.Stdout);
+        if (doc is null || LegendaryFiles.Str(doc.RootElement, "account") is not { } account)
+        {
+            return null;
+        }
+
+        if (account == NotLoggedIn)
+        {
+            return new StatusAccount(null);
+        }
+
+        return new StatusAccount(await ReadAccountAsync(account, ct) ?? new LegendaryAccount(account, ""));
+    }
+
+    private async Task<LegendaryAccount?> ReadAccountAsync(string? displayName, CancellationToken ct)
+    {
+        using var doc = await LegendaryFiles.ReadJsonAsync(LegendaryFiles.UserJson(Config), ct);
+        if (doc is null)
+        {
+            return null;
+        }
+
+        var (name, id) = LegendaryFiles.ParseUser(doc.RootElement);
+        var display = name ?? displayName; // user.json is UTF-8 JSON; stderr/stdout copies of the name are second best
+        return display is null ? null : new LegendaryAccount(display, id ?? "");
+    }
+
+    private Task<LegendaryRunResult> RunAsync(LegendaryCommand command, IProgress<LegendaryProgress>? progress, CancellationToken ct) =>
+        Runner.RunAsync(command, progress, ct);
+
+    private static LegendaryOutcome Fail(GliderError error) => new(false, error, null, null);
+
+    private static long? FreeBytes(string path)
+    {
+        try
+        {
+            var root = Path.GetPathRoot(Path.GetFullPath(path));
+            return string.IsNullOrEmpty(root) ? null : new DriveInfo(root).AvailableFreeSpace;
+        }
+        catch (Exception e) when (e is IOException or ArgumentException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static bool IsDiskFull(IOException e) => (e.HResult & 0xFFFF) is 112 or 39; // ERROR_DISK_FULL, ERROR_HANDLE_DISK_FULL
+}
+
+internal static class StringExtensions
+{
+    public static bool ContainsOrdinal(this string? s, string value) => s is not null && s.Contains(value, StringComparison.Ordinal);
+}

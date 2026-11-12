@@ -1,0 +1,38 @@
+{
+  "Fortnite": {
+    "app_name": "Fortnite",
+    "base_urls": [
+      "https://epicgames-download1.akamaized.net/Builds/Fortnite/CloudDir/ChunksV4"
+    ],
+    "can_run_offline": false,
+    "egl_guid": "",
+    "executable": "FortniteGame/Binaries/Win64/FortniteLauncher.exe",
+    "install_path": "D:\\Games\\Fortnite",
+    "install_size": 51843123456,
+    "install_tags": [
+      "",
+      "Startup",
+      "FrontEnd",
+      "FortniteBR"
+    ],
+    "is_dlc": false,
+    "is_preloaded": false,
+    "launch_parameters": "",
+    "manifest_path": "",
+    "needs_verification": false,
+    "platform": "Windows",
+    "prereq_info": {
+      "args": "install 9d8ea3b85e7c4bde8bb0c36d79ab3a4a",
+      "ids": [
+        "9d8ea3b85e7c4bde8bb0c36d79ab3a4a"
+      ],
+      "name": "EAC",
+      "path": "FortniteGame/Binaries/Win64/EasyAntiCheat/EasyAntiCheat_EOS_Setup.exe"
+    },
+    "requires_ot": false,
+    "save_path": null,
+    "title": "Fortnite",
+    "uninstaller": null,
+    "version": "++Fortnite+Release-33.00-CL-38324456-Windows"
+  }
+}

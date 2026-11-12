@@ -1,0 +1,4 @@
+# Synthetic fixture rendered by generate_synthetic.py from the verbatim format strings of legendary 0.21.1 (cli.py:2644-2669); values are plausible, not captured from a live run.
+[cli] INFO: Moving "Fortnite" from "D:/Games" to "E:\Games"
+[cli] INFO: Not moving, just rewriting legendary metadata...
+[cli] INFO: Finished.

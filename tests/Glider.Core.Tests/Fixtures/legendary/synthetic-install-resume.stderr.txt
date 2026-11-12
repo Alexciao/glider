@@ -1,0 +1,58 @@
+# Synthetic fixture rendered by generate_synthetic.py from the verbatim format strings of legendary 0.21.1 (manager.py:124-150, cli.py:1042-1049); values are plausible, not captured from a live run.
+[Core] INFO: Trying to re-use existing login session...
+[cli] INFO: Saving install tags for "Fortnite" to config: ,Startup,FrontEnd,FortniteBR
+[cli] INFO: Preparing download for "Fortnite" (Fortnite)...
+[Core] INFO: Parsing game manifest...
+[Core] INFO: Install path: D:\Games\Fortnite
+[DLM] INFO: Found previously interrupted download. Download will be resumed if possible.
+[DLM] INFO: Skipping 1210 files based on resume data.
+[DLM] INFO: Found 1874 files to skip based on install tag.
+[DLM] INFO: Remaining files after filtering: 3122
+[Core] INFO: Selected CDN: epicgames-download1.akamaized.net (https)
+[cli] INFO: Install size: 49442.06 MiB
+[cli] INFO: Download size: 18310.10 MiB (Compression savings: 38.2%)
+[cli] INFO: Reusable size: 0.00 MiB (chunks) / 19792.06 MiB (unchanged / skipped)
+[cli] INFO: Downloads are resumable, you can interrupt the download with CTRL-C and resume it using the same command later on.
+[DLManager] INFO: Download Manager running with process-id: 14212
+[DLManager] INFO: Starting download workers...
+[DLManager] INFO: Starting file writing worker...
+[DLManager] INFO: = Progress: 0.00% (0/37211), Running for 00:00:00, ETA: 00:00:00
+[DLManager] INFO:  - Downloaded: 0.00 MiB, Written: 0.00 MiB
+[DLManager] INFO:  - Cache usage: 0.00 MiB, active tasks: 0
+[DLManager] INFO:  + Download	- 0.00 MiB/s (raw) / 0.00 MiB/s (decompressed)
+[DLManager] INFO:  + Disk	- 0.00 MiB/s (write) / 0.00 MiB/s (read)
+[DLManager] INFO: = Progress: 0.51% (190/37211), Running for 00:00:02, ETA: 00:06:29
+[DLManager] INFO:  - Downloaded: 93.76 MiB, Written: 151.90 MiB
+[DLManager] INFO:  - Cache usage: 96.00 MiB, active tasks: 16
+[DLManager] INFO:  + Download	- 93.76 MiB/s (raw) / 151.90 MiB/s (decompressed)
+[DLManager] INFO:  + Disk	- 151.90 MiB/s (write) / 0.00 MiB/s (read)
+[DLManager] INFO: = Progress: 0.93% (346/37211), Running for 00:00:03, ETA: 00:05:19
+[DLManager] INFO:  - Downloaded: 170.94 MiB, Written: 276.92 MiB
+[DLManager] INFO:  - Cache usage: 96.00 MiB, active tasks: 16
+[DLManager] INFO:  + Download	- 77.18 MiB/s (raw) / 125.02 MiB/s (decompressed)
+[DLManager] INFO:  + Disk	- 125.02 MiB/s (write) / 0.00 MiB/s (read)
+[DLManager] INFO: = Progress: 1.39% (516/37211), Running for 00:00:04, ETA: 00:04:44
+[DLManager] INFO:  - Downloaded: 254.87 MiB, Written: 412.88 MiB
+[DLManager] INFO:  - Cache usage: 96.00 MiB, active tasks: 16
+[DLManager] INFO:  + Download	- 83.93 MiB/s (raw) / 135.96 MiB/s (decompressed)
+[DLManager] INFO:  + Disk	- 135.96 MiB/s (write) / 0.00 MiB/s (read)
+[DLManager] INFO: = Progress: 1.84% (683/37211), Running for 00:00:05, ETA: 00:04:27
+[DLManager] INFO:  - Downloaded: 337.39 MiB, Written: 546.58 MiB
+[DLManager] INFO:  - Cache usage: 96.00 MiB, active tasks: 16
+[DLManager] INFO:  + Download	- 82.53 MiB/s (raw) / 133.69 MiB/s (decompressed)
+[DLManager] INFO:  + Disk	- 133.69 MiB/s (write) / 0.00 MiB/s (read)
+[DLManager] INFO: = Progress: 2.36% (878/37211), Running for 00:00:06, ETA: 00:04:08
+[DLManager] INFO:  - Downloaded: 433.78 MiB, Written: 702.72 MiB
+[DLManager] INFO:  - Cache usage: 96.00 MiB, active tasks: 16
+[DLManager] INFO:  + Download	- 96.38 MiB/s (raw) / 156.14 MiB/s (decompressed)
+[DLManager] INFO:  + Disk	- 156.14 MiB/s (write) / 0.00 MiB/s (read)
+[DLManager] INFO: = Progress: 2.88% (1070/37211), Running for 00:00:07, ETA: 00:03:56
+[DLManager] INFO:  - Downloaded: 528.55 MiB, Written: 856.25 MiB
+[DLManager] INFO:  - Cache usage: 96.00 MiB, active tasks: 16
+[DLManager] INFO:  + Download	- 94.77 MiB/s (raw) / 153.53 MiB/s (decompressed)
+[DLManager] INFO:  + Disk	- 153.53 MiB/s (write) / 0.00 MiB/s (read)
+[DLManager] INFO: = Progress: 3.42% (1274/37211), Running for 00:00:08, ETA: 00:03:45
+[DLManager] INFO:  - Downloaded: 629.14 MiB, Written: 1019.20 MiB
+[DLManager] INFO:  - Cache usage: 96.00 MiB, active tasks: 16
+[DLManager] INFO:  + Download	- 100.59 MiB/s (raw) / 162.95 MiB/s (decompressed)
+[DLManager] INFO:  + Disk	- 162.95 MiB/s (write) / 0.00 MiB/s (read)

@@ -1,0 +1,1 @@
+[cli] ERROR: Legendary is missing game metadata, please login (if not already) and use the "status" command to fetch necessary information to set-up syncing.

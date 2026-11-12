@@ -1,0 +1,1 @@
+[cli] ERROR: Game "Fortnite" is not installed
