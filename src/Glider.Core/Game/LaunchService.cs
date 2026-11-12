@@ -10,7 +10,20 @@ namespace Glider.Core.Game;
 /// </summary>
 internal sealed class LaunchService
 {
+    /// <summary>
+    /// How long a prepared `launch --json` result may wait for the click. It carries a single-use Epic exchange code that
+    /// Epic issues with a 300 s lifetime (`expiresInSeconds`); the game spends a further 10-60 s booting before it redeems
+    /// it, so we stay well inside that window.
+    /// </summary>
+    internal static readonly TimeSpan PreparedTtl = TimeSpan.FromSeconds(90);
+
+    /// <summary>A prepared command younger than this is kept on a repeated hover instead of being fetched again.</summary>
+    private static readonly TimeSpan PreparedRefreshAfter = TimeSpan.FromSeconds(60);
+
     private readonly ServiceContext _c;
+    private readonly Lock _prepGate = new();
+    private PreparedLaunch? _prepared;
+    private Task _preparing = Task.CompletedTask;
     private readonly EacService _eac;
     private readonly UpdateChecker _updates;
     private readonly ProcessWatcher _watcher;
@@ -28,6 +41,121 @@ internal sealed class LaunchService
     }
 
     internal ProcessWatcher Watcher => _watcher;
+
+    /// <summary>Completes when the current prepare fetch ends (tests).</summary>
+    internal Task Preparing
+    {
+        get
+        {
+            lock (_prepGate)
+            {
+                return _preparing;
+            }
+        }
+    }
+
+    /// <summary>What a prepared command must still match when the user clicks Play.</summary>
+    private sealed record LaunchKey(string InstallPath, string Version, string LaunchArgs, string? AccountId);
+
+    private sealed record PreparedLaunch(LaunchKey Key, bool SkippedVersionCheck, LaunchCommand Command, DateTimeOffset At);
+
+    /// <summary>
+    /// The UI signals intent (Play hovered/focused): resolve `launch --json` now, in the background, so the click spawns
+    /// the game without waiting ~1.5-3 s for Legendary. Best effort and idempotent; never throws, never blocks.
+    /// </summary>
+    public void Prepare()
+    {
+        if (Key(requireSignedIn: true) is not { } key || !CanLaunchNow(key.InstallPath))
+        {
+            return;
+        }
+
+        lock (_prepGate)
+        {
+            if (!_preparing.IsCompleted || (_prepared is { } p && p.Key == key && _c.Now - p.At < PreparedRefreshAfter))
+            {
+                return;
+            }
+
+            _prepared = null;
+            var skip = _updates.CheckedRecentlyWithoutUpdate();
+            var ct = _c.Shutdown;
+            _preparing = Task.Run(async () =>
+            {
+                var started = _c.Time.GetTimestamp();
+                try
+                {
+                    var cmd = await _c.Legendary.GetLaunchCommandAsync(ServiceContext.App, skip, key.LaunchArgs, ct);
+                    lock (_prepGate)
+                    {
+                        _prepared = new PreparedLaunch(key, skip, cmd, _c.Now);
+                    }
+
+                    _c.Log.Info("launch", $"launch command prepared in {_c.Time.GetElapsedTime(started).TotalMilliseconds:0} ms (skipVersionCheck={skip})");
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                catch (Exception e)
+                {
+                    // Launch fetches again and surfaces the real error; the message never carries the exchange code.
+                    _c.Log.Info("launch", $"launch prepare failed: {(e is GliderException g ? g.Error.Code.ToString() : e.GetType().Name)}");
+                }
+            }, CancellationToken.None);
+        }
+    }
+
+    /// <summary>Drops a prepared command (sign-out, settings or install changes are also caught by the key check).</summary>
+    public void InvalidatePrepared()
+    {
+        lock (_prepGate)
+        {
+            _prepared = null;
+        }
+    }
+
+    private LaunchKey? Key(bool requireSignedIn)
+    {
+        var rec = _c.Records.Current;
+        var auth = _c.Hub.State.Auth;
+        if (rec is null || (requireSignedIn && auth.Status != AuthStatus.SignedIn))
+        {
+            return null;
+        }
+
+        return new LaunchKey(rec.InstallPath, rec.Version, _c.Settings.LaunchArgs ?? "", auth.Account?.AccountId);
+    }
+
+    private bool CanLaunchNow(string installPath) =>
+        _c.Hub.State.RunState == RunState.Idle && !_watcher.IsActive && _c.Hub.FirstActiveJob() is null &&
+        !_c.Hub.BuildGame().UpdateAvailable && !_c.Egl.IsBusyWith(installPath) && FortniteLayout.LooksLikeInstall(installPath);
+
+    /// <summary>The prepared command if it is still valid for this exact launch (single use), else a fresh `launch --json`.</summary>
+    private async Task<(LaunchCommand Command, bool Prepared)> TakeLaunchCommandAsync(bool skip, CancellationToken ct)
+    {
+        Task inflight;
+        lock (_prepGate)
+        {
+            inflight = _preparing;
+        }
+
+        await inflight.WaitAsync(ct); // a hover just started it: joining beats a second spawn
+
+        PreparedLaunch? p;
+        lock (_prepGate)
+        {
+            p = _prepared;
+            _prepared = null; // exchange codes are single use
+        }
+
+        var key = Key(requireSignedIn: false);
+        if (p is not null && p.Key == key && _c.Now - p.At < PreparedTtl && (skip || !p.SkippedVersionCheck) && !_c.Hub.BuildGame().UpdateAvailable)
+        {
+            return (p.Command, true);
+        }
+
+        return (await _c.Legendary.GetLaunchCommandAsync(ServiceContext.App, skip, _c.Settings.LaunchArgs ?? "", ct), false);
+    }
 
     /// <summary>Completes when the current watch loop ends (tests).</summary>
     internal Task WatchLoop => _watchLoop;
@@ -66,6 +194,7 @@ internal sealed class LaunchService
             throw new GliderException(Errors.GameRunning());
         }
 
+        var clicked = _c.Time.GetTimestamp();
         try
         {
             SetRun(RunState.Preparing, null);
@@ -73,7 +202,7 @@ internal sealed class LaunchService
 
             SetRun(RunState.Launching, null);
             var skip = _updates.CheckedRecentlyWithoutUpdate();
-            var cmd = await _c.Legendary.GetLaunchCommandAsync(ServiceContext.App, skip, _c.Settings.LaunchArgs ?? "", ct);
+            var (cmd, prepared) = await TakeLaunchCommandAsync(skip, ct);
             _watcher.BeginLaunch();
             try
             {
@@ -85,7 +214,7 @@ internal sealed class LaunchService
                 throw new GliderException(Errors.LaunchFailed(e.Message), e);
             }
 
-            _c.Log.Info("launch", $"started {Path.GetFileName(cmd.Executable)} (skipVersionCheck={skip}, eacInstalledNow={ranEac})");
+            _c.Log.Info("launch", $"started {Path.GetFileName(cmd.Executable)} {_c.Time.GetElapsedTime(clicked).TotalMilliseconds:0} ms after Play (prepared={prepared}, skipVersionCheck={skip}, eacInstalledNow={ranEac})");
             StartWatching();
             return new LaunchResult(true, ranEac);
         }

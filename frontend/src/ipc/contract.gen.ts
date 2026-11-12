@@ -347,6 +347,7 @@ export interface RpcMethods {
   "game.move": { params: MoveRequest; result: JobInfo };
   "game.openInstallFolder": { params: void; result: void };
   "game.planInstall": { params: InstallPlanRequest; result: InstallPlan };
+  "game.prepareLaunch": { params: void; result: void };
   "game.uninstall": { params: UninstallRequest; result: JobInfo };
   "game.update": { params: void; result: JobInfo };
   "game.validateFolder": { params: ValidateFolderRequest; result: FolderValidation };
@@ -397,6 +398,7 @@ export const RPC_METHODS = [
   "game.move",
   "game.openInstallFolder",
   "game.planInstall",
+  "game.prepareLaunch",
   "game.uninstall",
   "game.update",
   "game.validateFolder",

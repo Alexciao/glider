@@ -124,6 +124,7 @@ public class ContractTests
         public Task<JobInfo> Move(MoveRequest request) => throw new NotImplementedException();
         public Task<JobInfo> Uninstall(UninstallRequest request) => throw new NotImplementedException();
         public Task<LaunchResult> Launch() => throw new NotImplementedException();
+        public Task PrepareLaunch() => throw new NotImplementedException();
         public Task OpenInstallFolder() => throw new NotImplementedException();
         public Task<JobInfo> PauseJob(JobRef request) => throw new NotImplementedException();
         public Task<JobInfo> ResumeJob(JobRef request) => throw new NotImplementedException();

@@ -49,6 +49,11 @@ public interface IGliderRpc
     [RpcMethod("game.move")] Task<JobInfo> Move(MoveRequest request);
     [RpcMethod("game.uninstall")] Task<JobInfo> Uninstall(UninstallRequest request);
     [RpcMethod("game.launch")] Task<LaunchResult> Launch();
+    /// <summary>
+    /// Hint that the user is about to press Play (hover/focus): resolves the launch command in the background so
+    /// <c>game.launch</c> starts the game without waiting for Legendary. Returns at once, never fails; safe to call repeatedly.
+    /// </summary>
+    [RpcMethod("game.prepareLaunch")] Task PrepareLaunch();
     [RpcMethod("game.openInstallFolder")] Task OpenInstallFolder();
 
     // ---- jobs ----
