@@ -47,6 +47,9 @@ public static class RpcEvents
 
     /// <summary><see cref="WindowInfo"/> whenever maximized/focus changes.</summary>
     public const string Window = "window";
+
+    /// <summary><see cref="CaptionEvent"/> from the native Snap Layouts overlay over the HTML maximize button.</summary>
+    public const string Caption = "caption";
 }
 
 /// <summary>Thrown by service code to return a structured, human-readable error to the UI.</summary>

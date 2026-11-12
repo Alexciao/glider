@@ -268,6 +268,12 @@ public sealed record Notice(string Id, NoticeLevel Level, string Title, string? 
 
 public sealed record WindowInfo(bool Maximized, bool Focused);
 
+[JsonConverter(typeof(CamelEnumConverter<CaptionState>))]
+public enum CaptionState { Hover, Leave, Down }
+
+/// <summary>Native caption overlay (Snap Layouts) hover/press on an HTML caption button; Button is "max".</summary>
+public sealed record CaptionEvent(string Button, CaptionState State);
+
 // ===================================== Requests / results =====================================
 
 public sealed record InstallPlanRequest(string? BasePath);

@@ -23,6 +23,7 @@ namespace Glider.Core.Contracts;
 [JsonSerializable(typeof(GliderError))]
 [JsonSerializable(typeof(Notice))]
 [JsonSerializable(typeof(WindowInfo))]
+[JsonSerializable(typeof(CaptionEvent))]
 [JsonSerializable(typeof(InstallPlanRequest))]
 [JsonSerializable(typeof(InstallPlan))]
 [JsonSerializable(typeof(InstallRequest))]
