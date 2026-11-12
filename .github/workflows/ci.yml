@@ -1,0 +1,82 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Build.props
+            .config/dotnet-tools.json
+
+      # Version comes from "packageManager" in frontend/package.json
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: frontend/package.json
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Build (warnings are errors)
+        run: dotnet build Glider.slnx -c Release -warnaserror
+
+      - name: Test
+        run: dotnet test --project tests/Glider.Core.Tests -c Release
+
+      - name: Contract is up to date
+        run: dotnet run --project tools/Glider.ContractGen -c Release -- --check
+
+      - name: Frontend install
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Frontend lint
+        working-directory: frontend
+        run: pnpm lint
+
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: pnpm typecheck
+
+      - name: Frontend test
+        working-directory: frontend
+        run: pnpm test
+
+      - name: Fetch pinned Legendary
+        run: dotnet run build/FetchLegendary.cs
+
+      - name: Legendary smoke test (real exe, no auth)
+        shell: pwsh
+        run: ./build/smoke-legendary.ps1
+
+      - name: Package (Velopack)
+        shell: pwsh
+        run: ./build/build.ps1 -Pack -Version "0.1.0-ci.${{ github.run_number }}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: glider-releases
+          path: artifacts/releases/*
+          if-no-files-found: error
+          retention-days: 14
