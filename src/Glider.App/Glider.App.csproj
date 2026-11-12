@@ -2,10 +2,68 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
+    <!-- Plain net10.0-windows: a windows10.0.x TFM adds the 52 MB Windows SDK projection (see docs/research/host-and-packaging.md). -->
     <TargetFramework>net10.0-windows</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>false</UseWindowsForms>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>Glider.App</RootNamespace>
+    <AssemblyName>Glider</AssemblyName>
+    <PlatformTarget>x64</PlatformTarget>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <GenerateSatelliteAssemblies>false</GenerateSatelliteAssemblies>
+    <TieredPGO>true</TieredPGO>
+    <TieredCompilation>true</TieredCompilation>
+    <ServerGarbageCollector>false</ServerGarbageCollector>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <UseSystemResourceKeys>false</UseSystemResourceKeys>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CA1001;CA1859;CA1812;CA1822;CA2000;CA1305;CA1307;CA1308;CA1814;CA1815;CA1819;CA2201;CA1416</NoWarn>
+    <!-- WPF forbids trimming (NETSDK1168); ReadyToRun covers startup instead. -->
   </PropertyGroup>
+
+  <!-- Release = self-contained win-x64 + ReadyToRun, no debug info. `dotnet publish -c Release` is all the build scripts need. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+  </PropertyGroup>
+
+  <!-- Icons come from the branding workstream (assets/brand/glider.ico + tray.ico), copied here. -->
+  <PropertyGroup>
+    <AppIconFile>$(MSBuildThisFileDirectory)Assets/app.ico</AppIconFile>
+    <TrayIconFile>$(MSBuildThisFileDirectory)Assets/tray.ico</TrayIconFile>
+    <ApplicationIcon>$(AppIconFile)</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="System.IO" />
+    <Using Include="System.Threading" />
+    <Using Include="System.Threading.Tasks" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Velopack" Version="1.2.161" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
+    <ProjectReference Include="..\Glider.Core\Glider.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Embedded fallback UI used when neither wwwroot nor frontend/dist exists. -->
+    <EmbeddedResource Include="Assets\placeholder.html" LogicalName="placeholder.html" />
+
+    <!-- Icons next to the exe; the tray loads tray.ico from here. -->
+    <Content Include="$(TrayIconFile)" Link="Assets\tray.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(AppIconFile)" Link="Assets\app.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+
+    <!-- Built frontend (copied from frontend/dist by the build scripts; gitignored). -->
+    <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- Bundled Legendary (exe + LICENSE.txt, fetched + hash-verified by the build scripts; gitignored). -->
+    <Content Include="legendary\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 
 </Project>
