@@ -109,6 +109,11 @@ export const actions = {
     return run("verify", () => rpc().call("game.verify"), inline(surface, () => void actions.verify(surface)));
   },
 
+  /** Fire-and-forget: backend prefetches `launch --json` so Play is near-instant. Never surfaces errors. */
+  prepareLaunch(): Promise<void> {
+    return rpc().call("game.prepareLaunch").catch(() => undefined);
+  },
+
   launch(): Promise<unknown> {
     clear("hero");
     return run("launch", () => rpc().call("game.launch"), inline("hero", () => void actions.launch()));

@@ -5,6 +5,7 @@ import type { HeroKind, HeroModel } from "../../state/derive";
 import { formatClock, formatPercent } from "../../state/format";
 import { useNow } from "../../state/hooks";
 import { useProgress } from "../../state/progress";
+import { actions } from "../../state/actions";
 import { Spinner, cx, labelSwap, spring } from "../../ui";
 
 const icons: Partial<Record<HeroKind, ReactNode>> = {
@@ -74,6 +75,9 @@ export interface PrimaryActionProps {
  * Playing / Waiting: width reflows with a critically damped spring (layout projection, transform-only)
  * while the label crossfades with a hair of blur so the two states read as one object changing.
  */
+/** Warms the launch command on hover/focus so Play starts the game almost instantly. Safe to repeat. */
+const prefetchLaunch = () => void actions.prepareLaunch();
+
 export function PrimaryAction({ hero, runningSince, pending, moment, onPress }: PrimaryActionProps) {
   const primary = hero.emphasis === "primary";
   const busy = pending && primary;
@@ -91,6 +95,8 @@ export function PrimaryAction({ hero, runningSince, pending, moment, onPress }: 
       disabled={!interactive}
       aria-busy={busy || undefined}
       onClick={onPress}
+      onPointerEnter={hero.kind === "play" ? prefetchLaunch : undefined}
+      onFocus={hero.kind === "play" ? prefetchLaunch : undefined}
       data-kind={hero.kind}
       className={cx(
         "relative flex h-12 min-w-[132px] items-center justify-center overflow-hidden px-6 text-md font-semibold",

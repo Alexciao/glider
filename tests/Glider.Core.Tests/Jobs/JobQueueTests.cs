@@ -522,6 +522,13 @@ public class JobQueueCancelUpdateTests
         var q = await h.StartAsync();
         var job = q.Enqueue(new JobRequest(JobKind.Update, null, null, "old", "new"));
         await QueueHarness.WaitFor(q, job.Id, j => j.Progress is { Percent: >= 10 });
+        // the fake appends to the resume file per completed file; under load that can lag the progress events
+        for (var i = 0; i < 200 && !File.Exists(h.Env.ResumeFile); i++)
+        {
+            await Task.Delay(25, TestContext.Current.CancellationToken);
+        }
+
+        Assert.True(File.Exists(h.Env.ResumeFile), "fake never wrote a resume file");
         await q.CancelAsync(job.Id);
         await q.WhenCleanupDoneAsync();
         // an interrupted update is a mix of old and new files; only the resume file tells Legendary which are new
