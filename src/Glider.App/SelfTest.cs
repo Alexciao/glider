@@ -80,7 +80,7 @@ internal static partial class SelfTest
             await Step("hover", () => HoverTest(rt, win, dir));
             await Step("toast", () => Ui(rt, () => rt.Platform.ShowToast("Glider self-test", "Host toast via Shell_NotifyIcon (safe to ignore).")));
             await Step("placement", () => Ui(rt, () => PlacementTest(rt, win)));
-            await Step("login", () => LoginTest(rt));
+            await Step("login", () => LoginTest(rt, dir));
             await Step("close", () => CloseTest(rt, win));
             await Step("hide-suspend", () => HideSuspendTest(rt, win));
         }
@@ -357,10 +357,32 @@ internal static partial class SelfTest
         Report["placement.file"] = File.Exists(path) ? File.ReadAllText(path) : "MISSING";
     }
 
-    private static async Task LoginTest(HostRuntime rt)
+    private static async Task LoginTest(HostRuntime rt, string dir)
     {
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(7));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(12));
         var task = await rt.Ui.InvokeAsync(() => rt.Platform.AcquireEpicAuthorizationCodeAsync(cts.Token)).Task;
+        // What the user actually sees: screen pixels of the login window after the page had time to load.
+        await Task.Delay(TimeSpan.FromSeconds(9));
+        await rt.Ui.InvokeAsync(() =>
+        {
+            var hwnd = LoginWindowHwnd();
+            if (hwnd == 0 || !Win32.GetWindowRect(hwnd, out var wr))
+            {
+                Report["login.screenshot"] = "no window";
+                return;
+            }
+
+            int w = wr.Right - wr.Left, h = wr.Bottom - wr.Top;
+            var px = Capture(dc => { var sdc = Win32.GetDC(0); var ok = BitBlt(dc, 0, 0, w, h, sdc, wr.Left, wr.Top, 0x00CC0020 | 0x40000000); _ = Win32.ReleaseDC(0, sdc); return ok; }, w, h);
+            SavePng(Path.Combine(dir, "login.png"), px, w, h);
+            var distinct = new HashSet<int>();
+            for (var i = 0; i + 3 < px.Length && distinct.Count < 64; i += 4 * 97)
+            {
+                distinct.Add(px[i] | (px[i + 1] << 8) | (px[i + 2] << 16));
+            }
+
+            Report["login.screenshot"] = $"{w}x{h}, distinct colors sampled: {distinct.Count} (blank window ≈ 1–3)";
+        });
         try
         {
             var code = await task;
@@ -368,7 +390,7 @@ internal static partial class SelfTest
         }
         catch (OperationCanceledException)
         {
-            Report["login.result"] = "cancelled by token after 7s (window opened and closed cleanly)";
+            Report["login.result"] = "cancelled by token after 12s (window opened and closed cleanly)";
         }
 
         await rt.Platform.ClearLoginSessionAsync();
@@ -376,6 +398,8 @@ internal static partial class SelfTest
     }
 
     /// <summary>Alt+F4 / system close must go through rpc.Close (→ hide to tray with the placeholder's default CloseToTray=true), not kill the app.</summary>
+    private static nint LoginWindowHwnd() => EpicLogin.LastHwndForTests;
+
     private static async Task CloseTest(HostRuntime rt, MainWindow win)
     {
         await Ui(rt, () => Win32.PostMessage(win.Hwnd, Win32.WM_CLOSE, 0, 0));

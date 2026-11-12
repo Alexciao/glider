@@ -18,6 +18,8 @@ namespace Glider.App;
 /// </summary>
 internal sealed class EpicLogin
 {
+    internal static nint LastHwndForTests => LoginWindow.LastHwnd;
+
     private const string ClientId = "34a02cf8f4414e29b15921876da36f9a";
     public const string RedirectPrefix = "https://www.epicgames.com/id/api/redirect";
 
@@ -114,6 +116,9 @@ internal sealed class EpicLogin
         private bool _finished;
         private int _redirectMisses;
 
+        /// <summary>HWND of the most recent login window (self-test screenshots).</summary>
+        internal static nint LastHwnd { get; private set; }
+
         public LoginWindow(CoreWebView2Environment env, Window? owner)
         {
             _env = env;
@@ -155,7 +160,8 @@ internal sealed class EpicLogin
         public Task<string?> RunAsync()
         {
             Prepare();
-            _showTimer.Start();
+            // Show first: a WebView2 controller created under a never-shown parent can stay unpainted (blank window).
+            ShowNow();
             _ = StartAsync(navigate: true);
             return _done.Task;
         }
@@ -163,6 +169,7 @@ internal sealed class EpicLogin
         private void Prepare()
         {
             _hwnd = new WindowInteropHelper(this).EnsureHandle();
+            LastHwnd = _hwnd;
             // Match the app: dark title bar (and a theme-colored caption on Windows 11).
             var dark = ThemeState.IsDark ? 1 : 0;
             Win32.DwmSetWindowAttribute(_hwnd, Win32.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
@@ -212,7 +219,9 @@ internal sealed class EpicLogin
                 options.DefaultBackgroundColor = DrawingColor.FromArgb(unchecked((int)ThemeState.BackgroundArgb));
                 _controller = await _env.CreateCoreWebView2ControllerAsync(_hwnd, options);
                 _controller.DefaultBackgroundColor = DrawingColor.FromArgb(unchecked((int)ThemeState.BackgroundArgb));
+                _controller.IsVisible = true;
                 Resize();
+                _controller.NotifyParentWindowPositionChanged();
                 var web = _controller.CoreWebView2;
                 web.Settings.AreDevToolsEnabled = WebViewSetup.DeveloperMode;
                 web.Settings.AreDefaultContextMenusEnabled = WebViewSetup.DeveloperMode;
@@ -305,6 +314,14 @@ internal sealed class EpicLogin
             _shown = true;
             Show();
             Activate();
+            if (_controller is not null)
+            {
+                // Re-assert visibility + bounds now that the parent is on screen.
+                _controller.IsVisible = false;
+                _controller.IsVisible = true;
+                Resize();
+                _controller.NotifyParentWindowPositionChanged();
+            }
         }
 
         public void BringToFront()
