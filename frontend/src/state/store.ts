@@ -16,10 +16,18 @@ interface AppStore {
   setWindow: (w: WindowInfo) => void;
 }
 
+/** Dev-only (mock mode): lets the stress toggle rewrite every incoming snapshot. */
+let transform: ((s: AppSnapshot) => AppSnapshot) | null = null;
+export const setSnapshotTransform = (fn: typeof transform): void => void (transform = fn);
+
 export const useApp = create<AppStore>((set) => ({
   snapshot: null,
   window: { maximized: false, focused: true },
-  setSnapshot: (next) => set((s) => ({ snapshot: s.snapshot ? share(s.snapshot, next) : next })),
+  setSnapshot: (raw) =>
+    set((s) => {
+      const next = transform ? transform(raw) : raw;
+      return { snapshot: s.snapshot ? share(s.snapshot, next) : next };
+    }),
   patch: (fn) => set((s) => (s.snapshot ? { snapshot: share(s.snapshot, fn(s.snapshot)) } : s)),
   setWindow: (window) => set((s) => (s.window.maximized === window.maximized && s.window.focused === window.focused ? s : { window })),
 }));

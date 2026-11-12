@@ -39,7 +39,7 @@ export function Section({
       {(title || action) && (
         <div className="flex items-end justify-between gap-4 px-1">
           <div className="min-w-0">
-            {title && <h3 className="text-sm font-semibold text-fg">{title}</h3>}
+            {title && <h2 className="text-sm font-semibold text-fg">{title}</h2>}
             {description && <p className="mt-0.5 text-xs text-fg-muted">{description}</p>}
           </div>
           {action}

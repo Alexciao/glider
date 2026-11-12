@@ -113,7 +113,8 @@ export function deriveHero(s: AppSnapshot, ctx: HeroContext = {}): HeroModel {
   // 1. The game itself is starting, running or closing: that outranks everything.
   switch (game.runState) {
     case "preparing":
-      return quiet("preparing", "Preparing…", { tone: "accent", text: "Getting ready to launch", spinner: true });
+      // Same face as "launching": a 300 ms "Preparing…" in between would just flicker.
+      return quiet("launching", "Launching…", { tone: "accent", text: "Starting Fortnite", spinner: true });
     case "installingPrerequisites":
       return quiet("preparing", "Setting up…", { tone: "accent", text: "Setting up anti-cheat", sub: "Windows may ask for permission", spinner: true });
     case "launching":

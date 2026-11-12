@@ -92,7 +92,7 @@
 
   --g-fg: oklch(0.97 0.003 265);
   --g-fg-muted: oklch(0.76 0.008 265);
-  --g-fg-subtle: oklch(0.6 0.01 265);
+  --g-fg-subtle: oklch(0.66 0.01 265);
   --g-fg-disabled: oklch(0.45 0.01 265);
 
   /* Primary action: neutral, highest contrast. */
@@ -159,7 +159,7 @@
 
   --g-fg: oklch(0.2 0.01 265);
   --g-fg-muted: oklch(0.42 0.012 265);
-  --g-fg-subtle: oklch(0.54 0.012 265);
+  --g-fg-subtle: oklch(0.5 0.012 265);
   --g-fg-disabled: oklch(0.7 0.01 265);
 
   --g-primary: oklch(0.2 0.01 265);

@@ -61,7 +61,7 @@ export function ErrorCallout({
                 type="button"
                 onClick={() => setOpen((o) => !o)}
                 aria-expanded={open}
-                className="inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-xs text-fg-subtle transition-colors duration-150 hover:text-fg"
+                className="inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-xs text-fg-muted transition-colors duration-150 hover:text-fg"
               >
                 <ChevronRight size={12} className={cx("transition-transform duration-150 ease-out", open && "rotate-90")} />
                 Details

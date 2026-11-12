@@ -4,7 +4,8 @@ import { cx } from "./cx";
 export function Kbd({ children, className }: { children: string; className?: string }) {
   const keys = children.split("+");
   return (
-    <span className={cx("inline-flex items-center gap-0.5", className)} aria-label={children.replace("+", " plus ")}>
+    <span className={cx("inline-flex items-center gap-0.5", className)}>
+      <span className="sr-only">{children.replaceAll("+", " plus ")}</span>
       {keys.map((k, i) => (
         <kbd
           key={i}

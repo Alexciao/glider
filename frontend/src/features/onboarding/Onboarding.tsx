@@ -53,7 +53,7 @@ function Stepper({ step }: { step: Exclude<Step, "welcome"> }) {
 function Heading({ title, children }: { title: string; children?: ReactNode }) {
   return (
     <div className="text-center">
-      <h1 className="text-2xl font-semibold tracking-tight text-fg">{title}</h1>
+      <h1 className="text-balance text-2xl font-semibold tracking-tight text-fg">{title}</h1>
       {children && <p className="mx-auto mt-2.5 max-w-[46ch] text-base leading-[1.5] text-fg-muted">{children}</p>}
     </div>
   );
@@ -79,7 +79,7 @@ function Welcome({ onNext }: { onNext: () => void }) {
           <GliderMark size={64} />
         </div>
       </div>
-      <h1 className="text-center text-3xl font-semibold tracking-tighter text-fg max-[1100px]:text-2xl">Install, update and play Fortnite.</h1>
+      <h1 className="text-balance text-center text-3xl font-semibold tracking-tighter text-fg max-[1100px]:text-2xl">Install, update and play Fortnite.</h1>
       <p className="mx-auto mt-3 max-w-[44ch] text-center text-md leading-[1.5] text-fg-muted">
         Glider is a small launcher that does one job. Sign in with your Epic account and you're a minute from playing.
       </p>
@@ -247,7 +247,7 @@ function ChooseExisting({ candidates, onFresh }: { candidates: InstallCandidate[
         </label>
       </div>
 
-      <div className="sticky bottom-0 -mx-6 mt-4 flex flex-col items-stretch gap-2 bg-gradient-to-t from-bg-elevated from-70% to-transparent px-6 pb-6 pt-6">
+      <div className="sticky bottom-0 -mx-6 mt-4 flex flex-col items-stretch gap-2 bg-gradient-to-t from-bg-elevated from-75% to-transparent px-6 pb-6 pt-10">
         <Button size="lg" variant="primary" disabled={!chosen} loading={adopting} onClick={use}>
           {adopting ? "Linking your install…" : "Use this install"}
         </Button>

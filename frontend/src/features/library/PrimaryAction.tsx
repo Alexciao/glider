@@ -50,6 +50,16 @@ function JobFill({ jobId, fallback }: { jobId: string; fallback: number }) {
   );
 }
 
+/** What the button says in the 50–200 ms between a click and the backend's first state change. */
+const PENDING_LABEL: Partial<Record<HeroKind, string>> = {
+  play: "Launching…",
+  signIn: "Signing in…",
+  install: "Starting…",
+  update: "Updating…",
+  resume: "Resuming…",
+  repair: "Repairing…",
+};
+
 export interface PrimaryActionProps {
   hero: HeroModel;
   runningSince: string | null;
@@ -67,8 +77,9 @@ export interface PrimaryActionProps {
 export function PrimaryAction({ hero, runningSince, pending, moment, onPress }: PrimaryActionProps) {
   const primary = hero.emphasis === "primary";
   const busy = pending && primary;
-  const kind: HeroKind = busy ? "loading" : hero.kind;
-  const label = busy ? "Starting…" : hero.label;
+  // Pending reuses the next state's face, so click → pending → running reads as one continuous morph.
+  const kind: HeroKind = busy ? (hero.kind === "play" ? "launching" : "loading") : hero.kind;
+  const label = busy ? (PENDING_LABEL[hero.kind] ?? "Starting…") : hero.label;
   const interactive = !hero.disabled && !busy;
 
   return (

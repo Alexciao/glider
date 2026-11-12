@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { AppSnapshot } from "../ipc/contract.gen";
+import type { AppSnapshot, JobProgress } from "../ipc/contract.gen";
 import { rpc } from "../ipc/rpc";
 import { hasSettingsInFlight } from "./actions";
 import { deriveHero, type HeroModel } from "./derive";
@@ -16,6 +16,10 @@ export function detectReadyMoment(prev: AppSnapshot | null, next: AppSnapshot): 
     (j) => before.has(j.id) && j.status === "completed" && (j.kind === "install" || j.kind === "update" || j.kind === "import"),
   );
 }
+
+/** Dev-only hook (mock mode): the stress toggle rewrites progress at the same boundary the backend uses. */
+let progressTransform: ((p: JobProgress) => JobProgress) | null = null;
+export const setProgressTransform = (fn: typeof progressTransform): void => void (progressTransform = fn);
 
 function applySnapshot(next: AppSnapshot): void {
   const store = useApp.getState();
@@ -36,7 +40,7 @@ export async function startBridge(): Promise<() => void> {
       sawState = true;
       applySnapshot(s);
     }),
-    c.on("progress", ingestProgress),
+    c.on("progress", (p) => ingestProgress(progressTransform ? progressTransform(p) : p)),
     c.on("notice", pushNotice),
     c.on("window", (w) => useApp.getState().setWindow(w)),
   ];

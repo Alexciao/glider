@@ -1,6 +1,7 @@
-import { useEffect, useReducer } from "react";
+import { useEffect, useReducer, useSyncExternalStore } from "react";
 import { FlaskConical } from "lucide-react";
 import { mockController } from "../ipc/rpc";
+import { STRESS_MODES, getStressMode, setStressMode, subscribeStress } from "./stress";
 import type { ErrorCode } from "../ipc/contract.gen";
 import {
   DropdownMenu,
@@ -30,7 +31,28 @@ const NEXT_CALL_ERRORS: [ErrorCode, string][] = [
   ["permissionDenied", "Access denied"],
 ];
 
-/** Dev-only (mock backend): jump between scenarios and inject failures without reloading. */
+/** Plain on purpose: this is chrome, not part of the design under test. Bottom-centre, instant. */
+function DataToggle() {
+  const mode = useSyncExternalStore(subscribeStress, getStressMode);
+  return (
+    <div role="radiogroup" aria-label="Data set" className="fixed bottom-3 left-1/2 z-[70] flex -translate-x-1/2 gap-0.5 rounded-full bg-neutral-500/40 p-0.5 font-[system-ui] text-[11px] backdrop-blur">
+      {STRESS_MODES.map((m) => (
+        <button
+          key={m.value}
+          type="button"
+          role="radio"
+          aria-checked={mode === m.value}
+          onClick={() => setStressMode(m.value)}
+          className={mode === m.value ? "rounded-full bg-white px-2.5 py-1 font-medium text-black" : "rounded-full px-2.5 py-1 text-white/80 hover:text-white"}
+        >
+          {m.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Dev-only (mock backend): jump between scenarios, inject failures and stress the data without reloading. */
 export function DevSwitcher() {
   const controller = mockController();
   const [, bump] = useReducer((n: number) => n + 1, 0);
@@ -38,6 +60,8 @@ export function DevSwitcher() {
   if (!controller) return null;
 
   return (
+    <>
+      <DataToggle />
     <div className="fixed bottom-3 left-3 z-[70]">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -87,5 +111,6 @@ export function DevSwitcher() {
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
+    </>
   );
 }

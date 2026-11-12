@@ -111,9 +111,9 @@ function AutoNumberRow({
         <div className="mt-3 flex items-center gap-4 rounded-lg bg-surface-2 px-3.5 py-2.5">
           {slider ? (
             <>
-              <span className="w-5 text-xs tabular-nums text-fg-subtle">{min}</span>
+              <span className="w-5 text-xs tabular-nums text-fg-muted">{min}</span>
               <Slider aria-label={label} min={min} max={max} step={step} value={draft} onValueChange={setDraft} onValueCommit={(v) => onChange(v)} className="w-full flex-1" />
-              <span className="w-5 text-right text-xs tabular-nums text-fg-subtle">{max}</span>
+              <span className="w-5 text-right text-xs tabular-nums text-fg-muted">{max}</span>
               <span className="w-8 text-right text-sm font-medium tabular-nums text-fg">{draft}</span>
             </>
           ) : (
@@ -138,7 +138,7 @@ function PathRow({ label, description, path, actions: rowActions, empty }: { lab
       control={rowActions}
     >
       <div className="mt-2 flex min-w-0 rounded-md bg-surface-2 px-3 py-2 text-sm">
-        {path ? <PathText path={path} className="text-fg" tailSegments={3} /> : <span className="text-fg-subtle">{empty ?? "Not set"}</span>}
+        {path ? <PathText path={path} className="text-fg" tailSegments={3} /> : <span className="text-fg-muted">{empty ?? "Not set"}</span>}
       </div>
     </Row>
   );
@@ -512,7 +512,7 @@ export function Settings() {
   return (
     <PageScroll wide>
       <PageHeader title="Settings" />
-      <div className="grid grid-cols-[200px_minmax(0,1fr)] gap-10 max-[1100px]:grid-cols-[168px_minmax(0,1fr)] max-[1100px]:gap-7">
+      <div className="grid grid-cols-[200px_minmax(0,1fr)] gap-10 max-[1100px]:grid-cols-[188px_minmax(0,1fr)] max-[1100px]:gap-6">
         <nav aria-label="Settings sections" className="sticky top-0 flex h-fit flex-col gap-0.5">
           {SECTIONS.map((s) => {
             const active = s.id === section;

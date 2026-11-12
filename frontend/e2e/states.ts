@@ -268,6 +268,38 @@ export const STATES: ShotState[] = [
     settle: 0,
   },
 
+  {
+    name: "focus-library-play",
+    query: "scenario=installed",
+    setup: async (p) => {
+      await wait(600);
+      await p.keyboard.press("Tab");
+      await btn(p, /^Play$/).focus();
+      await wait(200);
+    },
+  },
+  {
+    name: "focus-rail",
+    query: "scenario=installed",
+    setup: async (p) => {
+      await wait(600);
+      await p.keyboard.press("Tab");
+      await btn(p, "Downloads").focus();
+      await wait(200);
+    },
+  },
+  {
+    name: "focus-settings-switch",
+    query: "scenario=installed",
+    setup: async (p) => {
+      await go(p, "settings", "general");
+      await wait(500);
+      await p.keyboard.press("Tab");
+      await p.getByRole("switch", { name: /Start with Windows/ }).focus();
+      await wait(200);
+    },
+  },
+
   // ------------------------------------------------------------- downloads
   { name: "downloads-active", query: "scenario=downloading&freeze=1&seek=0.42&timescale=1", setup: async (p) => go(p, "downloads"), settle: 900 },
   {

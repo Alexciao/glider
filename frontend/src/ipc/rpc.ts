@@ -30,6 +30,8 @@ export async function connectRpc(search: string = typeof location === "undefined
   const created = m.createMockTransport(m.parseMockOptions(search));
   mock = created.controller;
   client = new RpcClient(created.transport);
+  // Dev-only data stress (?data=worst|empty|one|huge) is wired before the first snapshot arrives.
+  void (await import("../dev/stress")).installStress(search);
 }
 
 /** Test seam: install a prepared client. */

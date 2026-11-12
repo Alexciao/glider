@@ -37,7 +37,8 @@ describe("deriveHero: the one big button follows real state", () => {
   it("walks the launch lifecycle", async () => {
     const snap = await snapshotFor("installed");
     const at = (runState: typeof snap.game.runState) => deriveHero({ ...snap, game: { ...snap.game, runState } });
-    expect(at("preparing").kind).toBe("preparing");
+    expect(at("preparing").kind).toBe("launching");
+    expect(at("installingPrerequisites").label).toBe("Setting up…");
     expect(at("launching").label).toBe("Launching…");
     expect(at("running").kind).toBe("playing");
     expect(at("closing").label).toBe("Closing…");

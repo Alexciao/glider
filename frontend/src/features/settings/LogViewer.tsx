@@ -60,7 +60,7 @@ export function LogViewer() {
     <div ref={root} className="flex flex-col gap-2">
       <div className="flex items-end justify-between gap-4 px-1">
         <div>
-          <h3 className="text-sm font-semibold text-fg">Logs</h3>
+          <h2 className="text-sm font-semibold text-fg">Logs</h2>
           <p className="mt-0.5 text-xs text-fg-muted">Copy these into a bug report. They never include your password.</p>
         </div>
         <div className="flex items-center gap-1">
