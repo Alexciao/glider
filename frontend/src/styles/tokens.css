@@ -138,6 +138,13 @@
   --g-bg-elevated: oklch(0.2 0.007 265 / 0.8);
 }
 
+/* The host sets data-surface="solid" when Windows swaps Mica for its flat fallback (window inactive, transparency effects off,
+   Battery Saver): paint the solid tint ourselves so the page and the frame agree and nothing flashes white or gray. */
+[data-theme="dark"][data-backdrop="mica"][data-surface="solid"] {
+  --g-bg: oklch(0.165 0.006 265);
+  --g-bg-elevated: oklch(0.2 0.007 265);
+}
+
 /* =========================== Light =========================== */
 [data-theme="light"] {
   color-scheme: light;
@@ -199,6 +206,11 @@
 [data-theme="light"][data-backdrop="mica"] {
   --g-bg: oklch(0.975 0.002 265 / 0.66);
   --g-bg-elevated: oklch(1 0 0 / 0.85);
+}
+
+[data-theme="light"][data-backdrop="mica"][data-surface="solid"] {
+  --g-bg: oklch(0.975 0.002 265);
+  --g-bg-elevated: oklch(1 0 0);
 }
 
 /* Expose theme variables as Tailwind utilities. */

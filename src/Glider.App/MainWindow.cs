@@ -31,6 +31,9 @@ internal sealed partial class MainWindow : Window
     private bool _startedHidden;
     private bool _maximized;
     private bool _focused;
+    private bool _active = true; // activation state for the backdrop; starts true so the cloaked first frame is never solid
+    private bool? _lastDark;
+    private bool? _lastTranslucent;
     private bool _minimized;
     private WindowInfo? _lastPublished;
     private DateTime _lastRecreate = DateTime.MinValue;
@@ -346,7 +349,8 @@ internal sealed partial class MainWindow : Window
             _rt.Bridge.Attach(web);
             _overlays?.Layout(_maximized);
             _overlays?.Raise();
-            web.Navigate(WebViewSetup.BuildStartUrl(ThemeState.IsDark, IsMicaActive));
+            ApplyBackdrop(); // state may have changed while the environment was starting (power, transparency, theme)
+            web.Navigate(WebViewSetup.BuildStartUrl(ThemeState.IsDark, IsMicaActive, _lastTranslucent != false));
         }
         catch (Exception ex)
         {
@@ -392,6 +396,7 @@ internal sealed partial class MainWindow : Window
         _controller = null;
         _web = null;
         _webStarted = false;
+        _rt.RecreateEnvironment(); // the crashed browser process took the environment with it
         StartWebView();
     }
 

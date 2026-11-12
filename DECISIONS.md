@@ -39,3 +39,13 @@ One line of reasoning per decision. Newest at the bottom of each section.
 ## Process
 - **Model budget (user constraint, 2026-11-12)**: exactly one Fable 5.2 task, spent on the screenshot-driven design/UX critique; all other subagents (incl. architecture/perf and security reviews, in place of GPT-6-Luna) run on Opus 5.5 high (xhigh only when essential).
 - **MIT license for Glider's own code**: permissive and simple; Legendary stays a separate GPLv3 executable, so there's no linking concern.
+
+## Mica / title bar fixes (v0.1.1, group B)
+- **Root cause (Mica gray/white/broken)**: the host never modelled Windows' own Mica fallbacks (window inactive, "Transparency effects" off, Battery Saver); the page stayed translucent over DWM's flat colour, the host solid colours (#202020/#F3F3F3) did not match the CSS solid tokens (#0D0E11/#F6F7F8), and the backdrop was re-applied only for the system-theme change. Already correct and left alone: `AllowsTransparency` is false, WebView2 `DefaultBackgroundColor` is set in the controller options before creation, `Background`/`CompositionTarget.BackgroundColor` are transparent, margins -1, `SYSTEMBACKDROP_TYPE`=Mica, immersive dark mode.
+- **Root cause (title bar)**: the Snap Layouts overlay rounded inset and width separately, so it drifted 1 px off the HTML maximize button at 125/175 % DPI. Native hit-testing (HTMAXBUTTON overlay, top-edge resize strip, WM_NCCALCSIZE maximize inset incl. auto-hide taskbar) was already sound; self-test confirms client rect == work area when maximized.
+- **`BackdropPolicy.Decide` is the single Mica-vs-solid decision**; inactive keeps DWM Mica but the page goes opaque via `data-surface="solid"` (set by the host through ExecuteScript, and `&surface=solid` in the start URL), so the page matches DWM's flat fallback instead of tinting over it.
+- **Host solid colours derived from the CSS tokens** (oklch to sRGB) and documented next to the constants; change both together.
+- **Backdrop is re-applied on** WM_ACTIVATE (change only), WM_SETTINGCHANGE "ImmersiveColorSet" (also fires for transparency toggles), WM_THEMECHANGED, WM_DWMCOLORIZATIONCOLORCHANGED, WM_POWERBROADCAST status change, WM_DPICHANGED and maximize/restore; a light/dark flip first sets DWMSBT_NONE so DWM drops the old tint.
+- **ChromeLogic.cs is compiled into Glider.Core.Tests via a link** (host has no test project; types are `public` only so xUnit can see them).
+- **WebView2 crash recovery**: `HostRuntime.RecreateEnvironment()` before re-creating the controller; the old `EnvTask` was dead after a browser-process exit. Not exercised on a real crash.
+- **Login window loading state**: WPF TextBlock under the hidden WebView2 child until first NavigationCompleted, 10 s safety reveal.

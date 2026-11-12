@@ -44,7 +44,10 @@ internal sealed class HostRuntime
 
     public WindowsHostPlatform Platform { get; }
 
-    public Task<CoreWebView2Environment> EnvTask { get; }
+    public Task<CoreWebView2Environment> EnvTask { get; private set; }
+
+    /// <summary>After a WebView2 browser-process crash the old environment is dead: a new controller needs a freshly created one.</summary>
+    public void RecreateEnvironment() => EnvTask = StartEnvironment(Paths);
 
     public Task<IGliderRpc> RpcTask { get; }
 

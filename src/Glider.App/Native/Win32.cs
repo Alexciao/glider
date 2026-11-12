@@ -201,6 +201,10 @@ internal static unsafe partial class Win32
     public const uint WM_SETTINGCHANGE = 0x001A;
     public const uint WM_WINDOWPOSCHANGED = 0x0047;
     public const uint WM_DPICHANGED = 0x02E0;
+    public const uint WM_POWERBROADCAST = 0x0218;
+    public const uint WM_THEMECHANGED = 0x031A;
+    public const uint WM_DWMCOLORIZATIONCOLORCHANGED = 0x0320;
+    public const nint PBT_APMPOWERSTATUSCHANGE = 0x000A;
     public const uint WM_SYSCOMMAND = 0x0112;
     public const uint WM_COMMAND = 0x0111;
     public const uint WM_LBUTTONUP = 0x0202;
@@ -287,6 +291,7 @@ internal static unsafe partial class Win32
     public const int DWMWA_CLOAK = 13;
     public const int DWMWA_CLOAKED = 14;
     public const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+    public const int DWMSBT_NONE = 1;
     public const int DWMSBT_MAINWINDOW = 2;
 
     // ---- tray ----
@@ -495,6 +500,21 @@ internal static unsafe partial class Win32
     public static partial int ReleaseDC(nint hwnd, nint hdc);
 
     // ============================== dwmapi ==============================
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SYSTEM_POWER_STATUS
+    {
+        public byte ACLineStatus;
+        public byte BatteryFlag;
+        public byte BatteryLifePercent;
+        public byte SystemStatusFlag; // 1 = Battery Saver on
+        public uint BatteryLifeTime;
+        public uint BatteryFullLifeTime;
+    }
+
+    [LibraryImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool GetSystemPowerStatus(out SYSTEM_POWER_STATUS status);
 
     [LibraryImport("dwmapi.dll")]
     public static partial int DwmSetWindowAttribute(nint hwnd, int attribute, ref int value, int size);
