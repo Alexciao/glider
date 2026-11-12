@@ -121,6 +121,17 @@ public class FileLogTests
     }
 
     [Fact]
+    public async Task FlushedLinesAreVisibleOnDiskWhileLogIsOpen()
+    {
+        using var dir = new TempDir();
+        await using var log = new FileLog(dir.Path);
+        log.Info("t", "hello");
+        await log.FlushAsync();
+
+        Assert.True(new FileInfo(log.CurrentFile).Length > 0);
+    }
+
+    [Fact]
     public async Task RollsDailyAndDeletesOldFiles()
     {
         using var dir = new TempDir();
