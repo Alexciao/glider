@@ -49,11 +49,11 @@ internal sealed class TestSettings(Settings settings) : ISettingsStore
 }
 
 /// <summary>In-memory ILegendary for queue tests that are about the queue, not about Legendary.</summary>
-internal sealed class StubLegendary(bool verifySucceeds) : ILegendary
+internal class StubLegendary(bool verifySucceeds) : ILegendary
 {
     private static readonly Task<LegendaryOutcome> Ok = Task.FromResult(new LegendaryOutcome(true, null, null, null));
 
-    public Task<LegendaryOutcome> VerifyAsync(string appName, IProgress<LegendaryProgress> progress, CancellationToken ct) =>
+    public virtual Task<LegendaryOutcome> VerifyAsync(string appName, IProgress<LegendaryProgress> progress, CancellationToken ct) =>
         verifySucceeds ? Ok : Task.FromResult(new LegendaryOutcome(false, Errors.Corrupted("stub"), null, null));
 
     public Task<string> GetVersionAsync(CancellationToken ct) => Task.FromResult("0.21.1");
@@ -70,7 +70,7 @@ internal sealed class StubLegendary(bool verifySucceeds) : ILegendary
 
     public Task<LegendaryInstalledGame?> GetInstalledAsync(string appName, CancellationToken ct) => Task.FromResult<LegendaryInstalledGame?>(null);
 
-    public Task<LegendaryOutcome> InstallAsync(InstallArgs args, IProgress<LegendaryProgress> progress, CancellationToken ct) => Ok;
+    public virtual Task<LegendaryOutcome> InstallAsync(InstallArgs args, IProgress<LegendaryProgress> progress, CancellationToken ct) => Ok;
 
     public Task<LegendaryOutcome> ImportAsync(string appName, string gamePath, CancellationToken ct) => Ok;
 
