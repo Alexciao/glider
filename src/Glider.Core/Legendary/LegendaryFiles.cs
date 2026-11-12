@@ -105,6 +105,40 @@ internal static class LegendaryFiles
             Strings(g, "install_tags"));
     }
 
+    /// <summary>
+    /// user.json read the way `status --offline` reads it (lfs/lgndry.py userdata + cli.py:1612-1616): absent => signed out;
+    /// a JSON object with a displayName => signed in. Anything else (empty, torn mid-write, other shapes) is Unclear and
+    /// callers fall back to asking Legendary. Only the non-secret identity fields are read.
+    /// </summary>
+    public static async Task<UserFile> ReadUserAsync(string path, CancellationToken ct)
+    {
+        byte[]? bytes;
+        try
+        {
+            bytes = await AtomicFile.TryReadAllBytesAsync(path, ct).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return new UserFile(UserFileKind.Unclear, null);
+        }
+
+        if (bytes is null)
+        {
+            return new UserFile(UserFileKind.Missing, null);
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(bytes, DocOptions);
+            var (name, id) = ParseUser(doc.RootElement);
+            return name is { Length: > 0 } ? new UserFile(UserFileKind.SignedIn, new LegendaryAccount(name, id ?? "")) : new UserFile(UserFileKind.Unclear, null);
+        }
+        catch (JsonException)
+        {
+            return new UserFile(UserFileKind.Unclear, null);
+        }
+    }
+
     /// <summary>user.json (OAuth token response): only the non-secret identity fields are read.</summary>
     public static (string? DisplayName, string? AccountId) ParseUser(JsonElement root) =>
         root.ValueKind == JsonValueKind.Object ? (Str(root, "displayName"), Str(root, "account_id")) : (null, null);
@@ -145,3 +179,12 @@ internal static class LegendaryFiles
 
     public static string? NullIfEmpty(string? s) => string.IsNullOrEmpty(s) ? null : s;
 }
+
+internal enum UserFileKind
+{
+    Missing,
+    SignedIn,
+    Unclear,
+}
+
+internal readonly record struct UserFile(UserFileKind Kind, LegendaryAccount? Account);
