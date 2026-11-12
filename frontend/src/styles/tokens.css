@@ -54,9 +54,10 @@
   --radius-2xl: 20px;
 
   /* ---------- Motion ---------- */
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);       /* entering, most UI */
-  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);    /* moving on screen */
-  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);        /* exiting */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);       /* entering and exiting, most UI */
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);   /* moving on screen */
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);    /* sheets, page-level motion */
+  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);        /* reserved; UI never eases in */
   --duration-instant: 90ms;
   --duration-fast: 150ms;
   --duration-base: 200ms;
@@ -105,12 +106,23 @@
   --g-accent-soft: oklch(0.72 0.15 252 / 0.16);
   --g-focus: oklch(0.75 0.15 252);
 
+  /* Logo (assets/brand): wing = paper on dark, graphite on light; flap = glide blue. */
+  --g-brand-wing: #f6f7f9;
+  --g-brand-flap: #57a8ff;
+
   --g-success: oklch(0.76 0.15 155);
   --g-success-soft: oklch(0.76 0.15 155 / 0.14);
   --g-warning: oklch(0.82 0.14 80);
   --g-warning-soft: oklch(0.82 0.14 80 / 0.14);
   --g-danger: oklch(0.69 0.19 25);
   --g-danger-soft: oklch(0.69 0.19 25 / 0.14);
+  --g-danger-fg: oklch(0.16 0.02 25);
+
+  /* Text-safe tones: AA on bg and on their own -soft fills. */
+  --g-accent-text: oklch(0.8 0.12 252);
+  --g-success-text: oklch(0.8 0.14 155);
+  --g-warning-text: oklch(0.84 0.13 80);
+  --g-danger-text: oklch(0.76 0.15 25);
 
   --g-shadow-sm: 0 1px 2px oklch(0 0 0 / 0.3);
   --g-shadow-md: 0 4px 12px -2px oklch(0 0 0 / 0.35), 0 1px 3px oklch(0 0 0 / 0.25);
@@ -160,12 +172,21 @@
   --g-accent-soft: oklch(0.55 0.19 258 / 0.12);
   --g-focus: oklch(0.55 0.19 258);
 
+  --g-brand-wing: #0d0e11;
+  --g-brand-flap: #3d84ea;
+
   --g-success: oklch(0.55 0.15 155);
   --g-success-soft: oklch(0.55 0.15 155 / 0.12);
   --g-warning: oklch(0.6 0.14 70);
   --g-warning-soft: oklch(0.7 0.14 80 / 0.16);
   --g-danger: oklch(0.55 0.2 25);
   --g-danger-soft: oklch(0.55 0.2 25 / 0.1);
+  --g-danger-fg: oklch(0.99 0 0);
+
+  --g-accent-text: oklch(0.45 0.17 258);
+  --g-success-text: oklch(0.42 0.12 155);
+  --g-warning-text: oklch(0.45 0.1 70);
+  --g-danger-text: oklch(0.47 0.19 25);
 
   --g-shadow-sm: 0 1px 2px oklch(0.2 0.01 265 / 0.08);
   --g-shadow-md: 0 4px 12px -2px oklch(0.2 0.01 265 / 0.12), 0 1px 3px oklch(0.2 0.01 265 / 0.08);
@@ -212,6 +233,13 @@
   --color-warning-soft: var(--g-warning-soft);
   --color-danger: var(--g-danger);
   --color-danger-soft: var(--g-danger-soft);
+  --color-danger-fg: var(--g-danger-fg);
+  --color-accent-text: var(--g-accent-text);
+  --color-success-text: var(--g-success-text);
+  --color-warning-text: var(--g-warning-text);
+  --color-danger-text: var(--g-danger-text);
+  --color-brand-wing: var(--g-brand-wing);
+  --color-brand-flap: var(--g-brand-flap);
   --color-transparent: transparent;
   --color-current: currentColor;
   --color-white: oklch(1 0 0);

@@ -1,7 +1,22 @@
 @import "tailwindcss";
 @import "./tokens.css";
+@import "./ui.css";
+
+@utility app-drag {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+@utility app-no-drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
 
 @layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--g-border);
+  }
   html,
   body,
   #root {
@@ -10,9 +25,11 @@
   html {
     font-family: var(--font-sans);
     font-size: 16px;
-    font-feature-settings: "cv11", "ss01";
+    /* cv05: l with a tail (paths, versions, ids); ss03: round quotes. */
+    font-feature-settings: "calt", "cv05", "ss03";
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    background: transparent;
   }
   body {
     margin: 0;
@@ -24,19 +41,43 @@
     user-select: none;
     cursor: default;
   }
+  button,
+  [role="button"],
+  [role="tab"],
+  [role="menuitem"],
+  [role="radio"],
+  [role="switch"],
+  summary,
+  select {
+    cursor: default;
+  }
+  img,
+  svg {
+    -webkit-user-drag: none;
+  }
+  input,
+  textarea {
+    user-select: text;
+  }
+  ::selection {
+    background: var(--g-accent-soft);
+  }
+  :focus {
+    outline: none;
+  }
   :focus-visible {
     outline: 2px solid var(--g-focus);
     outline-offset: 2px;
+    border-radius: inherit;
   }
-  .tabular {
-    font-variant-numeric: tabular-nums;
+  /* Scrollbars: thin, quiet, theme-aware. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--g-fg) 22%, transparent) transparent;
   }
-  @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-      animation-duration: 0.01ms !important;
-      transition-duration: 0.01ms !important;
-    }
+  .selectable,
+  .selectable * {
+    user-select: text;
+    cursor: text;
   }
 }
