@@ -17,7 +17,7 @@ namespace FakeLegendary;
 ///   errfile PATH [ms] / outfile PATH [ms]   replay a fixture line by line (leading '#' header lines skipped)
 ///   errbin PATH                  raw bytes to stderr
 ///   sleep MS | hang | exit CODE | child | readstdin
-///   download chunks=N files=F mib=M interval=MS [app=A] [stallat=PCT] [spam] [writefail=K] [diskfull]
+///   download chunks=N files=F mib=M interval=MS [app=A] [stallat=PCT] [spam] [writefail=K [diskfull|locked]]
 ///   verify files=N interval=MS [app=A] [corrupt=K] [missing=K] [locked=K]
 ///   installed version=V path=P [app=A] [tags=a,b] [needsverify]   |   uninstalled [app=A]
 ///   writefile RELPATH TEXT | deletefile RELPATH
@@ -387,7 +387,9 @@ internal static class Program
             {
                 Err(kv.ContainsKey("diskfull")
                     ? "[FileWorker] WARNING: Something in writing a file failed: OSError(28, 'No space left on device')"
-                    : "[FileWorker] WARNING: Something in writing a file failed: PermissionError(13, 'The process cannot access the file because it is being used by another process')");
+                    : kv.ContainsKey("locked")
+                        ? "[FileWorker] WARNING: Something in writing a file failed: PermissionError(13, 'The process cannot access the file because it is being used by another process')"
+                        : "[FileWorker] WARNING: Something in writing a file failed: OSError(22, 'Invalid argument')");
                 Err($"[DLManager] CRITICAL: Writing for FortniteGame/Content/Paks/pakchunk{fileIndex}-WindowsClient.pak failed!");
             }
             else

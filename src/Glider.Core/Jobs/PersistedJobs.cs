@@ -39,6 +39,17 @@ internal sealed class PersistedJob
 
     /// <summary>Progress bookkeeping that spans pause/resume/restart (Legendary restarts its counters every run).</summary>
     public ProgressBaseline Baseline { get; set; } = new();
+
+    public PersistedJob Clone() => new()
+    {
+        Info = Info,
+        Request = Request,
+        Step = Step,
+        CreatedGameFolder = CreatedGameFolder,
+        GameFolder = GameFolder,
+        AutoRepairAttempted = AutoRepairAttempted,
+        Baseline = Baseline.Clone(),
+    };
 }
 
 internal sealed class ProgressBaseline
@@ -54,4 +65,9 @@ internal sealed class ProgressBaseline
 
     /// <summary>Active seconds accumulated by earlier runs.</summary>
     public double ElapsedSeconds { get; set; }
+
+    /// <summary>Phase whose percent <see cref="Percent"/> measures (verify and download percentages are separate bars).</summary>
+    public JobPhase? Phase { get; set; }
+
+    public ProgressBaseline Clone() => (ProgressBaseline)MemberwiseClone();
 }

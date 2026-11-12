@@ -135,7 +135,7 @@ public class ProgressParserTests
         }
 
         var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 1000; i++)
+        for (var i = 0; i < 4000; i++)
         {
             foreach (var l in block)
             {
@@ -143,7 +143,9 @@ public class ProgressParserTests
             }
         }
 
-        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+        // 20,000 lines: one string or boxed value per line would be >= 480 KB. Under parallel test load the runtime
+        // occasionally attributes a few KB of one-off bookkeeping (tiered JIT) to this thread, hence a bound, not zero.
+        Assert.InRange(GC.GetAllocatedBytesForCurrentThread() - before, 0, 32 * 1024);
     }
 }
 
