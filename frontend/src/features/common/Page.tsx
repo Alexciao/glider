@@ -4,7 +4,7 @@ import { cx } from "../../ui";
 /** Scrolling page body: one centred column, generous gutters that tighten on narrow windows. */
 export function PageScroll({ children, className, wide }: { children: ReactNode; className?: string; wide?: boolean }) {
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="h-full overflow-y-auto [scrollbar-gutter:stable]">
       <div className={cx("mx-auto w-full px-10 pb-12 pt-8 max-[1100px]:px-7", wide ? "max-w-[1040px]" : "max-w-[900px]", className)}>{children}</div>
     </div>
   );

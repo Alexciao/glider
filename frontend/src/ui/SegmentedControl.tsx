@@ -53,7 +53,7 @@ export function SegmentedControl<T extends string>({
           key={o.value}
           value={o.value}
           className={cx(
-            "relative z-10 rounded-md px-3 text-center font-medium transition-colors duration-150 ease-out",
+            "relative z-10 whitespace-nowrap rounded-md px-3 text-center font-medium transition-colors duration-150 ease-out",
             size === "sm" ? "text-xs" : "text-sm",
             o.value === value ? "text-fg" : "text-fg-muted hover:text-fg",
           )}

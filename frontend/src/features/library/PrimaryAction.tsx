@@ -61,12 +61,26 @@ const PENDING_LABEL: Partial<Record<HeroKind, string>> = {
   repair: "Repairing…",
 };
 
+/** Shared by Play and the More button so the pair reads as one split button: same fill, border, motion. */
+export const heroButtonBase =
+  "relative flex h-12 items-center justify-center overflow-hidden text-md font-semibold " +
+  "transition-[background-color,color,box-shadow,border-color,scale] duration-200 ease-out " +
+  "enabled:active:scale-[0.97] disabled:cursor-default";
+export const heroButtonTone = (primary: boolean) =>
+  primary
+    ? "bg-primary text-primary-fg shadow-md enabled:hover:bg-primary-hover data-[open]:bg-primary-hover"
+    : "border border-border-strong bg-surface-3 text-fg backdrop-blur-md enabled:hover:bg-surface-active data-[open]:bg-surface-active";
+/** Outer corners 16px (radius-xl); the inner edge of a joined pair is tight (6px). */
+export const heroRadius = { outer: 16, inner: 6 } as const;
+
 export interface PrimaryActionProps {
   hero: HeroModel;
   runningSince: string | null;
   pending: boolean;
   /** Play the one-off "ready to play" flourish. */
   moment: boolean;
+  /** A More button follows: square off the trailing corners so the two read as one group. */
+  joined?: boolean;
   onPress: () => void;
 }
 
@@ -78,7 +92,7 @@ export interface PrimaryActionProps {
 /** Warms the launch command on hover/focus so Play starts the game almost instantly. Safe to repeat. */
 const prefetchLaunch = () => void actions.prepareLaunch();
 
-export function PrimaryAction({ hero, runningSince, pending, moment, onPress }: PrimaryActionProps) {
+export function PrimaryAction({ hero, runningSince, pending, moment, joined, onPress }: PrimaryActionProps) {
   const primary = hero.emphasis === "primary";
   const busy = pending && primary;
   // Pending reuses the next state's face, so click → pending → running reads as one continuous morph.
@@ -91,22 +105,19 @@ export function PrimaryAction({ hero, runningSince, pending, moment, onPress }: 
       layout
       type="button"
       transition={spring.snappy}
-      style={{ borderRadius: 14 }}
+      style={{
+        borderTopLeftRadius: heroRadius.outer,
+        borderBottomLeftRadius: heroRadius.outer,
+        borderTopRightRadius: joined ? heroRadius.inner : heroRadius.outer,
+        borderBottomRightRadius: joined ? heroRadius.inner : heroRadius.outer,
+      }}
       disabled={!interactive}
       aria-busy={busy || undefined}
       onClick={onPress}
       onPointerEnter={hero.kind === "play" ? prefetchLaunch : undefined}
       onFocus={hero.kind === "play" ? prefetchLaunch : undefined}
       data-kind={hero.kind}
-      className={cx(
-        "relative flex h-12 min-w-[132px] items-center justify-center overflow-hidden px-6 text-md font-semibold",
-        "transition-[background-color,color,box-shadow,border-color,scale] duration-200 ease-out",
-        "enabled:active:scale-[0.97] disabled:cursor-default",
-        primary
-          ? "bg-primary text-primary-fg shadow-md enabled:hover:bg-primary-hover"
-          : "border border-border-strong bg-surface-3 text-fg backdrop-blur-md enabled:hover:bg-surface-active",
-        moment && "g-sheen",
-      )}
+      className={cx(heroButtonBase, "min-w-[132px] px-6", heroButtonTone(primary), moment && "g-sheen")}
     >
       {hero.kind === "working" && hero.job && <JobFill jobId={hero.job.id} fallback={hero.percent ?? 0} />}
       {moment && <span className="g-ready-ring" aria-hidden />}

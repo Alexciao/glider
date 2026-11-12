@@ -466,6 +466,7 @@ export class MockBackend {
           needsVerification: false,
           installedAt: iso(),
         };
+        g.installedSizeBytes = FULL_INSTALL_BYTES;
         g.latestVersion = LATEST_VERSION;
         g.updateAvailable = false;
         g.downloadSizeBytes = g.installSizeBytes = null;
@@ -476,6 +477,7 @@ export class MockBackend {
         if (g.installed) {
           g.installed.version = LATEST_VERSION;
           g.installed.installSizeBytes = FULL_INSTALL_BYTES;
+          g.installedSizeBytes = FULL_INSTALL_BYTES;
           const c = egl.candidates.find((x) => samePath(x.installPath, g.installed!.installPath));
           if (c && this.s.settings.eglSync) c.version = LATEST_VERSION;
         }
@@ -499,6 +501,7 @@ export class MockBackend {
           needsVerification: needsVerify,
           installedAt: iso(),
         };
+        g.installedSizeBytes = Math.round(94.8 * GiB);
         g.latestVersion = g.latestVersion ?? LATEST_VERSION;
         g.updateAvailable = version !== (g.latestVersion ?? LATEST_VERSION);
         g.downloadSizeBytes = g.updateAvailable ? UPDATE_DOWNLOAD_BYTES : null;
@@ -610,7 +613,13 @@ export class MockBackend {
   private setRunState(state: RunState): void {
     const g = this.s.game;
     g.runState = state;
-    if (state === "idle") g.runningSince = null;
+    if (state === "idle") {
+      if (g.runningSince) {
+        g.playtimeSeconds += Math.max(0, Math.round((Date.now() - Date.parse(g.runningSince)) / 1000));
+        g.lastPlayedAt = iso();
+      }
+      g.runningSince = null;
+    }
     this.emitState();
   }
 

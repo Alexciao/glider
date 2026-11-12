@@ -7,6 +7,7 @@ import {
   formatDuration,
   formatEta,
   formatPercent,
+  formatPlaytime,
   formatRelativeTime,
   formatSpeed,
   joinPath,
@@ -103,5 +104,15 @@ describe("versions and paths", () => {
     expect(joinPath("D:\\Games\\", "Fortnite")).toBe("D:\\Games\\Fortnite");
     expect(driveOf("d:\\x")).toBe("D:");
     expect(driveOf(null)).toBe("");
+  });
+});
+
+describe("formatPlaytime", () => {
+  it("formats hours and minutes", () => {
+    expect(formatPlaytime(42 * 3600 + 17 * 60 + 40)).toBe("42 h 17 min");
+    expect(formatPlaytime(3600)).toBe("1 h 0 min");
+    expect(formatPlaytime(17 * 60)).toBe("17 min");
+    expect(formatPlaytime(30)).toBe("< 1 min");
+    expect(formatPlaytime(-5)).toBe("< 1 min");
   });
 });

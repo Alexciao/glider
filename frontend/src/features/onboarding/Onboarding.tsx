@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, m } from "motion/react";
 import { RadioGroup } from "radix-ui";
 import { ArrowLeft, Check, Download, FolderSearch, Gauge, KeyRound, ShieldCheck } from "lucide-react";
@@ -239,7 +239,12 @@ function ChooseExisting({ candidates, onFresh }: { candidates: InstallCandidate[
       </RadioGroup.Root>
       <Reassurance />
 
-      {error && <ErrorView className="mt-4" error={error.error} retry={error.retry} onDismiss={() => useUi.getState().setError("onboarding", undefined)} />}
+      {error && (
+        // scroll-mb clears the sticky action bar, so a fresh error is never left half hidden beneath it.
+        <RevealOnMount className="scroll-mb-44">
+          <ErrorView className="mt-4" error={error.error} retry={error.retry} onDismiss={() => useUi.getState().setError("onboarding", undefined)} />
+        </RevealOnMount>
+      )}
 
       <div className="mt-4 flex items-center gap-3 px-1">
         <Switch id={checkId} checked={checkAfter} onCheckedChange={setCheckAfter} />
@@ -354,6 +359,19 @@ function Done() {
 }
 
 /* --------------------------------------------------------------------- root */
+
+/** Scrolls itself into view once when it appears (jsdom has no scrollIntoView). */
+function RevealOnMount({ children, className }: { children: ReactNode; className?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.scrollIntoView?.({ block: "nearest" });
+  }, []);
+  return (
+    <div ref={ref} className={className}>
+      {children}
+    </div>
+  );
+}
 
 export function Onboarding() {
   const snap = useApp((s) => s.snapshot!);

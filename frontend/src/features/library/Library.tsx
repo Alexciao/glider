@@ -102,9 +102,9 @@ export function Library() {
           </div>
         )}
 
-        <div className="g-rise mt-6 flex items-center gap-3" style={{ ["--g-i" as string]: 2 }}>
-          <PrimaryAction hero={hero} runningSince={game.runningSince} pending={starting} moment={moment} onPress={press} />
-          <MoreMenu snap={snap} />
+        <div className="g-rise mt-6 flex items-center gap-0.5" style={{ ["--g-i" as string]: 2 }}>
+          <PrimaryAction hero={hero} runningSince={game.runningSince} pending={starting} moment={moment} joined={game.installed !== null} onPress={press} />
+          <MoreMenu snap={snap} primary={hero.emphasis === "primary"} />
         </div>
 
         {candidate && (

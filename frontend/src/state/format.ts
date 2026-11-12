@@ -65,6 +65,14 @@ export function formatDuration(totalSeconds: number): string {
   return m % 60 === 0 ? `${h} h` : `${h} h ${m % 60} min`;
 }
 
+/** Total time played, "42 h 17 min"; under an hour "17 min"; under a minute "< 1 min". */
+export function formatPlaytime(totalSeconds: number): string {
+  const minutes = Math.floor(Math.max(0, totalSeconds) / 60);
+  if (minutes < 1) return "< 1 min";
+  const h = Math.floor(minutes / 60);
+  return h === 0 ? `${minutes} min` : `${h} h ${minutes % 60} min`;
+}
+
 /** Whole percent, floored: never shows 100% before the job is actually done. */
 export function formatPercent(percent: number): string {
   const p = Math.min(100, Math.max(0, percent));

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { sheenSeconds } from "./ProgressBar";
 import { Avatar, Badge, Button, ErrorCallout, IconButton, ProgressBar, SegmentedControl, Switch, TooltipProvider, initialsOf } from "./index";
 
 describe("Button", () => {
@@ -68,6 +69,21 @@ describe("Switch", () => {
     expect(sw).toHaveAttribute("aria-checked", "false");
     await user.click(sw);
     expect(onChange).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("ProgressBar effects", () => {
+  it("sweeps faster at higher speeds and stays within bounds", () => {
+    expect(sheenSeconds(1024 * 1024)).toBeGreaterThan(sheenSeconds(100 * 1024 * 1024));
+    expect(sheenSeconds(1e12)).toBeCloseTo(1.2);
+    expect(sheenSeconds(null)).toBe(2.4);
+  });
+  it("shows the sheen only while running", () => {
+    const { container, rerender } = render(<ProgressBar value={40} label="x" />);
+    expect(container.querySelector(".g-bar-sheen")).not.toBeNull();
+    rerender(<ProgressBar value={40} paused label="x" />);
+    expect(container.querySelector(".g-bar-sheen")).toBeNull();
+    expect(container.querySelector(".g-bar-glow")).toBeNull();
   });
 });
 

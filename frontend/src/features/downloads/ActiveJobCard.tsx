@@ -132,7 +132,7 @@ export function ActiveJobCard({ job }: { job: JobInfo }) {
             </p>
           )}
         </div>
-        <ProgressBar className="mt-3.5" size="lg" value={queued || (waiting && !p) ? 0 : percent} tone={paused || waiting ? "warning" : "accent"} label={`${JOB_VERB[job.kind]} progress`} />
+        <ProgressBar className="mt-3.5" size="lg" value={queued || (waiting && !p) ? 0 : percent} tone={paused || waiting ? "warning" : "accent"} paused={paused} speed={downloading && running ? p?.downloadBytesPerSecond : null} label={`${JOB_VERB[job.kind]} progress`} />
       </div>
 
       <dl className="grid grid-cols-4 gap-4 px-5 pb-5 pt-5 max-[1100px]:grid-cols-2">

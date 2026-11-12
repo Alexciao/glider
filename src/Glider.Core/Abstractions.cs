@@ -201,7 +201,10 @@ public sealed record GameRecord(
     bool AdoptedFromEgl,
     /// <summary>EGL InstallationGuid when the folder is shared with EGL.</summary>
     string? EglInstallationGuid,
-    bool NeedsVerification);
+    bool NeedsVerification,
+    /// <summary>Total time the game has run under Glider, in seconds. Persisted; flushed periodically and on exit.</summary>
+    long PlaytimeSeconds = 0,
+    DateTimeOffset? LastPlayedAt = null);
 
 // ============================== EGL ==============================
 

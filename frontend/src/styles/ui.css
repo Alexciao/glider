@@ -30,7 +30,7 @@
   to { opacity: 0; transform: translateY(2px) scale(0.985); }
 }
 @keyframes g-toast-in {
-  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  from { opacity: 0; transform: translateY(-10px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 @keyframes g-toast-out {
@@ -59,6 +59,19 @@
 @keyframes g-sheen {
   from { transform: translateX(-130%); }
   to { transform: translateX(130%); }
+}
+/* Progress bar: sheen travels only across the filled part (--v is the percent). The band is a full-width
+   layer, so its centre sits at 50% of it; we move that centre from the fill's start to just past its end. */
+@keyframes g-bar-sheen {
+  0%   { transform: translateX(calc((45 - var(--v)) * 1%)); opacity: 0; }
+  15%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { transform: translateX(65%); opacity: 0; }
+}
+@keyframes g-bar-settle {
+  0%   { transform: scaleY(1); }
+  35%  { transform: scaleY(1.7); }
+  100% { transform: scaleY(1); }
 }
 @keyframes g-ready-ring {
   0% { opacity: 0.55; transform: scale(1); }
@@ -149,6 +162,26 @@
   animation: g-indeterminate 1.5s var(--ease-in-out) infinite;
 }
 
+.g-bar-sheen {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 38%, oklch(1 0 0 / 0.38) 50%, transparent 62%);
+  animation: g-bar-sheen var(--g-sheen-s, 2.4s) var(--ease-in-out) infinite;
+  pointer-events: none;
+}
+/* Soft light on the leading edge of the fill. */
+.g-bar-glow {
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  width: 28px;
+  background: linear-gradient(90deg, transparent, oklch(1 0 0 / 0.32));
+  pointer-events: none;
+}
+.g-bar-settle {
+  animation: g-bar-settle 420ms var(--ease-out) 1;
+}
+
 /* The one decorative moment: a single sheen across the primary action when the game becomes ready. */
 .g-sheen {
   position: relative;
@@ -188,8 +221,12 @@
   @keyframes g-rise { from { opacity: 0; } to { opacity: 1; } }
   .g-skeleton::after,
   .g-sheen::after,
-  .g-ready-ring {
+  .g-ready-ring,
+  .g-bar-settle {
     animation: none;
+  }
+  .g-bar-sheen {
+    display: none;
   }
   .g-indeterminate {
     animation: g-breathe 1.6s ease-in-out infinite;

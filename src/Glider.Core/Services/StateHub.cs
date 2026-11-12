@@ -263,7 +263,9 @@ public sealed class StateHub : IDisposable
                 && string.Equals(m.Path, record.InstallPath, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(m.Version, record.Version, StringComparison.Ordinal)
                 ? m.Bytes
-                : null);
+                : null,
+            record?.PlaytimeSeconds ?? 0,
+            record?.LastPlayedAt);
     }
 
     private EglState BuildEgl(HubState s, Settings settings)

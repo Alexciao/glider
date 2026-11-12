@@ -82,8 +82,12 @@ public sealed record GameState(
     /// <summary>Latest manifest sizes when known (used by the install screen before planning).</summary>
     long? DownloadSizeBytes,
     long? InstallSizeBytes,
-    /// <summary>Real bytes on disk, measured in the background and cached; null = not measured yet.</summary>
-    long? InstalledSizeBytes);
+    /// <summary>Measured bytes on disk for the installed game; null while unmeasured (UI shows "Measuring…").</summary>
+    long? InstalledSizeBytes,
+    /// <summary>Total time played under Glider (seconds); 0 until the first session.</summary>
+    long PlaytimeSeconds,
+    /// <summary>When the game last ran under Glider (updated at start, periodically, and on exit).</summary>
+    DateTimeOffset? LastPlayedAt);
 
 public sealed record InstalledGame(
     string InstallPath,

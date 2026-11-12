@@ -104,6 +104,8 @@ export interface GameState {
   downloadSizeBytes: number | null;
   installSizeBytes: number | null;
   installedSizeBytes: number | null;
+  playtimeSeconds: number;
+  lastPlayedAt: string | null;
 }
 
 export interface GliderError {
