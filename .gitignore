@@ -1,0 +1,21 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+TestResults/
+artifacts/
+publish/
+Releases/
+# Frontend
+node_modules/
+frontend/dist/
+# Bundled binaries are fetched by build/fetch-legendary (hash-verified), never committed
+src/Glider.App/legendary/*.exe
+# Built frontend copied into the host
+src/Glider.App/wwwroot/
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
