@@ -39,3 +39,11 @@ One line of reasoning per decision. Newest at the bottom of each section.
 ## Process
 - **Model budget (user constraint, 2026-11-12)**: exactly one Fable 5.2 task, spent on the screenshot-driven design/UX critique; all other subagents (incl. architecture/perf and security reviews, in place of GPT-6-Luna) run on Opus 5.5 high (xhigh only when essential).
 - **MIT license for Glider's own code**: permissive and simple; Legendary stays a separate GPLv3 executable, so there's no linking concern.
+
+## Fix group C (EGL detection)
+- **Detection logic was already drive-agnostic** (covered by existing fake-drive tests); the one real gap found was `File.ReadAllBytes` (FileShare.Read) failing while a running EGL has a manifest open for writing, which silently dropped the entry. Manifests are now read with FileShare.ReadWrite|Delete.
+- **Quick scan probes known folders only** (`\Fortnite`, `\Epic Games\Fortnite`, `\Games\Fortnite`, `\Games\Epic Games\Fortnite`, `\Program Files[ (x86)]\Epic Games\Fortnite`) plus up to 64 direct children of `\Games`, `\Epic Games`, `\Games\Epic Games`, `\Program Files\Epic Games`; never recursive. Results are `CandidateSource.Manual` candidates merged into the EGL state until the next plain rescan.
+- **Quick scan UI is a command-palette entry only**; no Settings button (Settings.tsx is being edited by the frontend branch).
+- **Locate-folder also accepts a parent holding a differently named game folder and a folder inside the install** (up to 4 levels up); first matching child wins.
+- **`InstallCandidate.Reason`** is a human-readable string (null when usable); frontend `candidateIssue` is unchanged.
+- **Adopt in place and write-back needed no code change**: `legendary import` registers the folder without copying and write-back already backs up and writes atomically; new tests pin both on a non-C: path with spaces.
