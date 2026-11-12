@@ -2,8 +2,12 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Glider.Core</RootNamespace>
+    <!-- The pinned Legendary version, so startup never spawns legendary for its version (see LegendaryPin). -->
+    <LegendaryPinFile>$(MSBuildThisFileDirectory)..\..\build\legendary.json</LegendaryPinFile>
+    <LegendaryPinnedVersion Condition="Exists('$(LegendaryPinFile)')">$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(LegendaryPinFile)')), '"version"\s*:\s*"([^"]+)"').Groups[1].Value)</LegendaryPinnedVersion>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Glider.Core.Tests" />
+    <AssemblyMetadata Include="LegendaryVersion" Value="$(LegendaryPinnedVersion)" />
   </ItemGroup>
 </Project>

@@ -26,6 +26,24 @@ public sealed class LegendaryOptions
     public int? SharedMemoryRetryCeilingMb { get; init; }
 
     public LegendaryRunnerOptions Runner { get; init; } = new();
+
+    /// <summary>
+    /// Version reported without spawning (the bundled exe is SHA-256 pinned by the build, see build/legendary.json).
+    /// Null = ask the exe (`--version`), which costs a ~1.3 s PyInstaller start.
+    /// </summary>
+    public string? PinnedVersion { get; init; } = LegendaryPin.Version;
+
+    /// <summary>Answer `status --offline` from user.json directly when the file is unambiguous (no process).</summary>
+    public bool ReadAccountFromUserJson { get; init; } = true;
+}
+
+/// <summary>The Legendary version this build bundles (from build/legendary.json, stamped into the assembly at build time).</summary>
+public static class LegendaryPin
+{
+    public static string? Version { get; } = typeof(LegendaryPin).Assembly
+        .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false)
+        .OfType<System.Reflection.AssemblyMetadataAttribute>()
+        .FirstOrDefault(a => a.Key == "LegendaryVersion")?.Value is { Length: > 0 } v ? v : null;
 }
 
 /// <summary>
@@ -60,6 +78,12 @@ public sealed class LegendaryCli : ILegendary, IDisposable
 
     public async Task<string> GetVersionAsync(CancellationToken ct)
     {
+        if (_options.PinnedVersion is { } pinned)
+        {
+            // Still surface a missing exe at startup, as the spawn used to.
+            return File.Exists(_paths.LegendaryExe) ? pinned : throw new GliderException(Errors.LegendaryMissing($"Not found: {_paths.LegendaryExe}"));
+        }
+
         var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Version, ["--version"]) { CaptureStdout = true, Timeout = _options.QuickTimeout }, null, ct);
         // legendary version "0.21.1", codename "Lowlife"
         var line = run.Stdout.Split('\n').FirstOrDefault(l => l.StartsWith("legendary version \"", StringComparison.Ordinal));
@@ -74,6 +98,27 @@ public sealed class LegendaryCli : ILegendary, IDisposable
     }
 
     public async Task<LegendaryAccount?> GetAccountOfflineAsync(CancellationToken ct)
+    {
+        if (_options.ReadAccountFromUserJson)
+        {
+            var user = await LegendaryFiles.ReadUserAsync(LegendaryFiles.UserJson(Config), ct);
+            if (user.Kind == UserFileKind.Missing)
+            {
+                return null; // status --offline: no user.json => "<not logged in>" (cli.py:1612-1616)
+            }
+
+            if (user.Kind == UserFileKind.SignedIn)
+            {
+                return user.Account;
+            }
+
+            // Empty, torn, or unexpected shape: let Legendary decide.
+        }
+
+        return await GetAccountOfflineViaCliAsync(ct);
+    }
+
+    internal async Task<LegendaryAccount?> GetAccountOfflineViaCliAsync(CancellationToken ct)
     {
         var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Status, ["status", "--offline", "--json"]) { CaptureStdout = true, Timeout = _options.QuickTimeout }, null, ct);
         var parsed = await AccountFromStatusAsync(run, ct);

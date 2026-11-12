@@ -13,6 +13,9 @@ public class LegendaryCliTests
     {
         StallTimeout = stall ?? TimeSpan.FromSeconds(30),
         SharedMemoryRetryCeilingMb = 8192,
+        // These tests exercise the CLI paths; the no-spawn shortcuts have their own tests below.
+        PinnedVersion = null,
+        ReadAccountFromUserJson = false,
     });
 
     private static readonly IProgress<LegendaryProgress> NoProgress = new Progress<LegendaryProgress>();
@@ -113,6 +116,47 @@ public class LegendaryCliTests
         var account = await cli.GetAccountOfflineAsync(ct);
         Assert.Equal(new LegendaryAccount("Åsa 日本", "0123456789abcdef0123456789abcdef"), account);
         Assert.Equal(["status", "--offline", "--json"], env.Invocations()[0].Args);
+    }
+
+    [Fact]
+    public async Task OfflineAccountIsReadFromUserJsonWithoutSpawning()
+    {
+        using var env = new FakeLegendaryEnv();
+        using var cli = new LegendaryCli(env.Paths, env.Log);
+        var ct = TestContext.Current.CancellationToken;
+        var userJson = Path.Combine(env.Config, "user.json");
+
+        Assert.Null(await cli.GetAccountOfflineAsync(ct)); // no user.json = signed out
+        File.Copy(Fixture.PathOf("synthetic-user.json"), userJson);
+        Assert.Equal(new LegendaryAccount("Åsa 日本", "0123456789abcdef0123456789abcdef"), await cli.GetAccountOfflineAsync(ct));
+        Assert.Equal("0.21.1", await cli.GetVersionAsync(ct)); // pinned constant from build/legendary.json
+        Assert.Empty(env.Invocations());
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("{\"access_token\": \"eg1~")]
+    [InlineData("{}")]
+    [InlineData("[1]")]
+    public async Task UnclearUserJsonFallsBackToLegendary(string content)
+    {
+        using var env = new FakeLegendaryEnv();
+        env.UseFixture("status-offline-json.stdout.txt");
+        env.Script("status", "outfile status-offline-json.stdout.txt");
+        File.WriteAllText(Path.Combine(env.Config, "user.json"), content);
+        using var cli = new LegendaryCli(env.Paths, env.Log);
+
+        Assert.Null(await cli.GetAccountOfflineAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(["status", "--offline", "--json"], env.Invocations().Single().Args);
+    }
+
+    [Fact]
+    public async Task PinnedVersionStillReportsAMissingExe()
+    {
+        using var dir = new TempDir();
+        using var cli = new LegendaryCli(new AppPaths(dir.Path, Path.Combine(dir.Path, "missing.exe")), new TestLog());
+        var e = await Assert.ThrowsAsync<GliderException>(() => cli.GetVersionAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(ErrorCode.LegendaryMissing, e.Error.Code);
     }
 
     [Fact]

@@ -283,7 +283,11 @@ public sealed class GliderService : IGliderRpc, IDisposable
         return state;
     });
 
-    public Task<AuthState> SignOut() => Rpc(nameof(SignOut), _auth.SignOutAsync);
+    public Task<AuthState> SignOut() => Rpc(nameof(SignOut), ct =>
+    {
+        _launch.InvalidatePrepared();
+        return _auth.SignOutAsync(ct);
+    });
 
     // ================================================================== game
 
@@ -313,6 +317,18 @@ public sealed class GliderService : IGliderRpc, IDisposable
         Rpc(nameof(Uninstall), _ => Task.FromResult(_install.Uninstall(Require(request, "request"))));
 
     public Task<LaunchResult> Launch() => Rpc(nameof(Launch), _launch.LaunchAsync);
+
+    public Task PrepareLaunch() => Rpc(nameof(PrepareLaunch), () =>
+    {
+        try
+        {
+            _launch.Prepare();
+        }
+        catch (Exception e)
+        {
+            _c.Log.Warn("launch", "prepare failed", e); // a hint only: never an error for the UI
+        }
+    });
 
     public Task OpenInstallFolder() => Rpc(nameof(OpenInstallFolder), () =>
     {

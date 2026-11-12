@@ -187,4 +187,81 @@ public class LaunchTests
         Assert.NotNull(first.Game.RunningSince);
         Assert.Equal(0, rig.Host.HideCount);
     }
+
+    private static int LaunchCalls(Rig rig) => rig.Calls.All.Count(c => c == "legendary.launch");
+
+    [Fact]
+    public async Task PreparedLaunchCommandIsUsedOnceAndSkipsLegendaryOnClick()
+    {
+        var (rig, _) = await Ready();
+        using var _r = rig;
+
+        await rig.Service.PrepareLaunch();
+        await rig.Service.PrepareLaunch(); // repeated hover: no second fetch
+        await rig.Service.LaunchServiceForTests.Preparing;
+        Assert.Equal(1, LaunchCalls(rig));
+
+        Assert.True((await rig.Service.Launch()).Started);
+        Assert.Equal(1, LaunchCalls(rig)); // the click reused the prepared command
+        Assert.Contains(rig.Log.Lines, l => l.Contains("prepared=True", StringComparison.Ordinal));
+        Assert.DoesNotContain(rig.Log.Lines, l => l.Contains("secret", StringComparison.Ordinal)); // exchange code never logged
+    }
+
+    [Fact]
+    public async Task ExpiredOrMismatchedPreparedCommandIsFetchedAgain()
+    {
+        var (rig, _) = await Ready();
+        using var _r = rig;
+
+        await rig.Service.PrepareLaunch();
+        await rig.Service.LaunchServiceForTests.Preparing;
+        rig.Time.Advance(LaunchService.PreparedTtl + TimeSpan.FromSeconds(1));
+        await rig.Service.Launch();
+        Assert.Equal(2, LaunchCalls(rig));
+        Assert.Contains(rig.Log.Lines, l => l.Contains("prepared=False", StringComparison.Ordinal));
+        StopGame(rig);
+
+        await rig.Service.PrepareLaunch();
+        await rig.Service.LaunchServiceForTests.Preparing;
+        rig.Settings.Set(rig.Settings.Current with { LaunchArgs = "-other" }); // the prepared command baked in the old args
+        await rig.Service.Launch();
+        Assert.Equal(4, LaunchCalls(rig));
+        Assert.Equal("-other", rig.Legendary.LastExtraArgs);
+    }
+
+    [Fact]
+    public async Task PrepareDoesNothingWhenALaunchCouldNotStart()
+    {
+        var (rig, _) = await Ready();
+        using var _r = rig;
+
+        rig.Jobs.Enqueue(new JobRequest(JobKind.Verify, null, null, null, null));
+        await rig.Service.PrepareLaunch();
+        await rig.Service.LaunchServiceForTests.Preparing;
+        Assert.Equal(0, LaunchCalls(rig));
+    }
+
+    [Fact]
+    public async Task PrepareIsANoOpWhenSignedOut()
+    {
+        var (rig, _) = await Ready();
+        using var _r = rig;
+
+        await rig.Service.SignOut();
+        await rig.Service.PrepareLaunch();
+        await rig.Service.LaunchServiceForTests.Preparing;
+        Assert.Equal(0, LaunchCalls(rig));
+    }
+
+    private static void StopGame(Rig rig)
+    {
+        var w = rig.Service.LaunchServiceForTests.Watcher;
+        rig.Processes.Remove("FortniteLauncher");
+        rig.Processes.Remove(FortniteLayout.ShippingProcessName);
+        rig.Time.Advance(TimeSpan.FromSeconds(11));
+        while (w.Tick())
+        {
+            rig.Time.Advance(TimeSpan.FromSeconds(11));
+        }
+    }
 }
