@@ -7,8 +7,7 @@ pnpm install
 pnpm dev                 # http://localhost:5173, mock backend (no host needed)
 pnpm lint && pnpm typecheck && pnpm test && pnpm build
 pnpm screenshots         # every screen/state, see ../docs/screenshots/README.md
-pnpm exec playwright test e2e/a11y.spec.ts    # axe-core over every state, dark + light
-pnpm exec playwright test e2e/focus.spec.ts   # every Tab stop shows a focus ring
+pnpm a11y                # axe-core over every state (dark + light) + a Tab-order focus-ring check
 ```
 
 ## Mock backend (when not inside the WebView2 host)
