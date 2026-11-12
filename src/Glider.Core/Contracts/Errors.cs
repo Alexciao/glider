@@ -41,6 +41,21 @@ public static class Errors
     public static GliderError EglBusy(string? detail = null) => new(ErrorCode.EglBusy,
         "Epic Games Launcher is busy", "Epic Games Launcher is updating Fortnite, so Glider will wait and continue automatically.", FixAction.WaitForEgl, detail);
 
+    public static GliderError EglFileLocked(string? detail = null) => new(ErrorCode.FilesLocked,
+        "Epic Games Launcher files are in use",
+        "Glider couldn't update Epic Games Launcher's record of Fortnite because the file is in use. Close Epic Games Launcher, then retry.",
+        FixAction.Retry, detail);
+
+    public static GliderError EglAccessDenied(string? detail = null) => new(ErrorCode.PermissionDenied,
+        "Can't update Epic Games Launcher",
+        "Windows didn't let Glider update Epic Games Launcher's record of Fortnite. The game is fine; Epic Games Launcher may ask to verify it.",
+        FixAction.OpenLogs, detail);
+
+    public static GliderError EglWriteFailed(string? detail = null) => new(ErrorCode.Unknown,
+        "Couldn't update Epic Games Launcher",
+        "Glider couldn't update Epic Games Launcher's record of Fortnite. The game is fine; Epic Games Launcher may ask to verify it.",
+        FixAction.OpenLogs, detail);
+
     public static GliderError GameRunning() => new(ErrorCode.GameRunning,
         "Fortnite is running", "Close the game first, then try again.", FixAction.CloseGame, null);
 
