@@ -983,7 +983,7 @@ describe("types stay in sync with the contract", () => {
     const t = setup({ scenario: "installed" });
     const j: JobInfo = await t.call("game.verify");
     expect(Object.keys(j).sort()).toEqual(
-      ["blockedReason", "createdAt", "error", "finishedAt", "fromVersion", "id", "kind", "progress", "status", "targetPath", "toVersion"].sort(),
+      ["blockedReason", "createdAt", "error", "finishedAt", "fromVersion", "id", "kind", "progress", "status", "targetPath", "toVersion", "verify"].sort(),
     );
   });
 });

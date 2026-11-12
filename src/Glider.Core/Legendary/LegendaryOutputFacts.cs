@@ -84,6 +84,9 @@ internal sealed class LegendaryOutputFacts
     public bool VerifyFailed { get; private set; }
     public int VerifyCorrupted { get; private set; }
     public int VerifyMissing { get; private set; }
+
+    /// <summary>Total of the last "Verification progress: n/total" line (set by the run's progress consumer).</summary>
+    public int VerifyFilesChecked { get; internal set; }
     public int VerifyOpenFailures { get; private set; }
 
     // ---- import / move / uninstall ----

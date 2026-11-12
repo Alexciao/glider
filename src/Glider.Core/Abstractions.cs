@@ -130,8 +130,14 @@ public sealed record InstallArgs(
     int MaxSharedMemoryMb,
     string? PreferredCdn);
 
-/// <summary>Outcome of a long-running Legendary operation. Error is non-null on failure.</summary>
-public sealed record LegendaryOutcome(bool Success, GliderError? Error, long? DownloadSizeBytes, long? InstallSizeBytes);
+/// <summary>What one `verify` run found: files checked, and how many failed their hash or were missing.</summary>
+public sealed record VerifyCounts(int FilesChecked, int Corrupted, int Missing)
+{
+    public int Bad => Corrupted + Missing;
+}
+
+/// <summary>Outcome of a long-running Legendary operation. Error is non-null on failure. Counts is set by `verify` only.</summary>
+public sealed record LegendaryOutcome(bool Success, GliderError? Error, long? DownloadSizeBytes, long? InstallSizeBytes, VerifyCounts? Counts = null);
 
 /// <summary>The command `launch --json` resolved (Glider spawns and owns the game process).</summary>
 public sealed record LaunchCommand(string Executable, string WorkingDirectory, IReadOnlyList<string> Arguments, IReadOnlyDictionary<string, string> Environment);

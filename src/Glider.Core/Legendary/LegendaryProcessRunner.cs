@@ -661,6 +661,11 @@ internal sealed class LegendaryProcessRunner : IDisposable
                 Facts.Phase = JobPhase.Verifying;
             }
 
+            if (kind == ProgressKind.Verify)
+            {
+                Facts.VerifyFilesChecked = (int)Math.Min(p.TotalChunks, int.MaxValue);
+            }
+
             SetPhase(Facts.Phase);
             Post(new RunEvent(RunEventKind.Progress, p, default, default));
 

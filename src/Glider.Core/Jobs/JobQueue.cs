@@ -594,8 +594,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             case JobKind.Repair:
                 return await InstallFlowAsync(job, InstallMode.Repair, VerifyPolicy.Never, tracker, ct);
             case JobKind.Verify:
-                tracker.SetPhase(JobPhase.Verifying);
-                return (await _legendary.VerifyAsync(app, tracker, ct)).Error;
+                return await VerifyAndRepairAsync(job, tracker, ct);
             case JobKind.Move:
                 tracker.SetPhase(JobPhase.Moving);
                 return (await _legendary.MoveAsync(app, request.TargetPath!, skipMove: false, tracker, ct)).Error;
@@ -610,6 +609,73 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             default:
                 return Errors.InvalidRequest($"Unknown job kind {request.Kind}.");
         }
+    }
+
+    /// <summary>
+    /// "Verify and repair": verify; if files are bad, `repair` them (downloads only those); verify again to confirm.
+    /// `verify` alone only reports. Every "repair" button in the UI enqueues this job, so it must do the whole flow.
+    /// </summary>
+    private async Task<GliderError?> VerifyAndRepairAsync(PersistedJob job, JobProgressTracker tracker, CancellationToken ct)
+    {
+        var app = _options.AppName;
+        if (job.Step == JobStep.Main)
+        {
+            tracker.SetPhase(JobPhase.Verifying);
+            var first = await _legendary.VerifyAsync(app, tracker, ct);
+            var checkedFiles = first.Counts?.FilesChecked ?? 0;
+            var bad = first.Success ? 0 : first.Counts?.Bad ?? 0;
+            lock (_lock)
+            {
+                job.VerifyChecked = checkedFiles;
+                job.VerifyBad = bad;
+            }
+
+            if (first.Success)
+            {
+                SetVerifyReport(job, new VerifyReport(checkedFiles, 0, 0, true));
+                return null;
+            }
+
+            if (first.Error?.Code != ErrorCode.Corrupted)
+            {
+                return first.Error;
+            }
+
+            _log.Info("jobs", $"Verify found problems ({first.Error.Detail}); repairing only those files.");
+            SetVerifyReport(job, new VerifyReport(checkedFiles, bad, 0, false));
+            await AdvanceAsync(job, JobStep.Repair, tracker);
+        }
+
+        tracker.SetPhase(JobPhase.Preparing);
+        var repaired = await _legendary.InstallAsync(Args(InstallMode.Repair, job), tracker, ct);
+        if (!repaired.Success)
+        {
+            return repaired.Error;
+        }
+
+        tracker.SetPhase(JobPhase.Verifying);
+        var second = await _legendary.VerifyAsync(app, tracker, ct);
+        var remaining = second.Success ? 0 : Math.Max(second.Counts?.Bad ?? job.VerifyBad, 1);
+        var checkedAfter = second.Counts?.FilesChecked is > 0 and var n ? n : job.VerifyChecked;
+        SetVerifyReport(job, new VerifyReport(checkedAfter, job.VerifyBad, Math.Max(0, job.VerifyBad - remaining), second.Success));
+        if (second.Success)
+        {
+            return null;
+        }
+
+        return second.Error?.Code == ErrorCode.Corrupted
+            ? Errors.Corrupted($"{remaining} file(s) still damaged or missing after the repair.")
+            : second.Error;
+    }
+
+    private void SetVerifyReport(PersistedJob job, VerifyReport report)
+    {
+        lock (_lock)
+        {
+            job.Info = job.Info with { Verify = report };
+        }
+
+        Changed?.Invoke();
     }
 
     /// <summary>install/update/repair, then the verify policy, then at most one automatic repair of what verify found.</summary>

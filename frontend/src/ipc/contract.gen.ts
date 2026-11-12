@@ -166,6 +166,7 @@ export interface JobInfo {
   fromVersion: string | null;
   toVersion: string | null;
   blockedReason: string | null;
+  verify: VerifyReport | null;
 }
 
 export type JobKind = "install" | "update" | "repair" | "verify" | "move" | "uninstall" | "import";
@@ -319,6 +320,13 @@ export interface ValidateFolderRequest {
 }
 
 export type VerifyMode = "auto" | "background" | "full";
+
+export interface VerifyReport {
+  filesChecked: number;
+  filesBad: number;
+  filesFixed: number;
+  verified: boolean;
+}
 
 export interface WindowInfo {
   maximized: boolean;

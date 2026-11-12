@@ -356,7 +356,8 @@ public sealed class LegendaryCli : ILegendary, IDisposable
             Timeout = Timeout.InfiniteTimeSpan,
         }, progress, ct);
         var error = ErrorClassifier.Classify(LegendaryCommandKind.Verify, run);
-        return new LegendaryOutcome(error is null, error, null, null);
+        var f = run.Facts;
+        return new LegendaryOutcome(error is null, error, null, null, new VerifyCounts(f.VerifyFilesChecked, f.VerifyCorrupted, f.VerifyMissing));
     }
 
     public async Task<LegendaryOutcome> ImportAsync(string appName, string gamePath, CancellationToken ct)
