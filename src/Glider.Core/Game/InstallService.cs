@@ -150,6 +150,7 @@ internal sealed class InstallService
             EglInstallationGuid: item?.InstallationGuid,
             NeedsVerification: verify);
         await _c.SaveRecordAsync(rec);
+        _c.Sizes.Request(filesChanged: false);
         _c.Log.Info("game", $"adopted {rec.InstallPath} v{rec.Version} (egl={item is not null}, verify={verify}, mode={request.Verify})");
 
         JobInfo? job = null;

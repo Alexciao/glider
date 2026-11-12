@@ -130,6 +130,9 @@ public sealed record InstallArgs(
     int MaxSharedMemoryMb,
     string? PreferredCdn);
 
+/// <summary>Sizes from Legendary's install/update analysis: compressed bytes to download, and the resulting install size.</summary>
+public sealed record LegendarySizes(long DownloadBytes, long InstallBytes);
+
 /// <summary>What one `verify` run found: files checked, and how many failed their hash or were missing.</summary>
 public sealed record VerifyCounts(int FilesChecked, int Corrupted, int Missing)
 {
@@ -179,6 +182,12 @@ public interface ILegendary
 
     /// <summary>Path of Legendary's current manifest file for the installed version (for EGL write-back).</summary>
     string? GetInstalledManifestPath(string appName, string version);
+
+    /// <summary>
+    /// Dry run of `update`: Legendary's own analysis of what the pending update would download and write, or null when it
+    /// can't be measured (nothing to update, needs a verify first, offline). Changes nothing on disk.
+    /// </summary>
+    Task<LegendarySizes?> GetUpdateSizesAsync(string appName, CancellationToken ct) => Task.FromResult<LegendarySizes?>(null);
 }
 
 // ============================== Game record ==============================

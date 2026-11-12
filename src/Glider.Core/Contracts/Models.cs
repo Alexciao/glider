@@ -81,7 +81,9 @@ public sealed record GameState(
     GameArt? Art,
     /// <summary>Latest manifest sizes when known (used by the install screen before planning).</summary>
     long? DownloadSizeBytes,
-    long? InstallSizeBytes);
+    long? InstallSizeBytes,
+    /// <summary>Real bytes on disk, measured in the background and cached; null = not measured yet.</summary>
+    long? InstalledSizeBytes);
 
 public sealed record InstalledGame(
     string InstallPath,

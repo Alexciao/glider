@@ -19,11 +19,16 @@ public sealed record HubState(
     /// <summary>Recorded install whose folder no longer holds the game.</summary>
     bool InstallBroken,
     /// <summary>Stores loaded (before that the install status is Unknown).</summary>
-    bool Loaded)
+    bool Loaded,
+    /// <summary>Last measured size of the install folder (see <see cref="InstalledSizeMeter"/>).</summary>
+    SizeMeasure? InstalledSize = null)
 {
     public static HubState Initial { get; } = new(
         new AuthState(AuthStatus.Unknown, null), null, "", false, null, null, null, false, null, RunState.Idle, null, null, false, false);
 }
+
+/// <summary>Bytes measured in <paramref name="Path"/> while it held <paramref name="Version"/>; stale as soon as either changes.</summary>
+public sealed record SizeMeasure(string Path, string Version, long Bytes, DateTimeOffset MeasuredAt);
 
 /// <summary>
 /// Builds <see cref="AppSnapshot"/> from every source and publishes it as a coalesced `state` event
@@ -253,7 +258,12 @@ public sealed class StateHub : IDisposable
             s.RunningSince,
             s.Art,
             s.DownloadSizeBytes,
-            s.InstallSizeBytes);
+            s.InstallSizeBytes,
+            record is not null && s.InstalledSize is { } m
+                && string.Equals(m.Path, record.InstallPath, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(m.Version, record.Version, StringComparison.Ordinal)
+                ? m.Bytes
+                : null);
     }
 
     private EglState BuildEgl(HubState s, Settings settings)

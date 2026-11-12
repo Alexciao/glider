@@ -61,6 +61,7 @@ internal sealed class JobHooks : IJobHooks
             case JobKind.Repair:
             {
                 var rec = await _c.SyncRecordAsync(ct, keepNeedsVerification: false);
+                _c.Sizes.Request(filesChanged: true);
                 if (rec is not null)
                 {
                     await WriteBackIfSharedAsync(rec, ct);
@@ -78,6 +79,7 @@ internal sealed class JobHooks : IJobHooks
 
             case JobKind.Verify:
                 await _c.SyncRecordAsync(ct, r => r with { NeedsVerification = false });
+                _c.Sizes.Request(filesChanged: true);
                 var (vTitle, vMsg) = VerifyNotice(job.Verify);
                 _c.Notify(NoticeLevel.Success, vTitle, vMsg, toast: job.Verify is { FilesBad: > 0 });
                 return;
@@ -85,6 +87,7 @@ internal sealed class JobHooks : IJobHooks
             case JobKind.Move:
             {
                 var rec = await _c.SyncRecordAsync(ct);
+                _c.Sizes.Request(filesChanged: true);
                 if (rec is not null && before?.EglInstallationGuid is { } guid)
                 {
                     await AfterSharedMoveAsync(rec, guid, ct);
@@ -96,6 +99,7 @@ internal sealed class JobHooks : IJobHooks
 
             case JobKind.Import:
                 await _c.SyncRecordAsync(ct);
+                _c.Sizes.Request(filesChanged: false);
                 return;
         }
     }

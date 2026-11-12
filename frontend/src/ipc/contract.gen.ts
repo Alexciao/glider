@@ -103,6 +103,7 @@ export interface GameState {
   art: GameArt | null;
   downloadSizeBytes: number | null;
   installSizeBytes: number | null;
+  installedSizeBytes: number | null;
 }
 
 export interface GliderError {

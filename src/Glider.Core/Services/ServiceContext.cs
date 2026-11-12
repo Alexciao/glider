@@ -141,6 +141,9 @@ internal sealed class ServiceContext
         installed?.Executable ?? info?.LaunchExecutable,
         rec.EglInstallationGuid);
 
+    /// <summary>Background measurement of the install folder (GameState.InstalledSizeBytes). Set by GliderService.</summary>
+    public InstalledSizeMeter Sizes { get; set; } = null!;
+
     /// <summary>Cached game info from the last successful `info` call (set by the update checker).</summary>
     public LegendaryGameInfo? LastGameInfo { get; set; }
 }
