@@ -260,13 +260,33 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
 
     public async Task RestoreAsync(CancellationToken ct)
     {
-        var file = await _store.LoadAsync(ct);
+        PersistedJobFile? file;
+        try
+        {
+            file = await _store.LoadAsync(ct);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            // Whatever is on disk, the queue must come up: an un-restored queue never runs or saves anything.
+            _log.Error("jobs", "jobs.json could not be loaded; starting with an empty queue.", e);
+            file = null;
+        }
+
         lock (_lock)
         {
-            if (!_restored && file is not null)
+            if (!_restored && file?.Jobs is { } persisted)
             {
-                foreach (var job in file.Jobs.Where(j => j.Info is not null && j.Request is not null))
+                foreach (var job in persisted)
                 {
+                    // jobs.json is data: drop entries a crash, another build or a hand edit left unusable.
+                    if (job?.Info is null || job.Request is null || string.IsNullOrEmpty(job.Info.Id) ||
+                        !Enum.IsDefined(job.Info.Kind) || !Enum.IsDefined(job.Info.Status) || job.Request.Kind != job.Info.Kind)
+                    {
+                        _log.Warn("jobs", "Ignoring an unusable entry in jobs.json.");
+                        continue;
+                    }
+
+                    job.Baseline ??= new ProgressBaseline();
                     if (_jobs.Any(j => j.Info.Id == job.Info.Id))
                     {
                         continue;
