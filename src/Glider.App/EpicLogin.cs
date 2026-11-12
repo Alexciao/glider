@@ -109,12 +109,13 @@ internal sealed class EpicLogin
         private readonly CoreWebView2Environment _env;
         private readonly TaskCompletionSource<string?> _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<CoreWebView2Controller> _controllerReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly DispatcherTimer _showTimer = new() { Interval = TimeSpan.FromSeconds(6) };
+        private readonly DispatcherTimer _showTimer = new() { Interval = TimeSpan.FromSeconds(10) };
         private nint _hwnd;
         private CoreWebView2Controller? _controller;
         private bool _shown;
         private bool _finished;
         private int _redirectMisses;
+        private bool _awaitingFirstPage;
 
         /// <summary>HWND of the most recent login window (self-test screenshots).</summary>
         internal static nint LastHwnd { get; private set; }
@@ -140,6 +141,17 @@ internal sealed class EpicLogin
 
             var argb = ThemeState.BackgroundArgb;
             Background = new SolidColorBrush(Color.FromRgb((byte)(argb >> 16), (byte)(argb >> 8), (byte)argb));
+            // Themed loading state: visible (the WebView2 child is hidden) until Epic's first page has loaded, so there is never a
+            // white or empty window while the page is fetched.
+            Content = new System.Windows.Controls.TextBlock
+            {
+                Text = "Connecting to Epic Games…",
+                FontFamily = new FontFamily("Segoe UI"),
+                FontSize = 14,
+                Foreground = new SolidColorBrush(ThemeState.IsDark ? Color.FromRgb(0xB4, 0xB8, 0xBF) : Color.FromRgb(0x55, 0x59, 0x60)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
             Closed += (_, _) =>
             {
                 _showTimer.Stop();
@@ -154,12 +166,18 @@ internal sealed class EpicLogin
 
                 _done.TrySetResult(null);
             };
-            _showTimer.Tick += (_, _) => ShowNow();
+            _showTimer.Tick += (_, _) =>
+            {
+                ShowNow();
+                RevealPage(); // safety net: never stay on the loading state forever
+            };
         }
 
         public Task<string?> RunAsync()
         {
             Prepare();
+            _awaitingFirstPage = true;
+            _showTimer.Start();
             // Show first: a WebView2 controller created under a never-shown parent can stay unpainted (blank window).
             ShowNow();
             _ = StartAsync(navigate: true);
@@ -219,7 +237,7 @@ internal sealed class EpicLogin
                 options.DefaultBackgroundColor = DrawingColor.FromArgb(unchecked((int)ThemeState.BackgroundArgb));
                 _controller = await _env.CreateCoreWebView2ControllerAsync(_hwnd, options);
                 _controller.DefaultBackgroundColor = DrawingColor.FromArgb(unchecked((int)ThemeState.BackgroundArgb));
-                _controller.IsVisible = true;
+                _controller.IsVisible = !_awaitingFirstPage;
                 Resize();
                 _controller.NotifyParentWindowPositionChanged();
                 var web = _controller.CoreWebView2;
@@ -248,6 +266,7 @@ internal sealed class EpicLogin
         {
             try
             {
+                RevealPage();
                 var web = _controller?.CoreWebView2;
                 var uri = web?.Source ?? "";
                 // Never the query/fragment: IdP callbacks (Google, Xbox, PSN…) carry one-time codes there.
@@ -305,7 +324,6 @@ internal sealed class EpicLogin
 
         private void ShowNow()
         {
-            _showTimer.Stop();
             if (_shown || _finished)
             {
                 return;
@@ -318,6 +336,24 @@ internal sealed class EpicLogin
             {
                 // Re-assert visibility + bounds now that the parent is on screen.
                 _controller.IsVisible = false;
+                _controller.IsVisible = !_awaitingFirstPage;
+                Resize();
+                _controller.NotifyParentWindowPositionChanged();
+            }
+        }
+
+        /// <summary>The first page has loaded (or the safety timer fired): swap the themed loading state for the page.</summary>
+        private void RevealPage()
+        {
+            if (!_awaitingFirstPage)
+            {
+                return;
+            }
+
+            _awaitingFirstPage = false;
+            _showTimer.Stop();
+            if (_controller is not null)
+            {
                 _controller.IsVisible = true;
                 Resize();
                 _controller.NotifyParentWindowPositionChanged();
