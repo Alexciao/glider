@@ -1,9 +1,9 @@
 import { useCallback } from "react";
-import { ArrowDownToLine, Clock, Download, FolderInput, Pause, Play, ShieldCheck, Trash2, Wrench, X } from "lucide-react";
+import { Activity, ArrowDownToLine, Download, FolderInput, Pause, Play, ShieldCheck, Trash2, Wrench, X } from "lucide-react";
 import type { JobInfo, JobKind } from "../../ipc/contract.gen";
 import { actions } from "../../state/actions";
 import { JOB_VERB, PHASE_LABEL } from "../../state/derive";
-import { formatBytes, formatClock, formatEta, formatPercent, formatSpeed, prettyVersion } from "../../state/format";
+import { formatBytes, formatClock, formatEta, formatSpeed, prettyVersion } from "../../state/format";
 import { HISTORY_CAPACITY, readHistory, subscribeHistory, useJobProgress, useProgress } from "../../state/progress";
 import { useSnap } from "../../state/store";
 import { usePending, useUi } from "../../state/ui";
@@ -83,14 +83,14 @@ export function ActiveJobCard({ job }: { job: JobInfo }) {
             {queued && <Badge tone="neutral">Queued</Badge>}
             {running && p && <Badge tone="accent">{PHASE_LABEL[p.phase]}</Badge>}
           </div>
-          <div className="mt-1 text-sm text-fg-muted">
-            {subtitle}
+          <div className="mt-1 flex flex-col gap-0.5 text-sm text-fg-muted">
+            {subtitle && <p>{subtitle}</p>}
             {job.kind === "move" && job.targetPath && (
-              <span className="flex min-w-0 gap-1">
+              <p className="flex min-w-0 gap-1">
                 to <PathText path={job.targetPath} className="text-fg" />
-              </span>
+              </p>
             )}
-            {waiting && <span>{(job.blockedReason ?? "Another task is using the game files").replace(/[.\s]+$/, "")}, so Glider will wait and continue automatically.</span>}
+            {waiting && <p>{(job.blockedReason ?? "Another task is using the game files").replace(/[.\s]+$/, "")}, so Glider will wait and continue automatically.</p>}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -115,7 +115,8 @@ export function ActiveJobCard({ job }: { job: JobInfo }) {
       <div className="px-5">
         <div className="flex items-end justify-between gap-4">
           <p className="text-3xl font-semibold leading-none tracking-tighter tabular-nums text-fg max-[1100px]:text-2xl" aria-hidden>
-            {formatPercent(percent)}
+            {Math.floor(Math.min(100, Math.max(0, percent)))}
+            <span className="ml-0.5 text-xl font-medium text-fg-subtle">%</span>
           </p>
           {hasBytes && p && (
             <p className="pb-1 text-sm text-fg-muted tabular-nums">
@@ -150,15 +151,22 @@ export function ActiveJobCard({ job }: { job: JobInfo }) {
         <Metric label="Elapsed">{p ? formatClock(p.elapsedSeconds) : "0:00"}</Metric>
       </dl>
 
-      {hasBytes && (
+      {hasBytes && (running || paused || percent > 0) && (
         <div className="border-t border-border bg-surface-1 px-5 pb-4 pt-3.5">
-          <div className="mb-2 flex items-center justify-between text-xs text-fg-muted">
-            <span className="inline-flex items-center gap-1.5">
-              <Clock size={12} /> {downloading ? "Network speed" : "Disk speed"}
-            </span>
-            <span>Last 60 seconds</span>
-          </div>
-          <Sparkline className="h-24" read={read} subscribe={subscribe} capacity={HISTORY_CAPACITY} format={formatSpeed} label="Throughput over the last 60 seconds" />
+          <Sparkline
+            read={read}
+            subscribe={subscribe}
+            rate={10}
+            minWindow={100}
+            maxWindow={HISTORY_CAPACITY}
+            format={formatSpeed}
+            title={
+              <>
+                <Activity size={12} /> {downloading ? "Network speed" : "Disk speed"}
+              </>
+            }
+            label="Throughput history"
+          />
         </div>
       )}
     </Surface>

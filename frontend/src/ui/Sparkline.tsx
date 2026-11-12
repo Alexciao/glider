@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { cx } from "./cx";
 
 export interface SparklineProps {
@@ -6,13 +6,20 @@ export interface SparklineProps {
   read: () => ArrayLike<number>;
   /** Called when new data exists; returns an unsubscribe. The chart redraws outside React. */
   subscribe: (notify: () => void) => () => void;
-  /** Samples that span the full width. Fewer samples scroll in from the right. */
-  capacity: number;
+  /** Samples per second, for the "Last N seconds" caption. */
+  rate: number;
+  /** The window grows with the data between these bounds, so a young chart still fills its width. */
+  minWindow: number;
+  maxWindow: number;
   /** Formats the y-axis ceiling label. */
   format?: (v: number) => string;
-  /** Short label for the whole chart (for screen readers). */
+  /** Left caption above the chart. */
+  title?: ReactNode;
+  /** Accessible description of the chart. */
   label: string;
   className?: string;
+  /** Height of the plot area, as a Tailwind class. */
+  plotClassName?: string;
 }
 
 const W = 600;
@@ -22,11 +29,12 @@ const H = 100;
  * Throughput history. The path is written straight to the DOM from a rAF-coalesced subscription,
  * so a 10 Hz feed never re-renders React. Horizontal stretch uses non-scaling strokes.
  */
-export function Sparkline({ read, subscribe, capacity, format, label, className }: SparklineProps) {
+export function Sparkline({ read, subscribe, rate, minWindow, maxWindow, format, title, label, className, plotClassName = "h-24" }: SparklineProps) {
   const uid = useId().replace(/:/g, "");
   const line = useRef<SVGPathElement>(null);
   const area = useRef<SVGPathElement>(null);
   const ceiling = useRef<HTMLSpanElement>(null);
+  const span = useRef<HTMLSpanElement>(null);
   const yMax = useRef(1);
 
   useEffect(() => {
@@ -36,6 +44,8 @@ export function Sparkline({ read, subscribe, capacity, format, label, className 
       const data = read();
       const n = data.length;
       if (!line.current || !area.current) return;
+      const cap = Math.min(maxWindow, Math.max(minWindow, n));
+      if (span.current) span.current.textContent = `Last ${Math.round(cap / rate)} seconds`;
       if (n < 2) {
         line.current.setAttribute("d", "");
         area.current.setAttribute("d", "");
@@ -56,7 +66,7 @@ export function Sparkline({ read, subscribe, capacity, format, label, className 
       }
       // Ceiling rises instantly and relaxes slowly: no axis flicker.
       yMax.current = Math.max(peak * 1.15, yMax.current * 0.985, 1);
-      const step = W / Math.max(capacity - 1, 1);
+      const step = W / Math.max(cap - 1, 1);
       const x0 = W - (n - 1) * step;
       let d = "";
       for (let i = 0; i < n; i++) {
@@ -77,44 +87,30 @@ export function Sparkline({ read, subscribe, capacity, format, label, className 
       off();
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [read, subscribe, capacity, format]);
+  }, [read, subscribe, rate, minWindow, maxWindow, format]);
 
   return (
-    <div className={cx("relative", className)} role="img" aria-label={label}>
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="absolute inset-0 size-full overflow-visible" aria-hidden>
-        <defs>
-          <linearGradient id={`${uid}-fill`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--g-accent)" stopOpacity="0.28" />
-            <stop offset="100%" stopColor="var(--g-accent)" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {[25, 50, 75].map((p) => (
-          <line
-            key={p}
-            x1="0"
-            x2={W}
-            y1={p}
-            y2={p}
-            stroke="var(--g-border)"
-            strokeWidth="1"
-            strokeDasharray="2 4"
-            vectorEffect="non-scaling-stroke"
-          />
-        ))}
-        <path ref={area} fill={`url(#${uid}-fill)`} />
-        <path
-          ref={line}
-          fill="none"
-          stroke="var(--g-accent)"
-          strokeWidth="1.5"
-          strokeLinejoin="round"
-          strokeLinecap="round"
-          vectorEffect="non-scaling-stroke"
-        />
-      </svg>
-      {format && (
-        <span ref={ceiling} className="pointer-events-none absolute left-0 top-0 text-2xs tabular-nums text-fg-subtle" aria-hidden />
-      )}
+    <div className={className}>
+      <div className="mb-2.5 flex items-center justify-between text-xs text-fg-muted">
+        <span className="inline-flex items-center gap-1.5">{title}</span>
+        <span ref={span} className="tabular-nums" aria-hidden />
+      </div>
+      <div className={cx("relative", plotClassName)} role="img" aria-label={label}>
+        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="absolute inset-0 size-full overflow-visible" aria-hidden>
+          <defs>
+            <linearGradient id={`${uid}-fill`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--g-accent)" stopOpacity="0.28" />
+              <stop offset="100%" stopColor="var(--g-accent)" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          {[25, 50, 75].map((p) => (
+            <line key={p} x1="0" x2={W} y1={p} y2={p} stroke="var(--g-border)" strokeWidth="1" strokeDasharray="2 4" vectorEffect="non-scaling-stroke" />
+          ))}
+          <path ref={area} fill={`url(#${uid}-fill)`} />
+          <path ref={line} fill="none" stroke="var(--g-accent)" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+        </svg>
+        {format && <span ref={ceiling} className="pointer-events-none absolute left-0 top-0 text-2xs tabular-nums text-fg-subtle" aria-hidden />}
+      </div>
     </div>
   );
 }

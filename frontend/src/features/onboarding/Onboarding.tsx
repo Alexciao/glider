@@ -161,7 +161,7 @@ function CandidateCard({ c, latest, selected }: { c: InstallCandidate; latest: s
 
 function Reassurance() {
   return (
-    <ul className="mt-5 flex flex-col gap-2.5 rounded-xl border border-border bg-surface-1 p-4">
+    <ul className="mt-4 flex flex-col gap-2 rounded-xl border border-border bg-surface-1 p-3.5">
       <Point icon={<Download size={14} />}>Nothing is downloaded again</Point>
       <Point icon={<ShieldCheck size={14} />}>Epic Games Launcher keeps working. Glider keeps it in sync.</Point>
     </ul>
@@ -247,7 +247,7 @@ function ChooseExisting({ candidates, onFresh }: { candidates: InstallCandidate[
         </label>
       </div>
 
-      <div className="mt-6 flex flex-col items-stretch gap-2">
+      <div className="sticky bottom-0 -mx-6 mt-4 flex flex-col items-stretch gap-2 bg-gradient-to-t from-bg-elevated from-70% to-transparent px-6 pb-6 pt-6">
         <Button size="lg" variant="primary" disabled={!chosen} loading={adopting} onClick={use}>
           {adopting ? "Linking your install…" : "Use this install"}
         </Button>
@@ -362,7 +362,7 @@ export function Onboarding() {
 
   const authed = snap.auth.status === "signedIn";
   const job = currentJob(snap.jobs);
-  const hasGame = snap.game.installed !== null || (job !== undefined && (job.kind === "install" || job.kind === "import"));
+  const hasGame = snap.game.installed !== null || job?.kind === "install";
   const candidates = snap.egl.candidates;
   const hasExisting = candidates.some(isUsableCandidate);
 
@@ -391,7 +391,7 @@ export function Onboarding() {
       />
       <div className="relative flex h-14 shrink-0 items-center justify-center">{step !== "welcome" && <Stepper step={step} />}</div>
       <div className="relative min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex min-h-full w-full max-w-[540px] flex-col justify-center px-6 pb-12 pt-2">
+        <div className="mx-auto flex min-h-full w-full max-w-[540px] flex-col justify-center px-6 pb-6 pt-2">
           <AnimatePresence mode="wait" initial={false}>
             <m.div
               key={`${step}-${step === "install" ? (hasExisting && !fresh ? "existing" : "fresh") : ""}`}

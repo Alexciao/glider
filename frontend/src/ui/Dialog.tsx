@@ -43,7 +43,14 @@ export function Modal({ open, onOpenChange, title, description, size = "md", chi
     <D.Root open={open} onOpenChange={onOpenChange}>
       <D.Portal>
         <D.Overlay className={overlay} />
-        <D.Content className={content(size)} {...(description ? {} : { "aria-describedby": undefined })}>
+        <D.Content
+          className={content(size)}
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            (e.currentTarget as HTMLElement).focus();
+          }}
+          {...(description ? {} : { "aria-describedby": undefined })}
+        >
           <Header title={title} description={description} Title={D.Title} Description={D.Description} />
           {!hideClose && (
             <D.Close asChild>

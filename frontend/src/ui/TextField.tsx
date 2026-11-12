@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
+import { useState, type ComponentProps, type ReactNode } from "react";
 import { Minus, Plus } from "lucide-react";
 import { cx } from "./cx";
 
@@ -44,7 +44,12 @@ export interface NumberFieldProps {
 /** Stepper + typed input. Commits on blur/Enter/step, clamps to range, ArrowUp/Down step. */
 export function NumberField({ value, min, max, step = 1, suffix, onCommit, disabled, className, ...aria }: NumberFieldProps) {
   const [text, setText] = useState(String(value));
-  useEffect(() => setText(String(value)), [value]);
+  const [seen, setSeen] = useState(value);
+  if (seen !== value) {
+    // Adjust state during render: an external change replaces what is being typed.
+    setSeen(value);
+    setText(String(value));
+  }
 
   const clamp = (n: number) => Math.min(max, Math.max(min, n));
   const commit = (raw: string) => {
@@ -83,8 +88,13 @@ export function NumberField({ value, min, max, step = 1, suffix, onCommit, disab
         onBlur={(e) => commit(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") commit(e.currentTarget.value);
-          else if (e.key === "ArrowUp") (e.preventDefault(), bump(1));
-          else if (e.key === "ArrowDown") (e.preventDefault(), bump(-1));
+          else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            bump(1);
+          } else if (e.key === "ArrowDown") {
+            e.preventDefault();
+            bump(-1);
+          }
         }}
         className="w-14 bg-transparent text-center text-sm tabular-nums outline-none"
         {...aria}

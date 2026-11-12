@@ -1,0 +1,458 @@
+import type { Page } from "@playwright/test";
+
+/**
+ * Every screen/state the screenshot suite captures. A state is a mock scenario (+ options) and an
+ * optional script that drives the UI into the state (clicks, or the window.__glider test handle).
+ */
+export interface ShotState {
+  name: string;
+  /** Extra mock query params, e.g. "scenario=installed&freeze=1". */
+  query: string;
+  setup?: (page: Page) => Promise<void>;
+  /** Extra settle time after setup, ms (default 350). */
+  settle?: number;
+  /** Capture mid-animation instead of fast-forwarding CSS animations to their end. */
+  live?: boolean;
+}
+
+/** Structural subset of window.__glider (src/app/testHooks.ts); kept local so e2e needn't compile the app. */
+interface G {
+  ui: { getState(): { go(page: string, section?: string): void; openDialog(d: object): void; markReady(): void } };
+  app: { getState(): { snapshot: { settings: Record<string, unknown> } | null } };
+  rpc(method: string, params?: unknown): Promise<unknown>;
+  mock: { failNext(code: string): void; failActiveJob(code: string): void; emitNotice(n: object): void };
+}
+const g = <T>(page: Page, fn: (g: G) => T | Promise<T>): Promise<T> =>
+  page.evaluate(`(${fn.toString()})(window.__glider)`) as Promise<T>;
+
+const btn = (page: Page, name: string | RegExp) => page.getByRole("button", { name });
+const go = (page: Page, p: string, section?: string) =>
+  page.evaluate(([pg, sec]) => (window as unknown as { __glider: G }).__glider.ui.getState().go(pg!, sec), [p, section] as const);
+const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const finishOnboarding = async (page: Page) => {
+  await g(page, (h) => h.rpc("app.completeOnboarding"));
+  await wait(400);
+};
+
+export const STATES: ShotState[] = [
+  // ------------------------------------------------------------ onboarding
+  { name: "onboarding-1-welcome", query: "scenario=fresh" },
+  {
+    name: "onboarding-2-signin",
+    query: "scenario=fresh",
+    setup: async (p) => {
+      await btn(p, "Get started").click();
+      await wait(700);
+    },
+  },
+  {
+    name: "onboarding-2-signin-waiting",
+    query: "scenario=fresh&latency=1",
+    setup: async (p) => {
+      await btn(p, "Get started").click();
+      await wait(700);
+      await btn(p, /Sign in with Epic/).click();
+      await wait(350);
+    },
+  },
+  {
+    name: "onboarding-2-signin-error",
+    query: "scenario=fresh",
+    setup: async (p) => {
+      await g(p, (h) => h.mock.failNext("authFailed"));
+      await btn(p, "Get started").click();
+      await wait(700);
+      await btn(p, /Sign in with Epic/).click();
+      await wait(1900);
+    },
+  },
+  { name: "onboarding-3-fresh-install", query: "scenario=signedIn", settle: 900 },
+  {
+    name: "onboarding-3-fresh-insufficient",
+    query: "scenario=signedIn",
+    setup: async (p) => {
+      await wait(800);
+      await btn(p, "Change…").click();
+      await wait(900);
+      await btn(p, "Change…").click();
+      await wait(1600);
+    },
+  },
+  { name: "onboarding-4-found-one", query: "scenario=eglDetected", settle: 700 },
+  { name: "onboarding-4-found-multiple", query: "scenario=eglMultiple", settle: 700 },
+  {
+    name: "onboarding-4-found-located",
+    query: "scenario=eglDetected",
+    setup: async (p) => {
+      await wait(600);
+      await btn(p, /Locate another folder/).click();
+      await wait(1300);
+    },
+  },
+  {
+    name: "onboarding-4-locate-invalid",
+    query: "scenario=eglDetected",
+    setup: async (p) => {
+      await wait(600);
+      await btn(p, /Locate another folder/).click();
+      await wait(1300);
+      await btn(p, /Locate another folder/).click();
+      await wait(1500);
+    },
+  },
+  {
+    name: "onboarding-4-linking",
+    query: "scenario=eglDetected",
+    setup: async (p) => {
+      await wait(600);
+      await btn(p, "Use this install").click();
+      await wait(500);
+    },
+  },
+  {
+    name: "onboarding-5-done",
+    query: "scenario=eglDetected",
+    setup: async (p) => {
+      await wait(600);
+      await btn(p, "Use this install").click();
+      await wait(2800);
+    },
+  },
+  {
+    name: "onboarding-5-done-installing",
+    query: "scenario=signedIn&freeze=1",
+    setup: async (p) => {
+      await wait(900);
+      await btn(p, "Install Fortnite").click();
+      await wait(2200);
+    },
+  },
+  { name: "onboarding-eglsignedout-welcome", query: "scenario=eglSignedOut" },
+
+  // --------------------------------------------------------------- library
+  { name: "library-installed", query: "scenario=installed" },
+  { name: "library-installed-no-art", query: "scenario=installed&art=none" },
+  { name: "library-update-available", query: "scenario=updateAvailable" },
+  { name: "library-downloading", query: "scenario=downloading&freeze=1&seek=0.42&timescale=1", settle: 900 },
+  {
+    name: "library-downloading-paused",
+    query: "scenario=downloading&freeze=1&seek=0.42&timescale=1",
+    setup: async (p) => {
+      await wait(700);
+      await go(p, "downloads");
+      await wait(400);
+      await btn(p, "Pause").click();
+      await wait(500);
+      await go(p, "library");
+    },
+  },
+  { name: "library-waiting-for-egl", query: "scenario=eglBusy&freeze=1", settle: 700 },
+  { name: "library-error-disk-full", query: "scenario=diskFull", settle: 700 },
+  { name: "library-auth-expired", query: "scenario=authExpired" },
+  { name: "library-playing", query: "scenario=playing" },
+  {
+    name: "library-launching",
+    query: "scenario=installed&freeze=1",
+    setup: async (p) => {
+      await wait(500);
+      await btn(p, "Play").click();
+      await wait(1100);
+    },
+  },
+  {
+    name: "library-error-launch-failed",
+    query: "scenario=installed",
+    setup: async (p) => {
+      await wait(500);
+      await g(p, (h) => h.mock.failNext("launchFailed"));
+      await btn(p, "Play").click();
+      await wait(900);
+    },
+  },
+  {
+    name: "library-error-network",
+    query: "scenario=downloading&freeze=1&seek=0.42&timescale=1",
+    setup: async (p) => {
+      await wait(800);
+      await g(p, (h) => h.mock.failActiveJob("network"));
+      await wait(900);
+    },
+  },
+  {
+    name: "library-signed-out",
+    query: "scenario=installed",
+    setup: async (p) => {
+      await wait(500);
+      await btn(p, /^Account:/).click();
+      await wait(300);
+      await p.getByRole("menuitem", { name: "Sign out" }).click();
+      await wait(900);
+    },
+  },
+  {
+    name: "library-existing-install-hint",
+    query: "scenario=eglDetected",
+    setup: async (p) => {
+      await finishOnboarding(p);
+    },
+    settle: 900,
+  },
+  {
+    name: "library-not-installed",
+    query: "scenario=signedIn",
+    setup: async (p) => {
+      await finishOnboarding(p);
+    },
+    settle: 900,
+  },
+  {
+    name: "library-ready-moment",
+    query: "scenario=installed",
+    live: true,
+    setup: async (p) => {
+      await wait(900);
+      await g(p, (h) => h.ui.getState().markReady());
+      await wait(650);
+    },
+    settle: 0,
+  },
+  {
+    name: "library-menu-more",
+    query: "scenario=installed",
+    setup: async (p) => {
+      await wait(600);
+      await btn(p, "More actions").click();
+      await wait(350);
+    },
+  },
+  {
+    name: "library-menu-account",
+    query: "scenario=installed",
+    setup: async (p) => {
+      await wait(600);
+      await btn(p, /^Account:/).click();
+      await wait(350);
+    },
+  },
+  {
+    name: "library-command-palette",
+    query: "scenario=installed",
+    setup: async (p) => {
+      await wait(600);
+      await p.keyboard.press("Control+k");
+      await wait(250);
+    },
+  },
+  {
+    name: "library-command-palette-query",
+    query: "scenario=installed",
+    setup: async (p) => {
+      await wait(600);
+      await p.keyboard.press("Control+k");
+      await p.keyboard.type("set");
+      await wait(250);
+    },
+  },
+  {
+    name: "toasts",
+    query: "scenario=installed",
+    live: true,
+    setup: async (p) => {
+      await wait(700);
+      await g(p, (h) => {
+        h.mock.emitNotice({ level: "success", title: "Fortnite is ready to play", message: "Version 40.20 installed.", action: null });
+        h.mock.emitNotice({ level: "error", title: "Can't reach Epic", message: "Check your internet connection, then retry. Progress is kept.", action: "retry" });
+      });
+      await wait(900);
+    },
+    settle: 0,
+  },
+
+  // ------------------------------------------------------------- downloads
+  { name: "downloads-active", query: "scenario=downloading&freeze=1&seek=0.42&timescale=1", setup: async (p) => go(p, "downloads"), settle: 900 },
+  {
+    name: "downloads-paused",
+    query: "scenario=downloading&freeze=1&seek=0.42&timescale=1",
+    setup: async (p) => {
+      await go(p, "downloads");
+      await wait(500);
+      await btn(p, "Pause").click();
+    },
+    settle: 700,
+  },
+  { name: "downloads-waiting-for-egl", query: "scenario=eglBusy&freeze=1", setup: async (p) => go(p, "downloads"), settle: 700 },
+  { name: "downloads-history", query: "scenario=installed", setup: async (p) => go(p, "downloads") },
+  { name: "downloads-failed-disk-full", query: "scenario=diskFull", setup: async (p) => go(p, "downloads") },
+  {
+    name: "downloads-empty",
+    query: "scenario=signedIn",
+    setup: async (p) => {
+      await finishOnboarding(p);
+      await go(p, "downloads");
+    },
+  },
+  {
+    name: "downloads-queued",
+    query: "scenario=updateAvailable&freeze=1",
+    setup: async (p) => {
+      await go(p, "downloads");
+      await g(p, (h) => h.rpc("game.update"));
+      await wait(500);
+      await g(p, (h) => h.rpc("game.verify"));
+      await wait(700);
+    },
+  },
+  {
+    name: "downloads-verifying",
+    query: "scenario=installed&freeze=1",
+    setup: async (p) => {
+      await go(p, "downloads");
+      await g(p, (h) => h.rpc("game.verify"));
+      await wait(1800);
+    },
+  },
+
+  // -------------------------------------------------------------- settings
+  ...(["general", "downloads", "game", "egl", "advanced", "about"] as const).map<ShotState>((s) => ({
+    name: `settings-${s}`,
+    query: "scenario=installed",
+    setup: async (p) => {
+      await go(p, "settings", s);
+    },
+    settle: s === "advanced" || s === "about" ? 900 : 400,
+  })),
+  {
+    name: "settings-downloads-custom",
+    query: "scenario=installed",
+    setup: async (p) => {
+      await go(p, "settings", "downloads");
+      await wait(300);
+      await p.getByRole("radio", { name: "Custom" }).first().click();
+      await wait(400);
+    },
+  },
+  {
+    name: "settings-select-open",
+    query: "scenario=installed",
+    setup: async (p) => {
+      await go(p, "settings", "downloads");
+      await wait(300);
+      await p.getByRole("combobox", { name: "Preferred CDN" }).click();
+      await wait(350);
+    },
+  },
+  {
+    name: "settings-egl-sync-off-missing",
+    query: "scenario=installed",
+    setup: async (p) => {
+      await g(p, async (h) => {
+        const s = h.app.getState().snapshot!.settings;
+        await h.rpc("settings.update", { ...s, eglSync: false });
+      });
+      await go(p, "settings", "egl");
+      await wait(300);
+    },
+  },
+
+  // --------------------------------------------------------------- dialogs
+  {
+    name: "dialog-uninstall",
+    query: "scenario=installed",
+    setup: async (p) => {
+      await wait(500);
+      await g(p, (h) => h.ui.getState().openDialog({ kind: "uninstall" }));
+      await wait(450);
+    },
+  },
+  {
+    name: "dialog-uninstall-delete",
+    query: "scenario=installed",
+    setup: async (p) => {
+      await wait(500);
+      await g(p, (h) => h.ui.getState().openDialog({ kind: "uninstall" }));
+      await wait(450);
+      await p.getByRole("radio", { name: /Uninstall and delete files/ }).click();
+      await wait(300);
+    },
+  },
+  {
+    name: "dialog-move",
+    query: "scenario=installed",
+    setup: async (p) => {
+      await wait(500);
+      await g(p, (h) => h.ui.getState().openDialog({ kind: "move" }));
+      await wait(450);
+      await btn(p, "Choose…").click();
+      await wait(1300);
+    },
+  },
+  {
+    name: "dialog-move-egl-warning",
+    query: "scenario=installed",
+    setup: async (p) => {
+      await g(p, async (h) => {
+        const s = h.app.getState().snapshot!.settings;
+        await h.rpc("settings.update", { ...s, eglSync: false });
+      });
+      await wait(400);
+      await g(p, (h) => h.ui.getState().openDialog({ kind: "move" }));
+      await wait(450);
+      await btn(p, "Choose…").click();
+      await wait(1300);
+    },
+  },
+  {
+    name: "dialog-cancel-download",
+    query: "scenario=downloading&freeze=1&seek=0.42&timescale=1",
+    setup: async (p) => {
+      await go(p, "downloads");
+      await wait(500);
+      await btn(p, "Cancel").first().click();
+      await wait(450);
+    },
+  },
+  {
+    name: "dialog-install",
+    query: "scenario=signedIn",
+    setup: async (p) => {
+      await finishOnboarding(p);
+      await wait(500);
+      await btn(p, "Install").first().click();
+      await wait(1100);
+    },
+  },
+  {
+    name: "dialog-install-insufficient",
+    query: "scenario=signedIn",
+    setup: async (p) => {
+      await finishOnboarding(p);
+      await wait(500);
+      await btn(p, "Install").first().click();
+      await wait(900);
+      await btn(p, "Change…").click();
+      await wait(900);
+      await btn(p, "Change…").click();
+      await wait(1500);
+    },
+  },
+  {
+    name: "dialog-error",
+    query: "scenario=installed",
+    setup: async (p) => {
+      await wait(500);
+      await g(p, (h) =>
+        h.ui.getState().openDialog({
+          kind: "error",
+          error: {
+            code: "legendaryMissing",
+            title: "Glider is damaged",
+            message: "A required component is missing. Reinstall Glider to fix it.",
+            fix: "openLogs",
+            detail: "legendary.exe not found at C:\\Users\\alex\\AppData\\Local\\Programs\\Glider\\bin",
+          },
+        }),
+      );
+      await wait(450);
+    },
+  },
+];

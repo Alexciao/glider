@@ -1,7 +1,7 @@
 import type { AppSnapshot, EglState, InstallCandidate, JobInfo, JobKind, JobPhase } from "../ipc/contract.gen";
 import type { BadgeTone } from "../ui";
 import { currentJob } from "./store";
-import { formatBytes, formatPercent, prettyVersion } from "./format";
+import { formatBytes, prettyVersion } from "./format";
 
 export const JOB_VERB: Record<JobKind, string> = {
   install: "Installing",
@@ -11,6 +11,28 @@ export const JOB_VERB: Record<JobKind, string> = {
   move: "Moving",
   uninstall: "Removing",
   import: "Importing",
+};
+
+/** Imperative, for things that haven't finished ("Update Fortnite"). */
+export const JOB_ACTION: Record<JobKind, string> = {
+  install: "Install",
+  update: "Update",
+  repair: "Repair",
+  verify: "Verify",
+  move: "Move",
+  uninstall: "Uninstall",
+  import: "Link existing install of",
+};
+
+/** Past tense, for finished history entries ("Updated Fortnite"). */
+export const JOB_PAST: Record<JobKind, string> = {
+  install: "Installed",
+  update: "Updated",
+  repair: "Repaired",
+  verify: "Verified",
+  move: "Moved",
+  uninstall: "Uninstalled",
+  import: "Linked existing install of",
 };
 
 export const JOB_NOUN: Record<JobKind, string> = {
@@ -130,7 +152,7 @@ export function deriveHero(s: AppSnapshot, ctx: HeroContext = {}): HeroModel {
           target: "resume",
           job,
           percent,
-          status: { tone: "warning", text: `${JOB_NOUN[job.kind]} paused`, sub: formatPercent(percent) },
+          status: { tone: "warning", text: `${JOB_NOUN[job.kind]} paused` },
         };
       case "queued":
         return {

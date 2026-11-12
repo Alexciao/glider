@@ -1,7 +1,7 @@
 import { Check, Download, X } from "lucide-react";
 import type { JobInfo, JobStatus } from "../../ipc/contract.gen";
 import { actions } from "../../state/actions";
-import { JOB_NOUN } from "../../state/derive";
+import { JOB_ACTION, JOB_PAST } from "../../state/derive";
 import { formatBytes, formatDuration, formatRelativeTime, prettyVersion } from "../../state/format";
 import { useNow } from "../../state/hooks";
 import { currentJob, historyJobs, queuedJobs, useSnap } from "../../state/store";
@@ -47,7 +47,7 @@ function JobRow({ job, history, now }: { job: JobInfo; history?: boolean; now: n
         <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-2 text-fg-muted">{KIND_ICON[job.kind]}</span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-fg">
-            {JOB_NOUN[job.kind]} {title}
+            {job.status === "completed" ? JOB_PAST[job.kind] : JOB_ACTION[job.kind]} {title}
           </p>
           <p className="mt-0.5 truncate text-xs text-fg-muted tabular-nums">{jobSubtitle(job, now)}</p>
         </div>

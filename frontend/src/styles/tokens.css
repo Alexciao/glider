@@ -65,7 +65,7 @@
 
   /* ---------- Layout ---------- */
   --titlebar-height: 40px;
-  --sidebar-width: 64px;
+  --sidebar-width: 72px;
 }
 
 /* =========================== Dark (default) =========================== */
@@ -83,7 +83,7 @@
   --g-surface-3: oklch(1 0 0 / 0.09);
   --g-surface-hover: oklch(1 0 0 / 0.075);
   --g-surface-active: oklch(1 0 0 / 0.11);
-  --g-overlay: oklch(0.12 0.006 265 / 0.72);
+  --g-overlay: oklch(0.12 0.006 265 / 0.6);
   --g-popover: oklch(0.215 0.007 265);
 
   --g-border: oklch(1 0 0 / 0.08);
@@ -150,7 +150,7 @@
   --g-surface-3: oklch(0.2 0.01 265 / 0.08);
   --g-surface-hover: oklch(0.2 0.01 265 / 0.06);
   --g-surface-active: oklch(0.2 0.01 265 / 0.1);
-  --g-overlay: oklch(0.3 0.01 265 / 0.35);
+  --g-overlay: oklch(0.3 0.01 265 / 0.3);
   --g-popover: oklch(1 0 0);
 
   --g-border: oklch(0.2 0.01 265 / 0.1);

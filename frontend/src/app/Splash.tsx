@@ -8,9 +8,9 @@ export function Splash() {
     <div className="flex h-full flex-col" aria-busy="true" aria-label="Loading Glider">
       <TitleBar minimal />
       <div className="flex min-h-0 flex-1">
-        <div className="flex w-16 shrink-0 flex-col items-center gap-2 pt-2">
-          <Skeleton className="size-[52px] rounded-lg" />
-          <Skeleton className="size-[52px] rounded-lg" />
+        <div className="flex w-[var(--sidebar-width)] shrink-0 flex-col items-center gap-1 pt-2">
+          <Skeleton className="h-[54px] w-[60px] rounded-lg" />
+          <Skeleton className="h-[54px] w-[60px] rounded-lg" />
         </div>
         <main className="relative flex-1 overflow-hidden rounded-tl-xl border-l border-t bg-bg-elevated">
           <div className="absolute inset-x-12 bottom-12 flex flex-col gap-4">

@@ -95,29 +95,38 @@ function AutoNumberRow({
       label={label}
       description={description}
       control={
-        <>
-          {custom &&
-            (slider ? (
-              <div className="flex items-center gap-3">
-                <Slider aria-label={label} min={min} max={max} step={step} value={draft} onValueChange={setDraft} onValueCommit={(v) => onChange(v)} className="w-32" />
-                <span className="w-6 text-right text-sm tabular-nums text-fg">{draft}</span>
-              </div>
-            ) : (
-              <NumberField aria-label={label} value={value} min={min} max={max} step={step} suffix={suffix} onCommit={(v) => onChange(v)} />
-            ))}
-          <SegmentedControl
-            aria-label={`${label} mode`}
-            className="w-[216px]"
-            value={custom ? "custom" : "auto"}
-            onValueChange={(v) => onChange(v === "auto" ? null : (value ?? auto))}
-            options={[
-              { value: "auto", label: `Auto (${auto}${suffix ? ` ${suffix}` : ""})` },
-              { value: "custom", label: "Custom" },
-            ]}
-          />
-        </>
+        <SegmentedControl
+          aria-label={`${label} mode`}
+          className="w-[236px]"
+          value={custom ? "custom" : "auto"}
+          onValueChange={(v) => onChange(v === "auto" ? null : (value ?? auto))}
+          options={[
+            { value: "auto", label: `Auto (${auto}${suffix ? ` ${suffix}` : ""})` },
+            { value: "custom", label: "Custom" },
+          ]}
+        />
       }
-    />
+    >
+      {custom && (
+        <div className="mt-3 flex items-center gap-4 rounded-lg bg-surface-2 px-3.5 py-2.5">
+          {slider ? (
+            <>
+              <span className="w-5 text-xs tabular-nums text-fg-subtle">{min}</span>
+              <Slider aria-label={label} min={min} max={max} step={step} value={draft} onValueChange={setDraft} onValueCommit={(v) => onChange(v)} className="w-full flex-1" />
+              <span className="w-5 text-right text-xs tabular-nums text-fg-subtle">{max}</span>
+              <span className="w-8 text-right text-sm font-medium tabular-nums text-fg">{draft}</span>
+            </>
+          ) : (
+            <>
+              <NumberField aria-label={label} value={value} min={min} max={max} step={step} suffix={suffix} onCommit={(v) => onChange(v)} />
+              <span className="text-xs text-fg-subtle tabular-nums">
+                {min}–{max} {suffix}
+              </span>
+            </>
+          )}
+        </div>
+      )}
+    </Row>
   );
 }
 

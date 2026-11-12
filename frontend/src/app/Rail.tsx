@@ -27,7 +27,7 @@ function RailItem({
         aria-current={active ? "page" : undefined}
         onClick={() => go(page)}
         className={cx(
-          "group relative flex h-[52px] w-[52px] flex-col items-center justify-center gap-1 rounded-lg outline-none",
+          "group relative flex h-[54px] w-[60px] flex-col items-center justify-center gap-1 rounded-lg outline-none",
           "transition-[background-color,color,transform] duration-150 ease-out active:scale-95",
           active ? "bg-surface-2 text-fg" : "text-fg-subtle hover:bg-surface-hover hover:text-fg",
         )}
@@ -36,7 +36,7 @@ function RailItem({
         <span
           aria-hidden
           className={cx(
-            "absolute -left-[6px] top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-accent transition-[transform,opacity] duration-200 ease-out",
+            "absolute -left-[7px] top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-accent transition-[transform,opacity] duration-200 ease-out",
             active ? "scale-y-100 opacity-100" : "scale-y-50 opacity-0",
           )}
         />
@@ -66,7 +66,7 @@ function DownloadsBadge() {
 
 export function Rail() {
   return (
-    <nav aria-label="Main" className="flex w-16 shrink-0 flex-col items-center pb-3 pt-2">
+    <nav aria-label="Main" className="flex w-[var(--sidebar-width)] shrink-0 flex-col items-center pb-3 pt-2">
       <div className="flex flex-col gap-1">
         <RailItem page="library" label="Library" shortcut="Ctrl+1" icon={<Gamepad2 size={20} strokeWidth={1.75} />} />
         <RailItem

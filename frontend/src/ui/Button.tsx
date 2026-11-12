@@ -7,7 +7,7 @@ export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 export type ButtonSize = "sm" | "md" | "lg" | "xl";
 
 const base =
-  "relative inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap font-medium " +
+  "inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap font-medium " +
   "transition-[background-color,color,box-shadow,transform,opacity,border-color] duration-150 ease-out " +
   "active:scale-[0.97] disabled:pointer-events-none disabled:opacity-45 aria-busy:pointer-events-none";
 
