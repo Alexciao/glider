@@ -139,6 +139,9 @@ export function buildScenario(name: ScenarioName, cfg: BuildConfig, now: number)
     art: cfg.art === "none" ? null : cfg.art === "default" ? { ...GAME_ART } : stressArt(cfg.art),
     downloadSizeBytes: FULL_DOWNLOAD_BYTES,
     installSizeBytes: FULL_INSTALL_BYTES,
+    installedSizeBytes: null,
+    playtimeSeconds: 0,
+    lastPlayedAt: null,
   };
 
   const s: AppSnapshot = {
@@ -198,6 +201,9 @@ export function buildScenario(name: ScenarioName, cfg: BuildConfig, now: number)
     };
     game.updateAvailable = version !== LATEST_VERSION;
     game.downloadSizeBytes = game.updateAvailable ? UPDATE_DOWNLOAD_BYTES : null;
+    game.installedSizeBytes = INSTALLED_ON_DISK_BYTES;
+    game.playtimeSeconds = 42 * 3600 + 17 * 60;
+    game.lastPlayedAt = iso(now - 2 * DAY);
     game.lastUpdateCheck = iso(now - 4 * MINUTE);
     eglInstalled([candidate("egl-1", EGL_INSTALL_PATH, version)], now - 4 * MINUTE);
     s.egl.syncAvailable = true;

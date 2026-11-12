@@ -61,6 +61,15 @@ describe("Library", () => {
     expect(screen.getByRole("button", { name: /^Update$/ })).toBeEnabled();
   });
 
+  it("shows playtime, last played and installed size in the facts row", async () => {
+    await mount("installed", <Library />);
+    expect(screen.getByText("Playtime")).toBeInTheDocument();
+    expect(screen.getByText("42 h 17 min")).toBeInTheDocument();
+    expect(screen.getByText("Last played")).toBeInTheDocument();
+    expect(screen.getByText("Installed size")).toBeInTheDocument();
+    expect(screen.queryByText("On disk")).not.toBeInTheDocument();
+  });
+
   it("explains waiting on Epic Games Launcher", async () => {
     await mount("eglBusy", <Library />, { freeze: true });
     expect(screen.getByText(/Epic Games Launcher is updating Fortnite, so Glider will wait/)).toBeInTheDocument();

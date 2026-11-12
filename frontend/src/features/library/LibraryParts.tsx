@@ -2,7 +2,7 @@ import { CircleCheck, FolderInput, FolderOpen, MoreHorizontal, RefreshCw, Trash2
 import type { AppSnapshot, InstallCandidate, JobInfo } from "../../ipc/contract.gen";
 import { actions } from "../../state/actions";
 import { isBusy } from "../../state/derive";
-import { buildOf, formatBytes, formatEta, formatPercent, formatSpeed, prettyVersion } from "../../state/format";
+import { buildOf, formatBytes, formatEta, formatPercent, formatPlaytime, formatRelativeTime, formatSpeed, prettyVersion } from "../../state/format";
 import { useJobProgress } from "../../state/progress";
 import { useUi } from "../../state/ui";
 import {
@@ -13,6 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   ProgressBar,
+  Tooltip,
   cx,
 } from "../../ui";
 import { PathText } from "../common/PathText";
@@ -40,10 +41,18 @@ export function JobLine({ job }: { job: JobInfo }) {
   );
 }
 
-function Fact({ label, children, grow }: { label: string; children: React.ReactNode; grow?: boolean }) {
+function Fact({ label, children, grow, hint }: { label: string; children: React.ReactNode; grow?: boolean; hint?: string }) {
   return (
     <div className={cx("min-w-0 max-w-full", grow ? "min-w-[220px] flex-1" : "shrink-0")}>
-      <dt className="text-xs text-fg-muted">{label}</dt>
+      <dt className="text-xs text-fg-muted">
+        {hint ? (
+          <Tooltip content={hint} side="bottom" align="start">
+            <span className="cursor-help">{label}</span>
+          </Tooltip>
+        ) : (
+          label
+        )}
+      </dt>
       <dd className="mt-0.5 truncate text-sm font-medium text-fg">{children}</dd>
     </div>
   );
@@ -62,9 +71,34 @@ export function Facts({ snap }: { snap: AppSnapshot }) {
         <span className="tabular-nums">{prettyVersion(installed.version)}</span>
         {build && <span className="ml-1.5 text-xs font-normal text-fg-subtle tabular-nums">build {build}</span>}
       </Fact>,
-      <Fact key="s" label="On disk">
-        <span className="tabular-nums">{formatBytes(installed.installSizeBytes)}</span>
+      <Fact key="s" label="Installed size" hint="Space the game files take on your drive right now, measured from disk.">
+        {game.installedSizeBytes == null ? (
+          <span className="font-normal text-fg-muted">Measuring…</span>
+        ) : (
+          <span className="tabular-nums">{formatBytes(game.installedSizeBytes)}</span>
+        )}
       </Fact>,
+    );
+    if (game.updateAvailable && game.downloadSizeBytes) {
+      items.push(
+        <Fact key="d" label="Download size" hint="How much data the pending update downloads. Smaller than the installed size because only changed files are fetched.">
+          <span className="tabular-nums">{formatBytes(game.downloadSizeBytes)}</span>
+        </Fact>,
+      );
+    }
+    items.push(
+      <Fact key="p" label="Playtime" hint="Time Fortnite has run through Glider.">
+        <span className="tabular-nums">{game.playtimeSeconds > 0 ? formatPlaytime(game.playtimeSeconds) : "Not played yet"}</span>
+      </Fact>,
+    );
+    if (game.lastPlayedAt) {
+      items.push(
+        <Fact key="lp" label="Last played">
+          <span>{formatRelativeTime(game.lastPlayedAt)}</span>
+        </Fact>,
+      );
+    }
+    items.push(
       <Fact key="l" label="Location" grow>
         <PathText path={installed.installPath} />
       </Fact>,
@@ -81,8 +115,8 @@ export function Facts({ snap }: { snap: AppSnapshot }) {
       );
     }
   } else if (game.downloadSizeBytes || game.installSizeBytes) {
-    if (game.downloadSizeBytes) items.push(<Fact key="d" label="Download"><span className="tabular-nums">{formatBytes(game.downloadSizeBytes)}</span></Fact>);
-    if (game.installSizeBytes) items.push(<Fact key="i" label="Disk space needed"><span className="tabular-nums">{formatBytes(game.installSizeBytes)}</span></Fact>);
+    if (game.downloadSizeBytes) items.push(<Fact key="d" label="Download size" hint="How much data is downloaded to install the game."><span className="tabular-nums">{formatBytes(game.downloadSizeBytes)}</span></Fact>);
+    if (game.installSizeBytes) items.push(<Fact key="i" label="Installed size" hint="Space the game will take on your drive once installed."><span className="tabular-nums">{formatBytes(game.installSizeBytes)}</span></Fact>);
     if (game.latestVersion) items.push(<Fact key="v" label="Latest version"><span className="tabular-nums">{prettyVersion(game.latestVersion)}</span></Fact>);
   }
   if (items.length === 0) return null;
