@@ -56,7 +56,7 @@ public sealed class GliderRuntime : IAsyncDisposable
             log.MinimumLevel = settings.Current.LogLevel;
 
             var tune = AutoTune.ForCurrentMachine();
-            var legendary = new LegendaryCli(paths, log, time: time);
+            var legendary = new LegendaryCli(paths, log, new LegendaryOptions { Runner = new LegendaryRunnerOptions { ExpectedSha256 = LegendaryCli.PinnedSha256 } }, time);
             var hooks = new DeferredJobHooks();
             var jobs = new JobQueue(paths, legendary, settings, hooks, log, time, new JobQueueOptions { AutoTune = tune });
             var egl = new EglService(eglEnvironment ?? EglEnvironment.ForMachine(), paths, log, settings: settings, records: records);

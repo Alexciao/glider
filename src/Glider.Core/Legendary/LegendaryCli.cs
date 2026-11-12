@@ -36,6 +36,9 @@ public sealed class LegendaryCli : ILegendary, IDisposable
 {
     private const string NotLoggedIn = "<not logged in>";
 
+    /// <summary>SHA-256 of the bundled legendary_windows_x64.exe 0.21.1 (build/legendary.json; a test keeps them equal).</summary>
+    public const string PinnedSha256 = "6be77857dc0a6dd33ea7442ce8b5291944ec6da53757f81ca95b57ce794baf5b";
+
     private readonly AppPaths _paths;
     private readonly ILog _log;
     private readonly TimeProvider _time;

@@ -73,6 +73,9 @@ public sealed class LegendaryRunnerOptions
 
     /// <summary>Extra environment for the child (tests use it to drive the fake Legendary).</summary>
     public IReadOnlyDictionary<string, string>? ExtraEnvironment { get; init; }
+
+    /// <summary>SHA-256 (hex) the exe must have; checked before the first run and again whenever the file changes. Null = skip.</summary>
+    public string? ExpectedSha256 { get; init; }
 }
 
 /// <summary>
@@ -117,6 +120,8 @@ internal sealed class LegendaryProcessRunner : IDisposable
         {
             throw new GliderException(Errors.LegendaryMissing($"Not found: {_paths.LegendaryExe}"));
         }
+
+        await EnsureIntactAsync(ct).ConfigureAwait(false);
 
         if (command.Exclusive)
         {
@@ -165,6 +170,56 @@ internal sealed class LegendaryProcessRunner : IDisposable
             {
                 _exclusive.Release();
             }
+        }
+    }
+
+    private readonly Lock _verifiedLock = new();
+    private (long Length, DateTime WriteUtc)? _verified;
+
+    /// <summary>A truncated or swapped exe otherwise surfaces as "the task failed, retry", which can never succeed.</summary>
+    private async Task EnsureIntactAsync(CancellationToken ct)
+    {
+        if (_options.ExpectedSha256 is not { Length: > 0 } expected)
+        {
+            return;
+        }
+
+        var info = new FileInfo(_paths.LegendaryExe);
+        var stamp = (info.Length, info.LastWriteTimeUtc);
+        bool known;
+        lock (_verifiedLock)
+        {
+            known = _verified == stamp;
+        }
+
+        if (known)
+        {
+            return;
+        }
+
+        string actual;
+        try
+        {
+            var stream = new FileStream(info.FullName, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 1 << 16, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            await using (stream.ConfigureAwait(false))
+            {
+                actual = Convert.ToHexStringLower(await System.Security.Cryptography.SHA256.HashDataAsync(stream, ct).ConfigureAwait(false));
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            throw new GliderException(Errors.LegendaryMissing($"Can't read {_paths.LegendaryExe}: {e.Message}"), e);
+        }
+
+        if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
+        {
+            _log.Error("legendary", $"{_paths.LegendaryExe} is damaged or was replaced: SHA-256 {actual}, expected {expected}.");
+            throw new GliderException(Errors.LegendaryMissing($"legendary.exe doesn't match the copy shipped with Glider (SHA-256 {actual[..12]}…)."));
+        }
+
+        lock (_verifiedLock)
+        {
+            _verified = stamp;
         }
     }
 
