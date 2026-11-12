@@ -109,7 +109,12 @@ internal sealed class UpdateChecker
             _c.Hub.Mutate(s => s with { CheckingForUpdates = false });
         }
 
-        Evaluate();
+        // Before pre-warm finishes, persisted jobs aren't restored yet; pre-warm evaluates once at the end.
+        if (_c.Hub.State.Warm)
+        {
+            Evaluate();
+        }
+
         return Result();
     }
 

@@ -83,6 +83,9 @@ public sealed class StateHub : IDisposable
         }
     }
 
+    /// <summary>Raised synchronously after every effective <see cref="Mutate"/> (before coalescing).</summary>
+    public event Action<HubState>? StateChanged;
+
     /// <summary>Number of `state` events published (diagnostics/tests).</summary>
     public int PublishCount { get; private set; }
 
@@ -113,6 +116,7 @@ public sealed class StateHub : IDisposable
 
         if (changed)
         {
+            StateChanged?.Invoke(next);
             Invalidate();
         }
 

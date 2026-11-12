@@ -81,6 +81,7 @@ internal sealed class LaunchService
             }
             catch (Exception e) when (e is not GliderException)
             {
+                _watcher.Reset();
                 throw new GliderException(Errors.LaunchFailed(e.Message), e);
             }
 

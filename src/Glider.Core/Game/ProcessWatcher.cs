@@ -64,6 +64,16 @@ internal sealed class ProcessWatcher
         }
     }
 
+    /// <summary>Abort a launch that never started a process.</summary>
+    public void Reset()
+    {
+        lock (_gate)
+        {
+            _phase = Phase.Idle;
+            _stubGoneSince = null;
+        }
+    }
+
     /// <summary>Startup: is the game already running (e.g. started by EGL or before Glider)? Starts tracking it.</summary>
     public bool DetectExisting()
     {
