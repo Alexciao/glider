@@ -43,17 +43,9 @@ internal sealed class CaptionOverlays : IDisposable
             return;
         }
 
-        var dpi = Win32.GetDpiForWindow(_parent);
-        if (dpi == 0)
-        {
-            dpi = 96;
-        }
-
-        int Scale(int css) => (int)Math.Round(css * dpi / 96.0);
-
-        var maxW = Scale(_maxWidthCss);
-        var maxH = Scale(_maxHeightCss);
-        Win32.SetWindowPos(_max.Handle, Win32.HWND_TOP, client.Width - Scale(_maxRightInsetCss) - maxW, 0, maxW, maxH, Win32.SWP_NOACTIVATE | Win32.SWP_SHOWWINDOW);
+        var dpi = (int)Win32.GetDpiForWindow(_parent);
+        var max = CaptionGeometry.MaxButton(client.Width, dpi, _maxRightInsetCss, _maxWidthCss, _maxHeightCss);
+        Win32.SetWindowPos(_max.Handle, Win32.HWND_TOP, max.X, max.Y, max.Width, max.Height, Win32.SWP_NOACTIVATE | Win32.SWP_SHOWWINDOW);
 
         if (maximized)
         {
@@ -61,8 +53,9 @@ internal sealed class CaptionOverlays : IDisposable
         }
         else
         {
-            _top.CornerWidth = Scale(14);
-            Win32.SetWindowPos(_top.Handle, Win32.HWND_TOP, 0, 0, client.Width, Scale(HostConstants.TopResizeStrip), Win32.SWP_NOACTIVATE | Win32.SWP_SHOWWINDOW);
+            _top.CornerWidth = CaptionGeometry.Scale(14, dpi);
+            var strip = CaptionGeometry.TopStrip(client.Width, dpi, HostConstants.TopResizeStrip);
+            Win32.SetWindowPos(_top.Handle, Win32.HWND_TOP, strip.X, strip.Y, strip.Width, strip.Height, Win32.SWP_NOACTIVATE | Win32.SWP_SHOWWINDOW);
             // keep the max-button overlay above the top strip
             Win32.SetWindowPos(_max.Handle, Win32.HWND_TOP, 0, 0, 0, 0, Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE);
         }
@@ -124,12 +117,12 @@ internal sealed class CaptionOverlays : IDisposable
                         var pt = new POINT { X = Win32.LoWord(lParam), Y = Win32.HiWord(lParam) };
                         Win32.ScreenToClient(hwnd, ref pt);
                         Win32.GetClientRect(hwnd, out var rc);
-                        if (pt.X < CornerWidth)
+                        return CaptionGeometry.TopEdge(pt.X, rc.Width, CornerWidth) switch
                         {
-                            return Win32.HTTOPLEFT;
-                        }
-
-                        return pt.X >= rc.Width - CornerWidth ? Win32.HTTOPRIGHT : Win32.HTTOP;
+                            TopEdgeZone.TopLeft => Win32.HTTOPLEFT,
+                            TopEdgeZone.TopRight => Win32.HTTOPRIGHT,
+                            _ => Win32.HTTOP,
+                        };
                     }
 
                 // A child cannot run the sizing loop for its parent: forward the press so the top-level's DefWindowProc starts it.
