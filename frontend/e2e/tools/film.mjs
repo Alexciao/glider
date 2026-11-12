@@ -1,7 +1,10 @@
 // Motion review: records real compositor frames (CDP screencast, up to 60 fps) around one interaction
 // and lays them out as a labelled filmstrip, so a morph can be judged frame by frame.
 //
-//   node e2e/tools/film.mjs <take> <out.png> [--theme dark] [--ms 700] [--cols 6] [--scale 0.6] [--reduced]
+//   node e2e/tools/film.mjs <take> <out.png> [--theme dark] [--ms 700] [--cols 6] [--scale 0.6] [--clip x,y,w,h] [--from 0] [--every 1] [--reduced]
+//
+// Keep cols × clip width × scale under ~1250 px: wider sheets get cropped by image viewers and
+// review tools, which silently hides the last column of frames.
 //
 // Needs this checkout's e2e dev server (any Playwright run leaves it up; see port.mjs). Takes are below.
 import { chromium } from "@playwright/test";
@@ -18,6 +21,9 @@ const theme = opt("theme", "dark");
 const ms = Number(opt("ms", 700));
 const cols = Number(opt("cols", 6));
 const scale = Number(opt("scale", 0.6));
+/** Show only frames from this many ms after the trigger, and every Nth of those (long takes). */
+const from = Number(opt("from", 0));
+const every = Number(opt("every", 1));
 
 const wait = (t) => new Promise((r) => setTimeout(r, t));
 const hero = { x: 96, y: 500, w: 560, h: 190 };
@@ -105,8 +111,8 @@ await cdp.send("Page.stopScreencast");
 // Keep the last still frame before the trigger and everything after it.
 const before = frames.filter((f) => f.ts <= t0).slice(-1);
 const after = frames.filter((f) => f.ts > t0);
-const shown = [...before, ...after];
-const { x, y, w, h } = t.clip;
+const shown = [...before, ...after.filter((f) => f.ts - t0 >= from).filter((_, i) => i % every === 0)];
+const [x, y, w, h] = opt("clip") ? opt("clip").split(",").map(Number) : [t.clip.x, t.clip.y, t.clip.w, t.clip.h];
 const tw = Math.round(w * scale);
 const th = Math.round(h * scale);
 const fps = after.length > 1 ? Math.round(((after.length - 1) * 1000) / (after[after.length - 1].ts - after[0].ts)) : 0;
