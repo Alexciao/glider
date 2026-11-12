@@ -1,0 +1,70 @@
+usage: legendary_windows_x64.exe install <App Name> [options]
+
+Aliases: download, update
+
+positional arguments:
+  <App Name>            Name of the app
+
+options:
+  -h, --help            show this help message and exit
+  --base-path <path>    Path for game installations (defaults to ~/Games)
+  --game-folder <path>  Folder for game installation (defaults to folder
+                        specified in metadata)
+  --max-shared-memory <size>
+                        Maximum amount of shared memory to use (in MiB),
+                        default: 1 GiB
+  --max-workers <num>   Maximum amount of download workers, default: min(2 *
+                        CPUs, 16)
+  --manifest <uri>      Manifest URL or path to use instead of the CDN one
+                        (e.g. for downgrading)
+  --old-manifest <uri>  Manifest URL or path to use as the old one (e.g. for
+                        testing patching)
+  --delta-manifest <uri>
+                        Manifest URL or path to use as the delta one (e.g. for
+                        testing)
+  --base-url <url>      Base URL to download from (e.g. to test or switch to a
+                        different CDNs)
+  --force               Download all files / ignore existing (overwrite)
+  --disable-patching    Do not attempt to patch existing installation
+                        (download entire changed files)
+  --download-only, --no-install
+                        Do not install app and do not run prerequisite
+                        installers after download
+  --update-only         Only update, do not do anything if specified app is
+                        not installed
+  --dlm-debug           Set download manager and worker processes' loglevel to
+                        debug
+  --platform <Platform>
+                        Platform for install (default: installed or Windows)
+  --prefix <prefix>     Only fetch files whose path starts with <prefix> (case
+                        insensitive)
+  --exclude <prefix>    Exclude files starting with <prefix> (case
+                        insensitive)
+  --install-tag <tag>   Only download files with the specified install tag
+  --enable-reordering   Enable reordering optimization to reduce RAM
+                        requirements during download (may have adverse results
+                        for some titles)
+  --dl-timeout <sec>    Connection timeout for downloader (default: 10
+                        seconds)
+  --save-path <path>    Set save game path to be used for sync-saves
+  --repair              Repair installed game by checking and redownloading
+                        corrupted/missing files
+  --repair-and-update   Update game to the latest version when repairing
+  --ignore-free-space   Do not abort if not enough free space is available
+  --disable-delta-manifests
+                        Do not use delta manifests when updating (may increase
+                        download size)
+  --reset-sdl           Reset selective downloading choices (requires repair
+                        to download new components)
+  --skip-sdl            Skip SDL prompt and continue with defaults (only
+                        required game data)
+  --disable-sdl         Disable selective downloading for title, reset
+                        existing configuration (if any)
+  --preferred-cdn <hostname>
+                        Set the hostname of the preferred CDN to use when
+                        available
+  --no-https            Download games via plaintext HTTP (like EGS), e.g. for
+                        use with a lan cache
+  --with-dlcs           Automatically install all DLCs with the base game
+  --skip-dlcs           Do not ask about installing DLCs.
+  --bind <IPs>          Comma-separated list of IPs to bind to for downloading

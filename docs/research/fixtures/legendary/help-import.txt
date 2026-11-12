@@ -1,0 +1,20 @@
+usage: legendary_windows_x64.exe import [-h] [--disable-check] [--with-dlcs]
+                                        [--skip-dlcs] [--platform <Platform>]
+                                        <App Name> <Installation directory>
+
+positional arguments:
+  <App Name>            Name of the app
+  <Installation directory>
+                        Path where the game is installed
+
+options:
+  -h, --help            show this help message and exit
+  --disable-check       Disables completeness check of the to-be-imported game
+                        installation (useful if the imported game is a much
+                        older version or missing files)
+  --with-dlcs           Automatically attempt to import all DLCs with the base
+                        game
+  --skip-dlcs           Do not ask about importing DLCs.
+  --platform <Platform>
+                        Platform for import (default: Mac on macOS, otherwise
+                        Windows)

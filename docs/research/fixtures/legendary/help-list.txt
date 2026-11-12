@@ -1,0 +1,18 @@
+usage: legendary_windows_x64.exe list [-h] [--platform <Platform>]
+                                      [--include-ue] [-T] [--csv] [--tsv]
+                                      [--json] [--force-refresh]
+
+options:
+  -h, --help            show this help message and exit
+  --platform <Platform>
+                        Platform to fetch game list for (default: Mac on
+                        macOS, otherwise Windows)
+  --include-ue          Also include Unreal Engine content
+                        (Engine/Marketplace) in list
+  -T, --third-party, --include-non-installable
+                        Include apps that are not installable (e.g. that have
+                        to be activated on Origin)
+  --csv                 List games in CSV format
+  --tsv                 List games in TSV format
+  --json                List games in JSON format
+  --force-refresh       Force a refresh of all game metadata

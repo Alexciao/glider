@@ -1,0 +1,42 @@
+usage: legendary_windows_x64.exe [-h] [-H] [-v] [-y] [-V] [-J] [-A <seconds>]
+                                 <command> ...
+
+Legendary v0.21.1 - "Lowlife"
+
+options:
+  -h, --help            show this help message and exit
+  -H, --full-help       Show full help (including individual command help)
+  -v, --debug           Set loglevel to debug
+  -y, --yes             Default to yes for all prompts
+  -V, --version         Print version and exit
+  -J, --pretty-json     Pretty-print JSON
+  -A, --api-timeout <seconds>
+                        API HTTP request timeout (default: 10 seconds)
+
+Commands:
+  <command>
+    activate            Activate games on third party launchers
+    alias               Manage aliases
+    auth                Authenticate with the Epic Games Store
+    clean-saves         Clean cloud saves
+    cleanup             Remove old temporary, metadata, and manifest files
+    crossover           Setup CrossOver for launching games (macOS only)
+    download-saves      Download all cloud saves
+    egl-sync            Setup or run Epic Games Launcher sync
+    eos-overlay         Manage EOS Overlay install
+    import              Import an already installed game
+    info                Prints info about specified app name or manifest
+    install (download, update, repair)
+                        Install/download/update/repair a game
+    launch              Launch a game
+    list                List available (installable) games
+    list-files          List files in manifest
+    list-installed      List installed games
+    list-saves          List available cloud saves
+    move                Move specified app name to a new location
+    status              Show legendary status information
+    sync-saves          Sync cloud saves
+    uninstall           Uninstall (delete) a game
+    verify              Verify a game's local files
+    achievements        List achievement status for a given game
+

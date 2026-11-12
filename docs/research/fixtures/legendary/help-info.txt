@@ -1,0 +1,15 @@
+usage: legendary_windows_x64.exe info [-h] [--offline] [--json]
+                                      [--platform <Platform>]
+                                      <App Name/Manifest URI>
+
+positional arguments:
+  <App Name/Manifest URI>
+                        App name or manifest path/URI
+
+options:
+  -h, --help            show this help message and exit
+  --offline             Only print info available offline
+  --json                Output information in JSON format
+  --platform <Platform>
+                        Platform to fetch info for (default: installed or Mac
+                        on macOS, Windows otherwise)

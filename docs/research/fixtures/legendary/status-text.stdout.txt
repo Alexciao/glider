@@ -1,0 +1,9 @@
+Epic account: <not logged in>
+Games available: 0
+Games installed: 0
+EGL Sync enabled: False
+Config directory: <CONFIG_DIR>
+Platform (System): Windows-11-10.0.26300-SP0 (nt)
+
+Legendary version: 0.21.1 - "Lowlife"
+Update available: no

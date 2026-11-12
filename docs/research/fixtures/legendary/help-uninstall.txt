@@ -1,0 +1,11 @@
+usage: legendary_windows_x64.exe uninstall [-h] [--keep-files]
+                                           [--skip-uninstaller]
+                                           <App Name>
+
+positional arguments:
+  <App Name>          Name of the app
+
+options:
+  -h, --help          show this help message and exit
+  --keep-files        Keep files but remove game from Legendary database
+  --skip-uninstaller  Skip running the uninstaller
