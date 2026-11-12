@@ -10,6 +10,7 @@ namespace Glider.Core.Contracts;
 [RpcEvent(RpcEvents.Progress, typeof(JobProgress))]
 [RpcEvent(RpcEvents.Notice, typeof(Notice))]
 [RpcEvent(RpcEvents.Window, typeof(WindowInfo))]
+[RpcEvent(RpcEvents.Caption, typeof(CaptionEvent))]
 public interface IGliderRpc
 {
     // ---- app ----

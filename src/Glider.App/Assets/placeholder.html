@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Glider</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --fg:#fff; --muted:#a0a0a0; --hover:rgba(255,255,255,.08); --bg:#202020; }
+  :root[data-theme="light"] { --fg:#1a1a1a; --muted:#606060; --hover:rgba(0,0,0,.06); --bg:#f3f3f3; }
+  html, body { margin:0; height:100%; overflow:hidden; font:14px "Segoe UI Variable Text","Segoe UI",sans-serif; color:var(--fg);
+    background:transparent; user-select:none; }
+  :root[data-backdrop="solid"] body { background:var(--bg); }
+  #bar { position:fixed; inset:0 0 auto 0; height:40px; display:flex; align-items:center; justify-content:space-between; app-region:drag; -webkit-app-region:drag; }
+  #bar .t { padding-left:16px; font-weight:600; }
+  #btns { display:flex; app-region:no-drag; -webkit-app-region:no-drag; }
+  .b { width:46px; height:40px; display:grid; place-items:center; font-size:10px; }
+  .b:hover, .b.hot { background:var(--hover); }
+  #close:hover { background:#c42b1c; color:#fff; }
+  main { position:fixed; inset:56px 24px 24px; }
+  h1 { font-size:20px; margin:0 0 8px; } p { color:var(--muted); margin:4px 0; } code { color:var(--fg); }
+</style>
+</head>
+<body>
+<div id="bar"><div class="t">Glider</div>
+  <div id="btns"><div class="b" id="min">&#x2013;</div><div class="b" id="max">&#x25A1;</div><div class="b" id="close">&#x2715;</div></div></div>
+<main>
+  <h1>Glider host placeholder</h1>
+  <p>No built frontend was found (wwwroot, or frontend/dist). This built-in page only proves the host works.</p>
+  <p>theme <code id="th"></code> · backdrop <code id="bd"></code> · window <code id="wi">?</code> · last caption event <code id="ce">-</code></p>
+</main>
+<script>
+  const q = new URLSearchParams(location.search);
+  const root = document.documentElement;
+  root.dataset.theme = q.get('theme') || 'dark'; root.dataset.backdrop = q.get('backdrop') || 'solid';
+  th.textContent = root.dataset.theme; bd.textContent = root.dataset.backdrop;
+  const wv = window.chrome && window.chrome.webview;
+  let nextId = 1;
+  const call = (method, params) => wv && wv.postMessage({ type: 'request', id: nextId++, method, params: params ?? null });
+  min.onclick = () => call('window.minimize');
+  max.onclick = () => call('window.toggleMaximize');
+  close.onclick = () => call('window.close');
+  if (wv) wv.addEventListener('message', e => {
+    const m = e.data;
+    if (m.type !== 'event') return;
+    if (m.event === 'window') wi.textContent = JSON.stringify(m.data);
+    if (m.event === 'caption') { ce.textContent = JSON.stringify(m.data); max.classList.toggle('hot', m.data.state === 'hover' || m.data.state === 'down'); }
+  });
+  requestAnimationFrame(() => requestAnimationFrame(() => call('app.ready')));
+</script>
+</body>
+</html>

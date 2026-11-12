@@ -1,0 +1,9 @@
+{
+  "version": "0.21.1",
+  "url": "https://github.com/legendary-gl/legendary/releases/download/0.21.1/legendary_windows_x64.exe",
+  "sha256": "6be77857dc0a6dd33ea7442ce8b5291944ec6da53757f81ca95b57ce794baf5b",
+  "license": "GPL-3.0",
+  "source": "https://github.com/legendary-gl/legendary/tree/0.21.1",
+  "licenseUrl": "https://raw.githubusercontent.com/legendary-gl/legendary/0.21.1/LICENSE",
+  "licenseSha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+}

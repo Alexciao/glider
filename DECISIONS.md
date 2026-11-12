@@ -35,3 +35,6 @@ One line of reasoning per decision. Newest at the bottom of each section.
 - **Toasts = `Shell_NotifyIcon` balloon notifications**: Windows 10/11 render them as native toasts, with no WinRT projection or stale toolkit packages.
 - **Snap Layouts via a small child HWND over the HTML maximize button returning `HTMAXBUTTON`**: hit-testing in the top-level window doesn't work over WebView2 (verified in the spike).
 - **HTML `app-region: drag` for the title bar** (`IsNonClientRegionSupportEnabled`): verified to move the WPF window.
+
+## Process
+- **Model budget (user constraint, 2026-11-12)**: exactly one Fable 5.2 task, spent on the screenshot-driven design/UX critique; all other subagents (incl. architecture/perf and security reviews, in place of GPT-6-Luna) run on Opus 5.5 high (xhigh only when essential).

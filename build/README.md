@@ -1,0 +1,41 @@
+# Build, package, release
+
+Requirements: Windows, .NET 10 SDK (see `global.json`), PowerShell 7, Node 24, pnpm (version pinned by
+`frontend/package.json` `packageManager`). No Python.
+
+## Build locally
+
+```powershell
+./build/build.ps1                       # contract check, frontend, Legendary, publish -> artifacts/publish
+./build/build.ps1 -Pack -Version 0.2.0  # ... and Velopack packages -> artifacts/releases
+```
+
+Switches: `-Configuration` (default `Release`), `-Version` (SemVer, default `0.1.0`), `-Pack`.
+The script fails fast on the first error and prints artifact sizes at the end.
+
+## What each file does
+
+| File | Purpose |
+|---|---|
+| `build/build.ps1` | Orchestrates: `ContractGen --check` → `pnpm install --frozen-lockfile` + `pnpm build` → copy `frontend/dist` to `src/Glider.App/wwwroot` (cleaned first) → `FetchLegendary` → `dotnet publish` (win-x64, self-contained, ReadyToRun) → with `-Pack`, `vpk pack --framework webview2`. |
+| `build/FetchLegendary.cs` | `dotnet run build/FetchLegendary.cs`. Downloads the Legendary exe and its GPLv3 text pinned in `build/legendary.json`, verifies SHA-256 (hard failure on mismatch), writes `src/Glider.App/legendary/legendary.exe` and `LICENSE.txt`. Skips files whose hash already matches. |
+| `build/legendary.json` | The pin: version, URLs, SHA-256 of exe and license. To bump Legendary, change all of these together. |
+| `build/smoke-legendary.ps1` | Runs the real `legendary.exe` with an isolated `LEGENDARY_CONFIG_PATH` (`--version`, `status --offline --json`) and asserts the output. Needs no login. |
+| `.config/dotnet-tools.json` | Pins `vpk` 1.2.161 (keep equal to the `Velopack` package version). Run as `dotnet vpk`. |
+| `.github/workflows/ci.yml` | Every push/PR: build with `-warnaserror`, tests, contract check, frontend lint/typecheck/test, Legendary smoke test, then `build.ps1 -Pack -Version 0.1.0-ci.<run>`; uploads `artifacts/releases/*`. |
+| `.github/workflows/release.yml` | On tag `v*`: tests, build with `-Version <tag without v>`, `gh release create` with all Velopack files attached. |
+
+## What the host csproj must provide
+
+- `src/Glider.App/wwwroot/**` and `src/Glider.App/legendary/**` (both produced by the scripts, gitignored) as content copied to the publish output.
+- `Program.Main` calling `VelopackApp.Build().Run()` first (`vpk pack` refuses to pack otherwise).
+- Icon at `assets/brand/glider.ico` (preferred) or `src/Glider.App/Assets/app.ico`.
+
+## Cut a release
+
+1. Make sure `main` is green.
+2. `git tag v0.2.0 && git push origin v0.2.0` (a `-` in the tag, e.g. `v0.2.0-beta.1`, publishes a prerelease).
+3. `release.yml` builds, packs and creates the GitHub Release with `Glider-win-Setup.exe`, `Glider-<v>-full.nupkg`,
+   `Glider-win-Portable.zip`, `releases.win.json`, `assets.win.json`, `RELEASES`.
+
+Installers are unsigned (no signing parameters are passed), so SmartScreen will warn until signing is added.

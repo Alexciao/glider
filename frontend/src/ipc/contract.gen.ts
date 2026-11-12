@@ -54,6 +54,13 @@ export type BackdropKind = "mica" | "solid";
 
 export type CandidateSource = "epicGamesLauncher" | "manual";
 
+export interface CaptionEvent {
+  button: string;
+  state: CaptionState;
+}
+
+export type CaptionState = "hover" | "leave" | "down";
+
 export interface EglState {
   launcherInstalled: boolean;
   launcherRunning: boolean;
@@ -360,6 +367,7 @@ export type RpcMethodName = keyof RpcMethods;
 
 /** Server-pushed events: event name → payload type. */
 export interface RpcEventMap {
+  "caption": CaptionEvent;
   "notice": Notice;
   "progress": JobProgress;
   "state": AppSnapshot;
