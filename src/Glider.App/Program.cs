@@ -137,6 +137,11 @@ internal static class HostApp
             _ = Task.Delay(TimeSpan.FromSeconds(3)).ContinueWith(_ => MemoryTrimmer.Trim(), TaskScheduler.Default);
         }
 
+        if (!options.IsTestRun)
+        {
+            AppUpdater.Start(rt.Sink);
+        }
+
         single?.Listen(() =>
         {
             HostLog.Info("activation requested by a second instance");
