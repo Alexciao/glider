@@ -253,7 +253,10 @@ public sealed class StateHub : IDisposable
             s.RunningSince,
             s.Art,
             s.DownloadSizeBytes,
-            s.InstallSizeBytes);
+            s.InstallSizeBytes,
+            null,
+            record?.PlaytimeSeconds ?? 0,
+            record?.LastPlayedAt);
     }
 
     private EglState BuildEgl(HubState s, Settings settings)

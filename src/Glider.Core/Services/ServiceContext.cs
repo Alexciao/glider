@@ -111,7 +111,9 @@ internal sealed class ServiceContext
             old?.InstalledAt ?? Now,
             old?.AdoptedFromEgl ?? false,
             old?.EglInstallationGuid ?? (string.IsNullOrEmpty(installed.EglGuid) ? null : installed.EglGuid),
-            installed.NeedsVerification || (keepNeedsVerification && (old?.NeedsVerification ?? false)));
+            installed.NeedsVerification || (keepNeedsVerification && (old?.NeedsVerification ?? false)),
+            old?.PlaytimeSeconds ?? 0,
+            old?.LastPlayedAt);
         if (adjust is not null)
         {
             rec = adjust(rec);

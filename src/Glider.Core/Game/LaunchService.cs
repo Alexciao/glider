@@ -272,6 +272,7 @@ internal sealed class LaunchService
     {
         var previous = _c.Hub.State.RunState;
         SetRun(state, since);
+        TrackPlaytime(state, since);
         if (state == RunState.Running && previous is RunState.Launching && _c.Settings.MinimizeToTrayWhilePlaying)
         {
             _hidByUs = true;
@@ -299,6 +300,79 @@ internal sealed class LaunchService
         {
             _c.Log.Info("launch", "game closed");
             _updates.TryAutoUpdate();
+        }
+    }
+
+    /// <summary>How often a running session is flushed to disk, so a crash or power cut loses at most this much.</summary>
+    internal static readonly TimeSpan PlaytimeFlushInterval = TimeSpan.FromSeconds(30);
+
+    private readonly PlaytimeTracker _playtime = new();
+    private readonly Lock _playtimeGate = new();
+    private CancellationTokenSource? _playtimeLoop;
+    private Task _playtimeFlush = Task.CompletedTask;
+
+    /// <summary>Completes when the latest playtime write ends (tests).</summary>
+    internal Task PlaytimeFlushed => _playtimeFlush;
+
+    private void TrackPlaytime(RunState state, DateTimeOffset? since)
+    {
+        if (state == RunState.Running && !_playtime.Active)
+        {
+            _playtime.Start(since ?? _c.Now);
+            var cts = CancellationTokenSource.CreateLinkedTokenSource(_c.Shutdown);
+            _playtimeLoop = cts;
+            _ = QueueFlush(final: false);
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    while (true)
+                    {
+                        await Task.Delay(PlaytimeFlushInterval, _c.Time, cts.Token);
+                        await QueueFlush(final: false);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                }
+            });
+        }
+        else if (state == RunState.Idle && _playtime.Active)
+        {
+            _playtimeLoop?.Cancel();
+            _playtimeLoop = null;
+            _ = QueueFlush(final: true);
+        }
+    }
+
+    /// <summary>Playtime writes run one after another so a periodic flush can never overlap the final one.</summary>
+    private Task QueueFlush(bool final)
+    {
+        lock (_playtimeGate)
+        {
+            return _playtimeFlush = _playtimeFlush.ContinueWith(_ => FlushPlaytimeAsync(final), TaskScheduler.Default).Unwrap();
+        }
+    }
+
+    private async Task FlushPlaytimeAsync(bool final)
+    {
+        try
+        {
+            if (!final && !_playtime.Active)
+            {
+                return;
+            }
+
+            var now = _c.Now;
+            var seconds = _playtime.Take(now, final);
+            if (_c.Records.Current is { } rec)
+            {
+                await _c.SaveRecordAsync(PlaytimeTracker.Apply(rec, seconds, now));
+            }
+        }
+        catch (Exception e)
+        {
+            _c.Log.Warn("launch", "could not save playtime", e);
         }
     }
 
