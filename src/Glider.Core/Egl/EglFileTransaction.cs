@@ -122,17 +122,20 @@ internal sealed class EglFileTransaction
         }
 
         _log.Info(EglService.LogCategory, $"Backed up {map.Count} EGL file(s) to {dir}");
-        PruneOldBackups();
+        PruneOldBackups(dir);
         return map;
     }
 
-    private void PruneOldBackups()
+    /// <summary>Keeps the newest sets by name, and always <paramref name="current"/>: after the clock is set back the set
+    /// just taken sorts oldest, and pruning it would leave this very write (and its rollback) without a backup.</summary>
+    private void PruneOldBackups(string current)
     {
         try
         {
             var dirs = new DirectoryInfo(_backupRoot).GetDirectories()
+                .Where(d => !string.Equals(d.FullName, Path.GetFullPath(current), StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(d => d.Name, StringComparer.Ordinal)
-                .Skip(_options.BackupsToKeep)
+                .Skip(Math.Max(0, _options.BackupsToKeep - 1))
                 .ToList();
             foreach (var d in dirs)
             {
