@@ -396,6 +396,7 @@ internal sealed partial class MainWindow : Window
         _controller = null;
         _web = null;
         _webStarted = false;
+        _rt.RecreateEnvironment(); // the crashed browser process took the environment with it
         StartWebView();
     }
 
