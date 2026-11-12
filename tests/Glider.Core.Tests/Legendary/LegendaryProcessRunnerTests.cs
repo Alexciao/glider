@@ -172,6 +172,21 @@ public class LegendaryProcessRunnerTests
     }
 
     [Fact]
+    public async Task ASlowConsumerNeverStallsLegendary()
+    {
+        using var env = new FakeLegendaryEnv();
+        env.Script("install", "download chunks=200 files=20 mib=20 interval=5");
+        using var runner = new LegendaryProcessRunner(env.Paths, env.Log);
+        var slow = new SlowProgress();
+        var sw = Stopwatch.StartNew();
+        var run = await runner.RunAsync(new LegendaryCommand(LegendaryCommandKind.Install, ["install"]), slow, TestContext.Current.CancellationToken);
+
+        Assert.Equal(20, slow.Count);                                   // every event delivered, in order, before return
+        Assert.True(run.Duration < TimeSpan.FromMilliseconds(20 * 100)); // the process didn't wait for the consumer
+        Assert.True(sw.Elapsed >= TimeSpan.FromMilliseconds(20 * 100));
+    }
+
+    [Fact]
     public async Task AbortWhenStopsADoomedRunEarly()
     {
         using var env = new FakeLegendaryEnv();
@@ -250,6 +265,21 @@ public class LegendaryProcessRunnerTests
             {
                 list.Add(value);
             }
+        }
+    }
+
+    private sealed class SlowProgress : IProgress<LegendaryProgress>
+    {
+        private double _last = -1;
+
+        public int Count { get; private set; }
+
+        public void Report(LegendaryProgress value)
+        {
+            Assert.True(value.Percent > _last);
+            _last = value.Percent;
+            Count++;
+            Thread.Sleep(100); // a consumer doing synchronous work
         }
     }
 

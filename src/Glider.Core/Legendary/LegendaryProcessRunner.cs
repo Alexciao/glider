@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
+using System.Threading.Channels;
 using Glider.Core.Contracts;
 
 namespace Glider.Core.Legendary;
@@ -278,8 +279,8 @@ internal sealed class LegendaryProcessRunner : IDisposable
             {
             }
 
-            state.Finish();
-            var duration = _time.GetElapsedTime(started);
+            var duration = _time.GetElapsedTime(started); // the process' lifetime, not including slow consumers
+            await state.FinishAsync().ConfigureAwait(false);
             var exitCode = process.HasExited ? process.ExitCode : -1;
             _log.Info("legendary", $"< legendary {command.Kind}: exit {exitCode} after {duration.TotalSeconds:0.0} s{(reason == StopReason.Exited ? "" : $" ({reason})")}");
 
@@ -297,6 +298,7 @@ internal sealed class LegendaryProcessRunner : IDisposable
         }
         finally
         {
+            state.CompleteEvents(); // no-op after FinishAsync; releases the dispatcher if we got here by an exception
             if (!process.HasExitedSafe())
             {
                 KillTree(process, job);
@@ -404,6 +406,15 @@ internal sealed class LegendaryProcessRunner : IDisposable
         }
     }
 
+    private enum RunEventKind
+    {
+        Progress,
+        Phase,
+        Sizes,
+    }
+
+    private readonly record struct RunEvent(RunEventKind Kind, LegendaryProgress Progress, JobPhase Phase, LegendaryRunSizes Sizes);
+
     /// <summary>Per-run mutable state; the two pump threads call <see cref="OnLine"/> concurrently, so everything is under one lock.</summary>
     private sealed class RunState
     {
@@ -418,6 +429,10 @@ internal sealed class LegendaryProcessRunner : IDisposable
         private readonly int _tailLines;
         private readonly StringBuilder _stdout = new();
         private readonly TaskCompletionSource _abort = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        // Parsed results go to consumers through a channel: a slow progress subscriber (UI bridge, persistence) must never
+        // stall the pump, or the pipe fills up and Legendary's own logging — and with it the download — blocks.
+        private readonly Channel<RunEvent> _events = Channel.CreateUnbounded<RunEvent>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+        private readonly Task _dispatcher;
         private LegendaryProgress _lastPublished;
         private bool _havePublished;
         private JobPhase _phase = JobPhase.Preparing;
@@ -435,6 +450,7 @@ internal sealed class LegendaryProcessRunner : IDisposable
             _tailLines = tailLines;
             _time = time;
             _lastLiveness = time.GetTimestamp();
+            _dispatcher = progress is null ? Task.CompletedTask : Task.Run(DispatchAsync);
         }
 
         public LegendaryOutputFacts Facts { get; } = new();
@@ -507,7 +523,8 @@ internal sealed class LegendaryProcessRunner : IDisposable
                 if (!_sizesReported && Facts.SummaryComplete)
                 {
                     _sizesReported = true;
-                    _sink?.OnSizes(new LegendaryRunSizes(Facts.DownloadSizeBytes, Facts.InstallSizeBytes, Facts.UnchangedBytes, Facts.ReusableBytes));
+                    Post(new RunEvent(RunEventKind.Sizes, default, default,
+                        new LegendaryRunSizes(Facts.DownloadSizeBytes, Facts.InstallSizeBytes, Facts.UnchangedBytes, Facts.ReusableBytes)));
                 }
 
                 if (_command.AbortWhen?.Invoke(Facts) == true)
@@ -517,13 +534,53 @@ internal sealed class LegendaryProcessRunner : IDisposable
             }
         }
 
-        public void Finish()
+        /// <summary>Publishes a trailing partial block and waits until every event reached the consumers.</summary>
+        public Task FinishAsync()
         {
             lock (_lock)
             {
                 if (_parser.TryFlush())
                 {
                     Publish();
+                }
+            }
+
+            _events.Writer.TryComplete();
+            return _dispatcher;
+        }
+
+        public void CompleteEvents() => _events.Writer.TryComplete();
+
+        private void Post(RunEvent e)
+        {
+            if (_progress is not null)
+            {
+                _events.Writer.TryWrite(e);
+            }
+        }
+
+        private async Task DispatchAsync()
+        {
+            await foreach (var e in _events.Reader.ReadAllAsync().ConfigureAwait(false))
+            {
+                try
+                {
+                    switch (e.Kind)
+                    {
+                        case RunEventKind.Progress:
+                            _progress!.Report(e.Progress);
+                            break;
+                        case RunEventKind.Phase:
+                            _sink?.OnPhase(e.Phase);
+                            break;
+                        case RunEventKind.Sizes:
+                            _sink?.OnSizes(e.Sizes);
+                            break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _log.Warn("legendary", "A progress consumer threw; continuing.", ex);
                 }
             }
         }
@@ -550,7 +607,7 @@ internal sealed class LegendaryProcessRunner : IDisposable
             }
 
             SetPhase(Facts.Phase);
-            _progress?.Report(p);
+            Post(new RunEvent(RunEventKind.Progress, p, default, default));
 
             var now = _time.GetTimestamp();
             if (_lastProgressLog == 0 || _time.GetElapsedTime(_lastProgressLog, now) > TimeSpan.FromSeconds(30))
@@ -567,7 +624,7 @@ internal sealed class LegendaryProcessRunner : IDisposable
             if (phase != _phase)
             {
                 _phase = phase;
-                _sink?.OnPhase(phase);
+                Post(new RunEvent(RunEventKind.Phase, default, phase, default));
             }
         }
 
