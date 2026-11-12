@@ -168,6 +168,9 @@ public sealed class ManualTimeProvider : TimeProvider
 /// <summary>Loads fixtures and pushes them through the same decode/split path the runner uses.</summary>
 public static class Fixture
 {
+    /// <summary>The code page the stderr fixtures were captured/rendered in (Western Windows), independent of this machine's ACP.</summary>
+    public static Encoding Cp1252 { get; } = CreateCp1252();
+
     public static string Dir => Path.Combine(AppContext.BaseDirectory, "Fixtures", "legendary");
 
     public static string PathOf(string name) => Path.Combine(Dir, name);
@@ -178,10 +181,16 @@ public static class Fixture
     public static List<string> Lines(string name, bool stdout = false)
     {
         var lines = new List<string>();
-        var pump = new LinePump(stdout ? LegendaryEncoding.Stdout : LegendaryEncoding.Stderr, unescapePython: !stdout, l => lines.Add(new string(l)));
+        var pump = new LinePump(stdout ? LegendaryEncoding.Stdout : Cp1252, unescapePython: !stdout, l => lines.Add(new string(l)));
         var seq = new ReadOnlySequence<byte>(Bytes(name));
         pump.Consume(ref seq, final: true);
         return lines.Where(l => !l.StartsWith("# Synthetic fixture", StringComparison.Ordinal)).ToList();
+    }
+
+    private static Encoding CreateCp1252()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        return Encoding.GetEncoding(1252, EncoderFallback.ReplacementFallback, DecoderFallback.ReplacementFallback);
     }
 
     /// <summary>Replays stderr (+ optional stdout) fixtures like a run: progress lines to the parser, the rest to the facts.</summary>

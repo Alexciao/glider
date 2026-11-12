@@ -24,9 +24,11 @@ public class LegendaryProcessRunnerTests
         var run = await runner.RunAsync(Cmd("status"), null, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, run.ExitCode);
-        Assert.Contains("[cli] ERROR: Specified path \"D:\\ünïcödé日本\" does not exist!", run.Tail);
         Assert.Equal($"config={env.Config}\nÜnïcødé 日本 😀\n", run.Stdout);
         Assert.True(run.Facts.ImportPathMissing);
+        // The captured bytes are cp1252; Legendary would use this machine's ANSI code page, and so does the runner.
+        Assert.SkipUnless(LegendaryEncoding.Stderr.CodePage == 1252, "this machine's ANSI code page is not 1252");
+        Assert.Contains("[cli] ERROR: Specified path \"D:\\ünïcödé日本\" does not exist!", run.Tail);
     }
 
     [Fact]

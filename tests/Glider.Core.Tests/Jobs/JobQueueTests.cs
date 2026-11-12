@@ -48,6 +48,41 @@ internal sealed class TestSettings(Settings settings) : ISettingsStore
     }
 }
 
+/// <summary>In-memory ILegendary for queue tests that are about the queue, not about Legendary.</summary>
+internal sealed class StubLegendary(bool verifySucceeds) : ILegendary
+{
+    private static readonly Task<LegendaryOutcome> Ok = Task.FromResult(new LegendaryOutcome(true, null, null, null));
+
+    public Task<LegendaryOutcome> VerifyAsync(string appName, IProgress<LegendaryProgress> progress, CancellationToken ct) =>
+        verifySucceeds ? Ok : Task.FromResult(new LegendaryOutcome(false, Errors.Corrupted("stub"), null, null));
+
+    public Task<string> GetVersionAsync(CancellationToken ct) => Task.FromResult("0.21.1");
+
+    public Task<LegendaryAccount?> GetAccountOfflineAsync(CancellationToken ct) => Task.FromResult<LegendaryAccount?>(null);
+
+    public Task<LegendaryAccount?> RefreshSessionAsync(CancellationToken ct) => Task.FromResult<LegendaryAccount?>(null);
+
+    public Task<LegendaryAccount> SignInWithCodeAsync(string authorizationCode, CancellationToken ct) => throw new NotSupportedException();
+
+    public Task SignOutAsync(CancellationToken ct) => Task.CompletedTask;
+
+    public Task<LegendaryGameInfo> GetGameInfoAsync(string appName, CancellationToken ct) => throw new NotSupportedException();
+
+    public Task<LegendaryInstalledGame?> GetInstalledAsync(string appName, CancellationToken ct) => Task.FromResult<LegendaryInstalledGame?>(null);
+
+    public Task<LegendaryOutcome> InstallAsync(InstallArgs args, IProgress<LegendaryProgress> progress, CancellationToken ct) => Ok;
+
+    public Task<LegendaryOutcome> ImportAsync(string appName, string gamePath, CancellationToken ct) => Ok;
+
+    public Task<LegendaryOutcome> MoveAsync(string appName, string newBasePath, bool skipMove, IProgress<LegendaryProgress>? progress, CancellationToken ct) => Ok;
+
+    public Task<LegendaryOutcome> UninstallAsync(string appName, bool keepFiles, CancellationToken ct) => Ok;
+
+    public Task<LaunchCommand> GetLaunchCommandAsync(string appName, bool skipVersionCheck, string extraArgs, CancellationToken ct) => throw new NotSupportedException();
+
+    public string? GetInstalledManifestPath(string appName, string version) => null;
+}
+
 /// <summary>A queue over the real LegendaryCli driving FakeLegendary.</summary>
 internal sealed class QueueHarness : IAsyncDisposable
 {
@@ -55,8 +90,11 @@ internal sealed class QueueHarness : IAsyncDisposable
 
     private readonly List<JobQueue> _queues = [];
 
-    public QueueHarness(TimeSpan? stall = null)
+    private readonly ILegendary? _legendary;
+
+    public QueueHarness(TimeSpan? stall = null, ILegendary? legendary = null)
     {
+        _legendary = legendary;
         Cli = new LegendaryCli(Env.Paths, Env.Log, new LegendaryOptions { StallTimeout = stall ?? TimeSpan.FromSeconds(30) });
         Games = Path.Combine(Env.Root, "Games");
         GameFolder = Path.Combine(Games, "Fortnite");
@@ -78,7 +116,7 @@ internal sealed class QueueHarness : IAsyncDisposable
 
     public JobQueue NewQueue(JobQueueOptions? options = null)
     {
-        var q = new JobQueue(Env.Paths, Cli, Settings, Hooks, Env.Log, options: options ?? new JobQueueOptions
+        var q = new JobQueue(Env.Paths, _legendary ?? Cli, Settings, Hooks, Env.Log, options: options ?? new JobQueueOptions
         {
             AutoTune = new AutoTuneResult(7, 1536),
             ProgressInterval = TimeSpan.FromMilliseconds(1),
@@ -171,6 +209,10 @@ public class JobQueueRunTests
         Assert.Equal(JobStatus.Completed, onDisk.Jobs.Single().Info.Status);
     }
 
+}
+
+public class JobQueueSettingsTests
+{
     [Fact]
     public async Task SettingsOverrideAutoTune()
     {
@@ -188,6 +230,10 @@ public class JobQueueRunTests
         Assert.Equal("fastly", args[Array.IndexOf(args, "--preferred-cdn") + 1]);
     }
 
+}
+
+public class JobQueueAutoRepairTests
+{
     [Fact]
     public async Task VerifyFindingsAreRepairedOnceAutomatically()
     {
@@ -205,6 +251,10 @@ public class JobQueueRunTests
         Assert.Equal(["install", "verify", "repair"], h.Env.Invocations().Select(c => c.Command));
     }
 
+}
+
+public class JobQueueWriteFailureTests
+{
     [Fact]
     public async Task UpdateWithWriteFailuresVerifiesAndRepairs()
     {
@@ -222,6 +272,10 @@ public class JobQueueRunTests
         Assert.Equal(["update", "verify", "repair"], h.Env.Invocations().Select(c => c.Command));
     }
 
+}
+
+public class JobQueueFailureTests
+{
     [Fact]
     public async Task FailuresAreMappedAndRetryable()
     {
@@ -248,6 +302,10 @@ public class JobQueueRunTests
         Assert.Null(done.Error);
     }
 
+}
+
+public class JobQueueStallTests
+{
     [Fact]
     public async Task StallFailsWithNetworkAndResumeContinues()
     {
@@ -269,6 +327,10 @@ public class JobQueueRunTests
         Assert.True(h.Env.Log.Contains("Skipping 5 files based on resume data."));
     }
 
+}
+
+public class JobQueueHookTests
+{
     [Fact]
     public async Task WaitsWhileHooksBlock()
     {
@@ -353,6 +415,10 @@ public class JobQueuePauseResumeTests
         Assert.Equal(afterResume.Order(), afterResume); // the bar never jumps back after the resume
     }
 
+}
+
+public class JobQueuePauseRaceTests
+{
     [Fact]
     public async Task PauseRightAfterEnqueueAlwaysWins()
     {
@@ -378,6 +444,10 @@ public class JobQueuePauseResumeTests
         Assert.False(q.IsBusy);
     }
 
+}
+
+public class JobQueueBlockingTests
+{
     [Fact]
     public async Task PausedJobBlocksTheQueueUntilCancelled()
     {
@@ -398,6 +468,10 @@ public class JobQueuePauseResumeTests
         await Assert.ThrowsAsync<GliderException>(() => q.PauseAsync(verify.Id));
     }
 
+}
+
+public class JobQueueCancelInstallTests
+{
     [Fact]
     public async Task CancellingAFreshInstallRemovesItsResumeFileAndFolder()
     {
@@ -435,6 +509,10 @@ public class JobQueuePauseResumeTests
         Assert.False(File.Exists(h.Env.ResumeFile));
     }
 
+}
+
+public class JobQueueCancelUpdateTests
+{
     [Fact]
     public async Task CancellingAnUpdateKeepsTheResumeFile()
     {
@@ -476,6 +554,10 @@ public class JobQueueRecoveryTests
         Assert.Equal(3, h.Hooks.Calls.Count); // before, before (after restart), ok
     }
 
+}
+
+public class JobQueueRestoreTests
+{
     [Fact]
     public async Task RestoreKeepsPausedJobsPausedAndRequeuesInterruptedOnes()
     {
@@ -505,10 +587,14 @@ public class JobQueueRecoveryTests
         Assert.Empty(h.Env.Invocations());
     }
 
+}
+
+public class JobQueuePersistenceTests
+{
     [Fact]
     public async Task JobsJsonIsAlwaysAValidDocument()
     {
-        await using var h = new QueueHarness();
+        await using var h = new QueueHarness(legendary: new StubLegendary(verifySucceeds: false));
         var q = await h.StartAsync();
         var path = JobQueue.PathFor(h.Env.Paths);
         using var stop = new CancellationTokenSource();
@@ -527,8 +613,8 @@ public class JobQueueRecoveryTests
             }
         }, CancellationToken.None);
 
-        // many state changes: verifies fail instantly (no script), get dismissed, repeat
-        for (var i = 0; i < 8; i++)
+        // many state changes: verifies fail instantly, get dismissed, repeat
+        for (var i = 0; i < 40; i++)
         {
             var job = q.Enqueue(new JobRequest(JobKind.Verify, null, null, null, null));
             await QueueHarness.WaitForStatus(q, job.Id, JobStatus.Failed);
@@ -546,8 +632,7 @@ public class JobQueueRecoveryTests
     [Fact]
     public async Task CorruptJobsJsonFallsBackToTheBackup()
     {
-        await using var h = new QueueHarness();
-        h.Env.Script("verify", "verify files=1 interval=1");
+        await using var h = new QueueHarness(legendary: new StubLegendary(verifySucceeds: true));
         var first = await h.StartAsync();
         var job = first.Enqueue(new JobRequest(JobKind.Verify, null, null, null, null));
         await QueueHarness.WaitForStatus(first, job.Id, JobStatus.Completed);

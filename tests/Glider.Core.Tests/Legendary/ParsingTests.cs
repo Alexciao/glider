@@ -171,7 +171,7 @@ public class EncodingAndLineSplittingTests
     public void UnescapesOnlyWhatPythonCouldHaveProduced(string input, string expected)
     {
         var chars = input.ToCharArray();
-        var n = LegendaryEncoding.UnescapeBackslashReplace(chars, LegendaryEncoding.Stderr);
+        var n = LegendaryEncoding.UnescapeBackslashReplace(chars, Fixture.Cp1252);
         Assert.Equal(expected, new string(chars, 0, n));
     }
 
