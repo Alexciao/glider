@@ -165,8 +165,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
 
         if (running is not null)
         {
-            await running.Cts.CancelAsync();
-            await running.Done.Task;
+            await StopAsync(running);
         }
         else
         {
@@ -228,8 +227,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
 
         if (running is not null)
         {
-            await running.Cts.CancelAsync();
-            await running.Done.Task;
+            await StopAsync(running);
         }
         else
         {
@@ -319,7 +317,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         await _shutdown.CancelAsync();
         if (running is not null)
         {
-            await running.Done.Task;
+            await StopAsync(running);
         }
 
         if (_loop is not null)
@@ -363,6 +361,21 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
     }
 
+    /// <summary>Stops a running job and waits until it has fully settled (Legendary dead, state recorded).</summary>
+    private static async Task StopAsync(Running running)
+    {
+        try
+        {
+            await running.Cts.CancelAsync();
+        }
+        catch (ObjectDisposedException)
+        {
+            // it finished on its own a moment ago
+        }
+
+        await running.Done.Task;
+    }
+
     // ------------------------------------------------------------------ loop
 
     /// <summary>Nothing runs (or is written) before <see cref="RestoreAsync"/>: an early save would overwrite the jobs it must load.</summary>
@@ -383,14 +396,18 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         while (!ct.IsCancellationRequested)
         {
             await _signal.WaitAsync(ct);
-            while (!ct.IsCancellationRequested && Next() is { } job)
+            while (!ct.IsCancellationRequested && Claim(ct) is { } running)
             {
-                await RunAsync(job, ct);
+                await RunAsync(running, ct);
             }
         }
     }
 
-    private PersistedJob? Next()
+    /// <summary>
+    /// Picks the next queued job and marks it running in the same critical section, so a concurrent pause/cancel sees
+    /// either a queued job (and changes it directly) or a running one (and stops it) — never a job in between.
+    /// </summary>
+    private Running? Claim(CancellationToken shutdown)
     {
         lock (_lock)
         {
@@ -401,7 +418,18 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
                     case JobStatus.Paused:
                         return null; // strictly serial: nothing overtakes a paused job
                     case JobStatus.Queued:
-                        return job;
+                        var running = new Running(job, CancellationTokenSource.CreateLinkedTokenSource(shutdown));
+                        _running = running;
+                        job.Info = job.Info with
+                        {
+                            Status = JobStatus.Running,
+                            BlockedReason = null,
+                            Error = null,
+                            Progress = job.Info.Progress is { } p
+                                ? p with { Phase = JobPhase.Preparing, DownloadBytesPerSecond = 0, RawDownloadBytesPerSecond = 0, DiskBytesPerSecond = 0, EtaSeconds = null }
+                                : null,
+                        };
+                        return running;
                 }
             }
 
@@ -427,22 +455,14 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         return false;
     }
 
-    private async Task RunAsync(PersistedJob job, CancellationToken shutdown)
+    private async Task RunAsync(Running running, CancellationToken shutdown)
     {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(shutdown);
-        var running = new Running(job, cts);
+        var job = running.Job;
+        using var cts = running.Cts;
         using var tracker = new JobProgressTracker(job.Info.Id, job.Baseline, _time, _options.ProgressInterval, OnProgress, phase => OnPhase(job, phase));
-        running.Tracker = tracker;
         lock (_lock)
         {
-            _running = running;
-            job.Info = job.Info with
-            {
-                Status = JobStatus.Running,
-                BlockedReason = null,
-                Error = null,
-                Progress = job.Info.Progress is { } p ? p with { Phase = JobPhase.Preparing, DownloadBytesPerSecond = 0, RawDownloadBytesPerSecond = 0, DiskBytesPerSecond = 0, EtaSeconds = null } : null,
-            };
+            running.Tracker = tracker;
         }
 
         _log.Info("jobs", $"Running {job.Info.Kind} {job.Info.Id} (step {job.Step}).");

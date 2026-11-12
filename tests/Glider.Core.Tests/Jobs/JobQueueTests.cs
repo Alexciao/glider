@@ -354,6 +354,31 @@ public class JobQueuePauseResumeTests
     }
 
     [Fact]
+    public async Task PauseRightAfterEnqueueAlwaysWins()
+    {
+        await using var h = new QueueHarness();
+        h.Env.Script("verify", "verify files=50 interval=20");
+        var q = await h.StartAsync();
+        for (var i = 0; i < 10; i++)
+        {
+            var job = q.Enqueue(new JobRequest(JobKind.Verify, null, null, null, null));
+            if (i % 2 == 1)
+            {
+                await Task.Delay(i * 3, TestContext.Current.CancellationToken); // land on both sides of the claim
+            }
+
+            var paused = await q.PauseAsync(job.Id);
+            Assert.Equal(JobStatus.Paused, paused.Status);
+            await Task.Delay(30, TestContext.Current.CancellationToken);
+            Assert.Equal(JobStatus.Paused, q.Snapshot().Single(j => j.Id == job.Id).Status);
+            await q.CancelAsync(job.Id);
+            q.Dismiss(job.Id);
+        }
+
+        Assert.False(q.IsBusy);
+    }
+
+    [Fact]
     public async Task PausedJobBlocksTheQueueUntilCancelled()
     {
         await using var h = new QueueHarness();
