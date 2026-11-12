@@ -27,7 +27,7 @@ export function JobLine({ job }: { job: JobInfo }) {
   const downloading = p?.phase === "downloading";
   return (
     <div className="w-[min(440px,100%)]">
-      <ProgressBar value={job.status === "running" && !p ? null : percent} tone={paused ? "warning" : "accent"} label={`${job.kind} progress`} />
+      <ProgressBar value={job.status === "running" && !p ? null : percent} tone={paused ? "warning" : "accent"} paused={paused} speed={downloading ? p?.downloadBytesPerSecond : null} label={`${job.kind} progress`} />
       <div className="mt-2 flex items-center justify-between gap-4 text-xs text-fg-muted tabular-nums">
         <span>{p ? (downloading ? `${formatBytes(p.downloadedBytes)} of ${formatBytes(p.totalDownloadBytes)}` : formatPercent(percent)) : "Starting…"}</span>
         {p && !paused && job.status === "running" && (

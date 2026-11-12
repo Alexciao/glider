@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Progress } from "radix-ui";
 import { cx } from "./cx";
 
@@ -19,30 +20,61 @@ export interface ProgressBarProps {
   size?: keyof typeof heights;
   label: string;
   className?: string;
+  /** Current speed in bytes/s: the faster the transfer, the quicker the sheen sweeps. Omit for a steady pace. */
+  speed?: number | null;
+  /** Calmer look: desaturated fill, no sheen, no glow. */
+  paused?: boolean;
+}
+
+/** Sheen sweep time: 3.6 s when crawling down to 1.2 s at several hundred MB/s, in 0.4 s steps so it never twitches. */
+export function sheenSeconds(bytesPerSecond: number | null | undefined): number {
+  if (bytesPerSecond == null || !Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return 2.4;
+  const mb = bytesPerSecond / (1024 * 1024);
+  const d = 3.6 - 1.15 * Math.log10(1 + mb);
+  return Math.round(Math.min(3.6, Math.max(1.2, d)) / 0.4) * 0.4;
 }
 
 /**
  * Determinate bars move via translateX on a full-width fill (compositor only). 10 Hz updates are
  * bridged by a short linear transition, so motion reads as continuous rather than stepped.
  */
-export function ProgressBar({ value, tone = "accent", size = "md", label, className }: ProgressBarProps) {
+export function ProgressBar({ value, tone = "accent", size = "md", label, className, speed, paused }: ProgressBarProps) {
   const indeterminate = value == null;
   const v = indeterminate ? 0 : Math.min(100, Math.max(0, value));
+  const live = !indeterminate && !paused && v > 0 && v < 100;
+  // One-shot settle when the bar reaches 100 while mounted (not for bars that already start full).
+  const [prev, setPrev] = useState(v);
+  const [settle, setSettle] = useState(false);
+  if (prev !== v) {
+    setPrev(v);
+    setSettle(prev < 100 && v >= 100);
+  }
   return (
     <Progress.Root
       value={indeterminate ? null : v}
       max={100}
       aria-label={label}
-      className={cx("relative w-full overflow-hidden rounded-full bg-surface-3", heights[size], className)}
+      data-paused={paused || undefined}
+      className={cx("relative w-full overflow-hidden rounded-full bg-surface-3", heights[size], settle && "g-bar-settle", className)}
     >
       <Progress.Indicator
         className={cx(
-          "h-full w-full rounded-full transition-transform duration-[120ms] ease-linear",
+          "relative h-full w-full overflow-hidden rounded-full transition-[transform,opacity,filter] duration-[120ms] ease-linear",
           fills[tone],
           indeterminate && "g-indeterminate",
+          paused && "opacity-70 saturate-[0.45]",
         )}
         style={indeterminate ? undefined : { transform: `translateX(-${100 - v}%)` }}
-      />
+      >
+        {!indeterminate && !paused && v > 0 && <span aria-hidden className="g-bar-glow" />}
+        {live && (
+          <span
+            aria-hidden
+            className="g-bar-sheen"
+            style={{ ["--v" as string]: v, ["--g-sheen-s" as string]: `${sheenSeconds(speed)}s` }}
+          />
+        )}
+      </Progress.Indicator>
     </Progress.Root>
   );
 }
