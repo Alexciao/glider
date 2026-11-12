@@ -62,6 +62,7 @@ function candidates(n: number): InstallCandidate[] {
     executableFound: i !== 3 && i !== 4,
     isStale: i === 3,
     sizeBytes: i === 1 ? null : 1.4 * TB,
+    reason: i === 3 ? "This folder doesn't exist." : i === 4 ? "The game files are missing from this folder." : null,
   }));
 }
 

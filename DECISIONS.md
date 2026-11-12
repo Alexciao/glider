@@ -49,3 +49,10 @@ One line of reasoning per decision. Newest at the bottom of each section.
 - **ChromeLogic.cs is compiled into Glider.Core.Tests via a link** (host has no test project; types are `public` only so xUnit can see them).
 - **WebView2 crash recovery**: `HostRuntime.RecreateEnvironment()` before re-creating the controller; the old `EnvTask` was dead after a browser-process exit. Not exercised on a real crash.
 - **Login window loading state**: WPF TextBlock under the hidden WebView2 child until first NavigationCompleted, 10 s safety reveal.
+## Fix group C (EGL detection)
+- **Detection logic was already drive-agnostic** (covered by existing fake-drive tests); the one real gap found was `File.ReadAllBytes` (FileShare.Read) failing while a running EGL has a manifest open for writing, which silently dropped the entry. Manifests are now read with FileShare.ReadWrite|Delete.
+- **Quick scan probes known folders only** (`\Fortnite`, `\Epic Games\Fortnite`, `\Games\Fortnite`, `\Games\Epic Games\Fortnite`, `\Program Files[ (x86)]\Epic Games\Fortnite`) plus up to 64 direct children of `\Games`, `\Epic Games`, `\Games\Epic Games`, `\Program Files\Epic Games`; never recursive. Results are `CandidateSource.Manual` candidates merged into the EGL state until the next plain rescan.
+- **Quick scan UI is a command-palette entry only**; no Settings button (Settings.tsx is being edited by the frontend branch).
+- **Locate-folder also accepts a parent holding a differently named game folder and a folder inside the install** (up to 4 levels up); first matching child wins.
+- **`InstallCandidate.Reason`** is a human-readable string (null when usable); frontend `candidateIssue` is unchanged.
+- **Adopt in place and write-back needed no code change**: `legendary import` registers the folder without copying and write-back already backs up and writes atomically; new tests pin both on a non-C: path with spaces.

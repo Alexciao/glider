@@ -37,6 +37,10 @@ internal static class FolderInspector
             }
         }
 
+        // Any drive, any folder name: the user may have picked a subfolder of the install (FortniteGame, Win64, …) or a
+        // parent holding a differently named game folder.
+        game ??= FindAround(full);
+
         if (game is null)
         {
             return new FolderInspection(false, null, null, false,
@@ -50,6 +54,22 @@ internal static class FolderInspector
         }
 
         return new FolderInspection(true, game, ReadBuildVersion(game), false, null);
+    }
+
+    /// <summary>The game folder an ancestor (up to 4 levels: Win64 -> Binaries -> FortniteGame -> game) or a direct child of <paramref name="folder"/>, or null.</summary>
+    private static string? FindAround(string folder)
+    {
+        var up = folder;
+        for (var i = 0; i < 4 && Path.GetDirectoryName(up) is { Length: > 0 } parent; i++)
+        {
+            up = parent;
+            if (FortniteLayout.LooksLikeInstall(up))
+            {
+                return up;
+            }
+        }
+
+        return Egl.InstallLocator.SafeChildren(folder, CancellationToken.None).FirstOrDefault(FortniteLayout.LooksLikeInstall);
     }
 
     /// <summary>"++Fortnite+Release-33.00-CL-12345678" from Engine\Build\Build.version, or null.</summary>

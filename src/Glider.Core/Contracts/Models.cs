@@ -174,7 +174,9 @@ public sealed record InstallCandidate(
     bool ExecutableFound,
     /// <summary>Manifest points to a folder that no longer holds the game.</summary>
     bool IsStale,
-    long? SizeBytes);
+    long? SizeBytes,
+    /// <summary>Why the candidate can't be adopted (null when it can).</summary>
+    string? Reason = null);
 
 // ===================================== Settings =====================================
 

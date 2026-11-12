@@ -147,7 +147,24 @@ public sealed class EglService : IEglService, IDisposable
             throw new IOException($"\"{path}\" is {length} bytes; EGL metadata files are never that large.");
         }
 
-        return File.ReadAllBytes(path);
+        return ReadShared(path);
+    }
+
+    /// <summary>
+    /// Reads with FileShare.ReadWrite|Delete: <c>File.ReadAllBytes</c> demands FileShare.Read and fails while EGL (running)
+    /// has the .item open for writing, which silently dropped a real install from detection.
+    /// </summary>
+    private static byte[] ReadShared(string path)
+    {
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        if (fs.Length > MaxMetadataBytes)
+        {
+            throw new IOException($"\"{path}\" is {fs.Length} bytes; EGL metadata files are never that large.");
+        }
+
+        var bytes = new byte[fs.Length];
+        fs.ReadExactly(bytes);
+        return bytes;
     }
 
     private byte[] ReadStrict(string path)
@@ -161,7 +178,7 @@ public sealed class EglService : IEglService, IDisposable
         {
             try
             {
-                return File.ReadAllBytes(path);
+                return ReadShared(path);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && ex is not FileNotFoundException)
             {
@@ -273,19 +290,22 @@ public sealed class EglService : IEglService, IDisposable
             LastScan: _options.Time.GetUtcNow());
     }
 
-    private static InstallCandidate MakeCandidate(string location, string? version, long? size)
+    internal static InstallCandidate MakeCandidate(string location, string? version, long? size, CandidateSource source = CandidateSource.EpicGamesLauncher)
     {
         var folder = Directory.Exists(location);
         var exe = folder && FortniteLayout.LooksLikeInstall(location);
         return new InstallCandidate(
             Id: EglPath.CandidateId(location),
-            Source: CandidateSource.EpicGamesLauncher,
+            Source: source,
             InstallPath: location,
             Version: string.IsNullOrWhiteSpace(version) ? null : version,
             FolderExists: folder,
             ExecutableFound: exe,
             IsStale: !exe,
-            SizeBytes: size);
+            SizeBytes: size,
+            Reason: exe ? null : folder
+                ? "The game files are missing from this folder."
+                : "This folder doesn't exist. The drive may be disconnected, or the game was moved or deleted.");
     }
 
     public EglInstall? FindByLocation(string installPath) => FindIn(FortniteItems(), installPath)?.ToInstall();

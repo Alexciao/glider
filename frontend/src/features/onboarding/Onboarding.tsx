@@ -213,6 +213,7 @@ function ChooseExisting({ candidates, onFresh }: { candidates: InstallCandidate[
       executableFound: true,
       isStale: false,
       sizeBytes: null,
+      reason: null,
     };
     setManual(c);
     setPicked(c.id);

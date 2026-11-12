@@ -83,6 +83,7 @@ function candidate(id: string, installPath: string, version: string | null, extr
     executableFound: true,
     isStale: false,
     sizeBytes: INSTALLED_ON_DISK_BYTES,
+    reason: null,
     ...extra,
   };
 }
@@ -232,7 +233,7 @@ export function buildScenario(name: ScenarioName, cfg: BuildConfig, now: number)
       onboardingChoose();
       eglInstalled([
         candidate("egl-1", EGL_INSTALL_PATH, OLD_VERSION),
-        candidate("egl-2", EGL_STALE_PATH, OLD_VERSION, { folderExists: false, executableFound: false, isStale: true, sizeBytes: null }),
+        candidate("egl-2", EGL_STALE_PATH, OLD_VERSION, { folderExists: false, executableFound: false, isStale: true, sizeBytes: null, reason: "This folder doesn't exist." }),
       ]);
       break;
 

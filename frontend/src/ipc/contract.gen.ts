@@ -122,6 +122,7 @@ export interface InstallCandidate {
   executableFound: boolean;
   isStale: boolean;
   sizeBytes: number | null;
+  reason: string | null;
 }
 
 export interface InstallPlan {
@@ -339,6 +340,7 @@ export interface RpcMethods {
   "app.ready": { params: void; result: void };
   "auth.signIn": { params: void; result: AuthState };
   "auth.signOut": { params: void; result: AuthState };
+  "egl.quickScan": { params: void; result: EglState };
   "egl.rescan": { params: void; result: EglState };
   "game.adopt": { params: AdoptRequest; result: AdoptResult };
   "game.checkForUpdates": { params: void; result: UpdateCheckResult };
@@ -390,6 +392,7 @@ export const RPC_METHODS = [
   "app.ready",
   "auth.signIn",
   "auth.signOut",
+  "egl.quickScan",
   "egl.rescan",
   "game.adopt",
   "game.checkForUpdates",

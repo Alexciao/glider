@@ -131,6 +131,7 @@ public class ContractTests
         public Task<JobInfo> CancelJob(JobRef request) => throw new NotImplementedException();
         public Task DismissJob(JobRef request) => throw new NotImplementedException();
         public Task<EglState> RescanEgl() => throw new NotImplementedException();
+        public Task<EglState> QuickScanEgl() => throw new NotImplementedException();
         public Task<Settings> UpdateSettings(Settings settings) => throw new NotImplementedException();
         public Task<Settings> ResetSettings() => throw new NotImplementedException();
     }
