@@ -18,3 +18,13 @@ One line of reasoning per decision. Newest at the bottom of each section.
 - **System.Text.Json source generation (`GliderJsonContext`)**: avoids reflection-based serializer warm-up on startup.
 - **Errors are data (`GliderError` with `FixAction`)**: every failure carries human copy and a one-click fix; all copy lives in `Errors.cs`.
 - **Nullable fields are always present (`T | null`), never optional**: one shape on the wire, so there's no undefined/null ambiguity.
+
+## Legendary & Epic integration
+- **Sign-in captures `authorizationCode` from Epic's `id/api/redirect?clientId=34a02cf8…&responseType=code` JSON** (Legendary's documented flow) in a WebView2 window, then `auth --code`; this avoids Heroic's EGL-user-agent/localhost-redirect trick.
+- **Signed-in check = `status --offline --json`; token refresh = online `status --json` in the background**: offline never crashes on network; online refresh happens during pre-warm.
+- **Legendary's `egl_sync` config stays OFF; Glider writes EGL files itself** (mirroring `egl_export`): continuous egl-sync is a known crash and update-loop source, and owning the write lets us back up and write atomically.
+- **Glider spawns the game itself from `launch --json`**: Legendary's `launch` exits immediately, so owning the process handle gives reliable running/closed tracking.
+- **Run Legendary inside a Windows Job Object (kill-on-close)**: it's a PyInstaller two-process exe with multiprocessing children; tree-kill is the only reliable pause/cancel.
+- **Exit codes are not trusted; outcomes come from parsed output**: most Legendary failures exit 0.
+- **Stall watchdog + post-install verify**: Legendary retries failed chunks forever and doesn't abort on write failures.
+- **Unattended install = `-y install Fortnite --base-path <p> --skip-sdl --skip-dlcs`**: `-y` alone still prompts for SDL packs.
