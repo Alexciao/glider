@@ -171,6 +171,16 @@ describe("Onboarding", () => {
     expect(useApp.getState().snapshot?.auth.status).toBe("signedOut");
   });
 
+  it("a closed sign-in window shows a calm message with Copy diagnostic logs and the browser route", async () => {
+    const { user } = await mount("fresh", <Onboarding />, { fail: "authCancelled" });
+    await user.click(screen.getByRole("button", { name: "Get started" }));
+    await user.click(await screen.findByRole("button", { name: "Sign in with Epic" }));
+    expect(await screen.findByText("Sign-in was cancelled")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy diagnostic logs" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Sign in with your browser instead/ }));
+    expect(await screen.findByRole("dialog", { name: "Sign in with your browser" })).toBeInTheDocument();
+  });
+
   it("blocks the fresh install when the drive is too small", async () => {
     const { user } = await mount("signedIn", <Onboarding />);
     const change = await screen.findByRole("button", { name: "Change…" });
