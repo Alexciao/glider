@@ -660,8 +660,7 @@ export class MockBackend {
     if (code) throw fail(errorForCode(code));
   }
 
-  /** Shared by `auth.signIn` and the browser fallback `auth.signInWithCode`. */
-  private async mockSignIn(): Promise<AuthState> {
+    private async mockSignIn(): Promise<AuthState> {
     await this.sleep(60);
     const previous = this.s.auth;
     const failure = this.takeFail();
@@ -794,17 +793,6 @@ export class MockBackend {
 
     // ---- auth ----
     "auth.signIn": async () => this.mockSignIn(),
-    "auth.openBrowserLogin": async () => {
-      await this.sleep(20);
-      console.debug("[mock] auth.openBrowserLogin");
-    },
-    "auth.signInWithCode": async ({ code }) => {
-      await this.sleep(60);
-      // Same rule as the host: the pasted text must hold something code-shaped (raw, quoted, or inside the JSON page).
-      const m = /"authorizationCode"\s*:\s*"([A-Za-z0-9]{16,128})"/.exec(code) ?? /^\s*["']?([A-Za-z0-9]{16,128})["']?\s*$/.exec(code);
-      if (!m) throw fail(Errors.authCodeNotRecognized());
-      return this.mockSignIn();
-    },
     "auth.signOut": async () => {
       await this.sleep(80);
       this.s.auth = { status: "signedOut", account: null };

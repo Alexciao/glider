@@ -89,16 +89,6 @@ export const actions = {
     return run("signIn", () => rpc().call("auth.signIn"), inline(surface, () => void actions.signIn(surface)));
   },
 
-  /** Fallback: Epic's own page in the user's browser (their trusted browser, no captcha trouble), then paste the code back. */
-  async openBrowserLogin(): Promise<void> {
-    await run("openBrowserLogin", () => rpc().call("auth.openBrowserLogin"), asToast());
-  },
-
-  /** Returns true when signed in; otherwise the error is shown by the caller (the dialog), not as a toast. */
-  async signInWithCode(code: string, onError: (e: GliderError) => void): Promise<boolean> {
-    return (await run("signInWithCode", () => rpc().call("auth.signInWithCode", { code }), onError)) !== undefined;
-  },
-
   async signOut(): Promise<void> {
     const ok = await run("signOut", () => rpc().call("auth.signOut"), asToast());
     if (ok) toast({ level: "info", title: "Signed out", duration: 3500 });

@@ -43,10 +43,6 @@ export interface AppSnapshot {
   onboarding: OnboardingState;
 }
 
-export interface AuthCodeRequest {
-  code: string;
-}
-
 export interface AuthState {
   status: AuthStatus;
   account: Account | null;
@@ -353,9 +349,7 @@ export interface RpcMethods {
   "app.pickFolder": { params: PickFolderRequest; result: PickFolderResult };
   "app.quit": { params: void; result: void };
   "app.ready": { params: void; result: void };
-  "auth.openBrowserLogin": { params: void; result: void };
   "auth.signIn": { params: void; result: AuthState };
-  "auth.signInWithCode": { params: AuthCodeRequest; result: AuthState };
   "auth.signOut": { params: void; result: AuthState };
   "egl.quickScan": { params: void; result: EglState };
   "egl.rescan": { params: void; result: EglState };
@@ -408,9 +402,7 @@ export const RPC_METHODS = [
   "app.pickFolder",
   "app.quit",
   "app.ready",
-  "auth.openBrowserLogin",
   "auth.signIn",
-  "auth.signInWithCode",
   "auth.signOut",
   "egl.quickScan",
   "egl.rescan",

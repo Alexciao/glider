@@ -145,40 +145,12 @@ describe("Onboarding", () => {
     expect(await screen.findByRole("button", { name: /Sign in with Epic/ })).toBeInTheDocument();
   });
 
-  it("browser fallback: pasting Epic's JSON page signs in and advances to the install step", async () => {
-    const { user } = await mount("fresh", <Onboarding />);
-    await user.click(screen.getByRole("button", { name: "Get started" }));
-    await user.click(await screen.findByRole("button", { name: /Use your browser instead/ }));
-    const dialog = await screen.findByRole("dialog", { name: "Sign in with your browser" });
-    const signIn = within(dialog).getByRole("button", { name: "Sign in" });
-    expect(signIn).toBeDisabled();
-    await user.click(within(dialog).getByLabelText("Code from Epic's page"));
-    await user.paste('{"redirectUrl":"x","authorizationCode":"a1b2c3d4e5f60718293a4b5c6d7e8f90"}');
-    await user.click(signIn);
-    await waitFor(() => expect(useApp.getState().snapshot?.auth.status).toBe("signedIn"), { timeout: 5000 });
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sign in with your browser" })).not.toBeInTheDocument());
-  });
-
-  it("browser fallback: text without a code shows an inline error and keeps the dialog open", async () => {
-    const { user } = await mount("fresh", <Onboarding />);
-    await user.click(screen.getByRole("button", { name: "Get started" }));
-    await user.click(await screen.findByRole("button", { name: /Use your browser instead/ }));
-    const dialog = await screen.findByRole("dialog", { name: "Sign in with your browser" });
-    await user.click(within(dialog).getByLabelText("Code from Epic's page"));
-    await user.paste("hello");
-    await user.click(within(dialog).getByRole("button", { name: "Sign in" }));
-    expect(await within(dialog).findByText("That isn't a sign-in code")).toBeInTheDocument();
-    expect(useApp.getState().snapshot?.auth.status).toBe("signedOut");
-  });
-
-  it("a closed sign-in window shows a calm message with Copy diagnostic logs and the browser route", async () => {
+  it("a closed sign-in window shows a calm message with Copy diagnostic logs", async () => {
     const { user } = await mount("fresh", <Onboarding />, { fail: "authCancelled" });
     await user.click(screen.getByRole("button", { name: "Get started" }));
     await user.click(await screen.findByRole("button", { name: "Sign in with Epic" }));
     expect(await screen.findByText("Sign-in was cancelled")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy diagnostic logs" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Sign in with your browser instead/ }));
-    expect(await screen.findByRole("dialog", { name: "Sign in with your browser" })).toBeInTheDocument();
   });
 
   it("blocks the fresh install when the drive is too small", async () => {

@@ -47,8 +47,6 @@ export const Errors = {
     err("authExpired", "Your session expired", "Sign in again to keep downloading and playing.", "signIn", detail),
   authFailed: (detail: string | null = null) =>
     err("authFailed", "Sign-in failed", "Epic didn't accept the sign-in. Try again.", "signIn", detail),
-  authCodeNotRecognized: () =>
-    err("authFailed", "That isn't a sign-in code", "Paste the code from Epic's page, or everything on it, including the curly brackets.", null),
   authCancelled: () =>
     err("authCancelled", "Sign-in was cancelled", "The sign-in window was closed before you finished. If Epic showed an error, copy the diagnostic logs so it can be looked into.", null),
   insufficientSpace: (requiredBytes: number, freeBytes: number, detail: string | null = null) =>

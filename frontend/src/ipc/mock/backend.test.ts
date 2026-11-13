@@ -446,21 +446,6 @@ describe("auth", () => {
     expect(s.game.latestVersion).not.toBeNull();
   });
 
-  it("browser fallback: signInWithCode accepts the pasted JSON page or the bare code and signs in", async () => {
-    const code = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
-    const t = setup({ scenario: "fresh", latency: 1 });
-    await t.call("auth.openBrowserLogin");
-    expect((await t.call("auth.signInWithCode", { code: `{"redirectUrl":"x","sid":null,"authorizationCode":"${code}"}` })).status).toBe("signedIn");
-    const t2 = setup({ scenario: "fresh", latency: 1 });
-    expect((await t2.call("auth.signInWithCode", { code: ` "${code}" ` })).status).toBe("signedIn");
-  });
-
-  it("browser fallback: text without a code is rejected and leaves the user signed out", async () => {
-    const t = setup({ scenario: "fresh", latency: 1 });
-    expect((await t.callError("auth.signInWithCode", { code: "hello" })).error).toMatchObject({ code: "authFailed", fix: null });
-    expect((await t.snapshot()).auth.status).toBe("signedOut");
-  });
-
   it("signOut clears the account", async () => {
     const t = setup({ scenario: "installed" });
     expect(await t.call("auth.signOut")).toEqual({ status: "signedOut", account: null });

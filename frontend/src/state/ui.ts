@@ -11,7 +11,6 @@ export type DialogState =
   | { kind: "install" }
   | { kind: "uninstall" }
   | { kind: "move" }
-  | { kind: "browserSignIn" }
   | { kind: "cancelJob"; jobId: string }
   | { kind: "error"; error: GliderError; retry?: () => void };
 

@@ -1,6 +1,6 @@
 import type { FixAction, GliderError } from "../../ipc/contract.gen";
 import { actions, runFix } from "../../state/actions";
-import { FIX_LABELS, usePending, useUi } from "../../state/ui";
+import { FIX_LABELS, usePending } from "../../state/ui";
 import { Button, ErrorCallout } from "../../ui";
 
 const PENDING_KEY: Partial<Record<FixAction, string>> = { signIn: "signIn", repair: "verify" };
@@ -22,10 +22,9 @@ export function ErrorView({
   const fix = error.fix;
   const loading = usePending(fix ? (PENDING_KEY[fix] ?? "_") : "_");
   const waiting = error.code === "eglBusy";
-  // Epic rejected the sign-in (often its captcha in the embedded window): offer the browser route, quietly.
+  // A closed sign-in window is not silent: Epic may have shown its own error that the user never reported.
   const cancelled = error.code === "authCancelled";
-  const browserRoute = cancelled || (error.code === "authFailed" && fix === "signIn");
-  const callout = (
+  return (
     <ErrorCallout
       className={className}
       tone={waiting || cancelled ? "warning" : "error"}
@@ -44,18 +43,5 @@ export function ErrorView({
         ) : undefined
       }
     />
-  );
-  if (!browserRoute) return callout;
-  return (
-    <div className="flex flex-col items-start gap-1.5">
-      {callout}
-      <button
-        type="button"
-        className="rounded text-xs text-fg-muted underline-offset-2 hover:text-fg hover:underline focus-visible:outline-2 focus-visible:outline-accent"
-        onClick={() => useUi.getState().openDialog({ kind: "browserSignIn" })}
-      >
-        Sign in with your browser instead
-      </button>
-    </div>
   );
 }
