@@ -11,34 +11,35 @@ using DrawingColor = System.Drawing.Color;
 
 namespace Glider.App;
 
-/// <summary>Identity variants of the login view; only <c>--login-debug</c> picks anything but <see cref="Current"/>.</summary>
+/// <summary>
+/// Identity variants of the login view. Only <c>--login-debug</c> picks anything but <see cref="Legendary"/> (what Glider ships);
+/// every variant uses Legendary's start sequence and bridge, they differ in the identity the page sees.
+/// </summary>
 internal enum LoginVariant
 {
-    Current,
+    Legendary,
+    /// <summary>WebView2's default identity (no user agent override).</summary>
     Plain,
     InPrivate,
-    NoUa,
-    /// <summary>Heroic's login user agent (no Chrome/Edg token, "EpicGamesLauncher"); a diagnostic experiment.</summary>
+    /// <summary>Heroic's login user agent (no Chrome/Edg token, "EpicGamesLauncher").</summary>
     EpicUa,
-    /// <summary>Legendary 0.21's webview login, replicated: logout-first, UA <c>EpicGamesLauncher/&lt;version&gt;</c>, injected <c>window.ue</c> bridge.</summary>
-    Legendary,
 }
 
 /// <summary>
-/// Epic sign-in. A second top-level window with its own WebView2 controller in the SAME environment (one browser process group,
-/// lowest RAM) but a dedicated profile ("GliderEpic"), so Epic's cookies never mix with the app UI and can be wiped on sign-out.
-/// Flow (Legendary's documented one): load the login page with redirectUrl=…/id/api/redirect?clientId=…&amp;responseType=code;
-/// after login Epic lands on a page whose body is JSON containing <c>authorizationCode</c>; we read it and close.
+/// Epic sign-in, Legendary's webview flow (the only one Epic's invisible captcha accepts): a second top-level window with its own
+/// WebView2 controller in the SAME environment (one browser process group, lowest RAM) but a dedicated profile ("GliderEpic"), so Epic's
+/// cookies never mix with the app UI and can be wiped on sign-out. It opens Epic's logout URL (which lands on the login page), identifies
+/// as <c>EpicGamesLauncher/&lt;version&gt;</c> and injects the <c>window.ue</c> launcher bridge after each load; Epic's page then hands an
+/// exchange code to <c>requestexchangecodesignin</c>, which we return. Social-login popups get a native-looking popup window.
 /// </summary>
 internal sealed class EpicLogin
 {
     /// <summary>Set only by <c>--login-debug</c>: which identity variant to run and where to write the trail.</summary>
     internal static LoginDebug? Debug { get; set; }
 
-    internal static nint LastHwndForTests => LoginWindow.LastHwnd;
+    internal static LoginVariant Variant => Debug?.Variant ?? LoginVariant.Legendary;
 
-    public const string RedirectPrefix = EpicSignIn.RedirectPrefix;
-    public const string LoginUrl = EpicSignIn.LoginUrl;
+    internal static nint LastHwndForTests => LoginWindow.LastHwnd;
 
     private readonly HostRuntime _rt;
     private Task<string?>? _current;
@@ -46,7 +47,7 @@ internal sealed class EpicLogin
 
     public EpicLogin(HostRuntime rt) => _rt = rt;
 
-    /// <summary>UI thread. Returns the code, null if the user closed the window. One window at a time (a second call joins the first).</summary>
+    /// <summary>UI thread. Returns the exchange code, null if the user closed the window. One window at a time (a second call joins the first).</summary>
     public Task<string?> AcquireAsync(Window? owner, CancellationToken ct)
     {
         if (_current is { IsCompleted: false })
@@ -99,27 +100,34 @@ internal sealed class EpicLogin
         }
     }
 
-    /// <summary>Settings and browser-identity compatibility for the Epic login view only (never the app UI's WebView2).</summary>
-    /// <summary>What Heroic's Epic login window sets (HeroicGamesLauncher src/frontend/screens/WebView/index.tsx).</summary>
-    /// <summary>Legendary passes <c>EpicGamesLauncher/{egl_version}</c> to pywebview as the whole UA (core.py default version).</summary>
+    /// <summary>Self-test: have the open login page call <c>window.open</c> and report what popup came out of it.</summary>
+    internal Task<string> PopupSmokeAsync() => _window?.PopupSmokeAsync() ?? Task.FromResult("no login window");
+
+    /// <summary>Legendary passes <c>EpicGamesLauncher/{egl_version}</c> to pywebview as the whole UA (core.py's default version).</summary>
     internal const string LegendaryUserAgent = "EpicGamesLauncher/11.0.1-14907503+++Portal+Release-Live";
+
+    /// <summary>What Heroic's Epic login window sets (HeroicGamesLauncher src/frontend/screens/WebView/index.tsx).</summary>
+    internal const string EpicLauncherUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) EpicGamesLauncher";
 
     private const string LogoutUrl = "https://www.epicgames.com/id/logout?productName=epic-games&redirectUrl=https://www.epicgames.com/id/login";
 
-    /// <summary>Legendary's <c>window_js</c> with pywebview.api.* replaced by WebView2 web messages (names only reach the host, plus the code).</summary>
-    private const string LegendaryBridgeJs = """
+    /// <summary>Legendary's <c>window_js</c> with pywebview.api.* replaced by WebView2 web messages.</summary>
+    private const string BridgeJs = """
         window.ue = {
           signinprompt: {
-            requestexchangecodesignin: function (code, param) { window.chrome.webview.postMessage({ n: 'requestexchangecodesignin', code: String(code), p: param ? 1 : 0 }); },
+            requestexchangecodesignin: function (code, param) { window.chrome.webview.postMessage({ n: 'requestexchangecodesignin', code: code, p: param ? 1 : 0 }); },
             registersignincompletecallback: function () { window.chrome.webview.postMessage({ n: 'registersignincompletecallback' }); }
           },
-          common: { launchexternalurl: function (url) { window.chrome.webview.postMessage({ n: 'launchexternalurl' }); } }
+          common: { launchexternalurl: function (url) { window.chrome.webview.postMessage({ n: 'launchexternalurl', url: String(url) }); } }
         };
         """;
 
-    internal const string EpicLauncherUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) EpicGamesLauncher";
-
-    internal static async Task ConfigureAsync(CoreWebView2Controller controller, LoginVariant variant = LoginVariant.Current, bool noCdp = false)
+    /// <summary>
+    /// Settings, identity and diagnostics for an Epic login view (the login window and its popups; never the app UI's WebView2).
+    /// Epic issues its accepted invisible captcha token only in launcher mode: the <c>EpicGamesLauncher</c> user agent plus the
+    /// <c>window.ue</c> bridge (see DECISIONS.md); Edge-identity spoofing did not help.
+    /// </summary>
+    internal static async Task ConfigureAsync(CoreWebView2Controller controller, LoginVariant variant = LoginVariant.Legendary)
     {
         var web = controller.CoreWebView2;
         web.Settings.AreDevToolsEnabled = WebViewSetup.DeveloperMode;
@@ -133,52 +141,19 @@ internal sealed class EpicLogin
         web.Settings.IsPasswordAutosaveEnabled = false;
         web.Settings.IsGeneralAutofillEnabled = false;
         AttachReloadSupport(controller);
-        if (variant is LoginVariant.Plain or LoginVariant.Legendary)
+        AttachTrace(web);
+        TrySetTrackingPrevention(web, CoreWebView2TrackingPreventionLevel.Balanced);
+        if (variant != LoginVariant.Plain)
         {
-            // Diagnostic baseline: WebView2's default identity (default tracking prevention, no rewrites, no injected script).
-            TrySetTrackingPrevention(web, CoreWebView2TrackingPreventionLevel.Balanced);
-            if (variant == LoginVariant.Legendary)
-            {
-                // pywebview: user_agent replaces the whole UA; web messages stay on (the bridge needs them).
-                web.Settings.UserAgent = LegendaryUserAgent;
-                await web.CallDevToolsProtocolMethodAsync("Emulation.setUserAgentOverride", JsonSerializer.Serialize(new { userAgent = LegendaryUserAgent }));
-            }
-
-            return;
-        }
-
-        // Epic's page has no business with the host bridge; with these off there is no window.chrome.webview, which real Edge lacks
-        // (found by --login-audit).
-        web.Settings.IsWebMessageEnabled = false;
-        web.Settings.AreHostObjectsAllowed = false;
-        // hCaptcha/Arkose frames need third-party storage: never let tracking prevention touch this profile.
-        TrySetTrackingPrevention(web, CoreWebView2TrackingPreventionLevel.None);
-
-        // Real Edge has no window.chrome.webview (the settings above do not remove the object itself).
-        if (variant != LoginVariant.NoUa)
-        {
-            await web.AddScriptToExecuteOnDocumentCreatedAsync("try { delete window.chrome.webview; } catch (e) {}");
-        }
-
-        if (variant == LoginVariant.EpicUa)
-        {
-            // One Emulation.setUserAgentOverride call, no client-hint metadata (an overridden UA without metadata sends no sec-ch-ua).
-            web.Settings.UserAgent = EpicLauncherUserAgent;
-            await web.CallDevToolsProtocolMethodAsync("Emulation.setUserAgentOverride", JsonSerializer.Serialize(new { userAgent = EpicLauncherUserAgent }));
-        }
-        else
-        {
-            await MatchEdgeClientHintsAsync(web, noCdp);
-        }
-
-        if (!noCdp)
-        {
-            AttachDiagnostics(web);
+            // pywebview: user_agent replaces the whole UA. One Emulation call, no client-hint metadata, web messages stay on (the bridge).
+            var ua = variant == LoginVariant.EpicUa ? EpicLauncherUserAgent : LegendaryUserAgent;
+            web.Settings.UserAgent = ua;
+            await web.CallDevToolsProtocolMethodAsync("Emulation.setUserAgentOverride", JsonSerializer.Serialize(new { userAgent = ua }));
         }
     }
 
     /// <summary>
-    /// F5 / Ctrl+R / Ctrl+F5 reload (the other accelerator keys stay off), and one automatic reload (max 2 per window) when Epic rejects
+    /// F5 / Ctrl+R / Ctrl+F5 reload (the other accelerator keys stay off), and an automatic reload (max 2 per view) when Epic rejects
     /// the invisible captcha token (<c>captcha_invalid</c> on /id/api/login*); only those 400 bodies are read.
     /// </summary>
     private static void AttachReloadSupport(CoreWebView2Controller controller)
@@ -249,84 +224,14 @@ internal sealed class EpicLogin
         }
     }
 
-    /// <summary>
-    /// WebView2 adds a "Microsoft Edge WebView2" brand to sec-ch-ua / navigator.userAgentData; the installed Edge never does. Replaces the
-    /// brand list (built from this runtime's own values) for this view only. Best effort: on any failure the view runs as before.
-    /// </summary>
-    private static async Task MatchEdgeClientHintsAsync(CoreWebView2 web, bool managedProbe = false)
-    {
-        // navigator.userAgentData only exists in a secure context, and about:blank is not one: probe a synthetic https page that is
-        // served from memory (nothing goes on the network).
-        const string probeUrl = "https://glider-probe.invalid/";
-        var loaded = new TaskCompletionSource();
-        void Serve(object? sender, CoreWebView2WebResourceRequestedEventArgs e) =>
-            e.Response = web.Environment.CreateWebResourceResponse(new MemoryStream("<!doctype html><title>probe</title>"u8.ToArray()), 200, "OK", "Content-Type: text/html");
-        void Done(object? sender, CoreWebView2NavigationCompletedEventArgs e) => loaded.TrySetResult();
-        web.AddWebResourceRequestedFilter(probeUrl + "*", CoreWebView2WebResourceContext.All);
-        web.WebResourceRequested += Serve;
-        web.NavigationCompleted += Done;
-        try
-        {
-            web.Navigate(probeUrl);
-            await loaded.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            var json = await ReadHighEntropyHintsAsync(web, managedProbe);
-            if (EdgeUserAgentMetadata.BuildOverrideJson(web.Settings.UserAgent, json) is { } over)
-            {
-                await web.CallDevToolsProtocolMethodAsync("Emulation.setUserAgentOverride", over);
-                HostLog.Info("login view: client hints match Microsoft Edge");
-            }
-            else
-            {
-                HostLog.Warn("login view: runtime client hints not in the expected shape, left unchanged");
-            }
-        }
-        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException or TimeoutException or System.Runtime.InteropServices.COMException)
-        {
-            HostLog.Warn("login view: matching Edge client hints failed", ex);
-        }
-        finally
-        {
-            web.NavigationCompleted -= Done;
-            web.WebResourceRequested -= Serve;
-            web.RemoveWebResourceRequestedFilter(probeUrl + "*", CoreWebView2WebResourceContext.All);
-        }
-    }
-
-    private const string HintsExpression = "navigator.userAgentData.getHighEntropyValues(['architecture','bitness','model','platformVersion','fullVersionList','wow64']).then(v => JSON.stringify(v))";
-
-    /// <summary>The runtime's own high-entropy client hints. <paramref name="managed"/> avoids any DevTools Runtime call (--no-cdp experiments).</summary>
-    private static async Task<string> ReadHighEntropyHintsAsync(CoreWebView2 web, bool managed)
-    {
-        if (managed)
-        {
-            // ExecuteScriptAsync does not await promises: park the result in a variable of the throwaway probe page and poll for it.
-            await web.ExecuteScriptAsync("window.__hints = null; " + HintsExpression.Replace(".then(v => JSON.stringify(v))", ".then(v => { window.__hints = JSON.stringify(v); })"));
-            for (var i = 0; i < 40; i++)
-            {
-                await Task.Delay(50);
-                var raw = await web.ExecuteScriptAsync("window.__hints");
-                if (raw != "null")
-                {
-                    return JsonSerializer.Deserialize<string>(raw) ?? "";
-                }
-            }
-
-            throw new TimeoutException("client hints probe timed out");
-        }
-
-        var probe = await web.CallDevToolsProtocolMethodAsync("Runtime.evaluate", JsonSerializer.Serialize(new { expression = HintsExpression, awaitPromise = true, returnByValue = true }));
-        using var doc = JsonDocument.Parse(probe);
-        return doc.RootElement.GetProperty("result").GetProperty("value").GetString() ?? "";
-    }
-
     private static readonly string[] DiagnosticHosts = ["epicgames.com", "hcaptcha.com", "arkoselabs.com", "funcaptcha.com", "arkoselabs.cn"];
     private static readonly string[] StaticExtensions = [".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".woff", ".woff2", ".ttf", ".map"];
 
     /// <summary>
-    /// So the next "wrong response" can be diagnosed from the log: navigation events and, for Epic and its captcha providers, the status
-    /// and URL path of each response (never query, headers, cookies or bodies; the redactor runs on every line).
+    /// So a failed sign-in can be diagnosed from the log: navigation starts and, for Epic and its captcha providers, the status and URL
+    /// path of each response (never query, headers, cookies or bodies; the redactor runs on every line). Managed events only, no DevTools session.
     /// </summary>
-    private static void AttachDiagnostics(CoreWebView2 web)
+    private static void AttachTrace(CoreWebView2 web)
     {
         web.NavigationStarting += (_, e) =>
             HostLog.Info($"login nav start: {Glider.Core.Infrastructure.SecretRedactor.UrlForLog(e.Uri)} user={e.IsUserInitiated} redirect={e.IsRedirected}");
@@ -352,76 +257,23 @@ internal sealed class EpicLogin
                 // the response object can already be gone
             }
         };
-
-        // Requests that never got a response (blocked, CORS, DNS...) are invisible to the event above: log error + host/path.
-        var urls = new Dictionary<string, string>();
-        web.GetDevToolsProtocolEventReceiver("Network.requestWillBeSent").DevToolsProtocolEventReceived += (_, e) =>
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(e.ParameterObjectAsJson);
-                var id = doc.RootElement.GetProperty("requestId").GetString() ?? "";
-                var url = doc.RootElement.GetProperty("request").GetProperty("url").GetString() ?? "";
-                if (urls.Count > 400)
-                {
-                    urls.Clear();
-                }
-
-                urls[id] = Glider.Core.Infrastructure.SecretRedactor.UrlForLog(url);
-            }
-            catch (Exception ex) when (ex is JsonException or KeyNotFoundException)
-            {
-            }
-        };
-        web.GetDevToolsProtocolEventReceiver("Network.loadingFailed").DevToolsProtocolEventReceived += (_, e) =>
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(e.ParameterObjectAsJson);
-                var r = doc.RootElement;
-                var id = r.GetProperty("requestId").GetString() ?? "";
-                var url = urls.GetValueOrDefault(id, "?");
-                if (DiagnosticHosts.Any(h => url.Contains(h, StringComparison.OrdinalIgnoreCase)) && !(r.TryGetProperty("canceled", out var c) && c.ValueKind == JsonValueKind.True))
-                {
-                    var err = r.TryGetProperty("errorText", out var t) ? t.GetString() : "?";
-                    var blocked = r.TryGetProperty("blockedReason", out var b) ? b.GetString() : "-";
-                    HostLog.Warn($"login net failed: {url} error={err} blocked={blocked}");
-                }
-            }
-            catch (Exception ex) when (ex is JsonException or KeyNotFoundException)
-            {
-            }
-        };
-        _ = web.CallDevToolsProtocolMethodAsync("Network.enable", "{}");
     }
 
-    internal static string? ParseAuthorizationCode(string? innerText) => EpicSignIn.ParseAuthorizationCode(innerText);
-
-    private sealed class LoginWindow : Window
+    /// <summary>The native-feeling window chrome shared by the login window and its popups: themed caption, sizing, placement, focus.</summary>
+    private abstract class ChromeWindow : Window
     {
-        private readonly CoreWebView2Environment _env;
-        private readonly TaskCompletionSource<string?> _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly TaskCompletionSource<CoreWebView2Controller> _controllerReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly Window? _placementOwner;
-        private nint _hwnd;
-        private CoreWebView2Controller? _controller;
-        private bool _shown;
-        private bool _finished;
-        private int _redirectMisses;
         private int _placements;
-        private bool _injectBridge;
+        private readonly List<PopupWindow> _popups = [];
+        protected nint Hwnd;
+        protected CoreWebView2Controller? Controller;
 
-        /// <summary>HWND of the most recent login window (self-test screenshots).</summary>
-        internal static nint LastHwnd { get; private set; }
-
-        public LoginWindow(CoreWebView2Environment env, Window? owner)
+        protected ChromeWindow(CoreWebView2Environment env, Window? owner, string title)
         {
-            _env = env;
-            Title = "Sign in to Epic Games";
-            Width = 520;
-            Height = 780;
+            Env = env;
+            Title = title;
             MinWidth = 420;
-            MinHeight = 560;
+            MinHeight = 420;
             ShowInTaskbar = owner is null;
             _placementOwner = owner;
             if (owner is not null)
@@ -438,58 +290,60 @@ internal sealed class EpicLogin
             {
                 try
                 {
-                    _controller?.Close();
+                    Controller?.Close();
                 }
                 catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
                 {
                     HostLog.Warn("Closing the login controller failed", ex);
                 }
 
-                _done.TrySetResult(null);
+                OnClosedCore();
             };
             // The page must see real focus (document.hasFocus(), window focus events); captcha scripts check it.
             Activated += (_, _) => FocusPage();
         }
 
-        public Task<string?> RunAsync()
+        protected CoreWebView2Environment Env { get; }
+
+        protected abstract int ClientWidthDip { get; }
+
+        protected abstract int ClientHeightDip { get; }
+
+        protected virtual void OnClosedCore()
         {
-            Prepare();
-            // Show first: a WebView2 controller created under a never-shown parent can stay unpainted (blank window).
-            ShowNow();
-            _ = StartAsync(navigate: true);
-            return _done.Task;
         }
 
-        private void Prepare()
+        internal IReadOnlyList<PopupWindow> Popups => _popups;
+
+        protected void Prepare()
         {
-            _hwnd = new WindowInteropHelper(this).EnsureHandle();
-            LastHwnd = _hwnd;
+            Hwnd = new WindowInteropHelper(this).EnsureHandle();
             // Match the app: dark title bar (and a theme-colored caption on Windows 11).
             var dark = ThemeState.IsDark ? 1 : 0;
-            Win32.DwmSetWindowAttribute(_hwnd, Win32.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
+            Win32.DwmSetWindowAttribute(Hwnd, Win32.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
             if (HostEnvironment.IsWindows11)
             {
                 var argb = ThemeState.BackgroundArgb;
                 var colorRef = (int)(((argb & 0xFF) << 16) | (argb & 0xFF00) | ((argb >> 16) & 0xFF)); // COLORREF = 0x00BBGGRR
-                Win32.DwmSetWindowAttribute(_hwnd, Win32.DWMWA_CAPTION_COLOR, ref colorRef, sizeof(int));
+                Win32.DwmSetWindowAttribute(Hwnd, Win32.DWMWA_CAPTION_COLOR, ref colorRef, sizeof(int));
                 var text = ThemeState.IsDark ? 0x00FFFFFF : 0x001A1A1A;
-                Win32.DwmSetWindowAttribute(_hwnd, Win32.DWMWA_TEXT_COLOR, ref text, sizeof(int));
+                Win32.DwmSetWindowAttribute(Hwnd, Win32.DWMWA_TEXT_COLOR, ref text, sizeof(int));
             }
 
             Place();
-            HwndSource.FromHwnd(_hwnd)?.AddHook(Hook);
+            HwndSource.FromHwnd(Hwnd)?.AddHook(Hook);
         }
 
         private nint Hook(nint hwnd, int msg, nint wParam, nint lParam, ref bool handled)
         {
             switch ((uint)msg)
             {
-                case Win32.WM_SIZE when _controller is not null:
+                case Win32.WM_SIZE when Controller is not null:
                     Resize();
                     break;
-                case Win32.WM_MOVE or Win32.WM_WINDOWPOSCHANGED when _controller is not null:
+                case Win32.WM_MOVE or Win32.WM_WINDOWPOSCHANGED when Controller is not null:
                     // Without this WebView2 keeps the old screen position: window.screenX/Y and popup positions go stale after a move.
-                    _controller.NotifyParentWindowPositionChanged();
+                    Controller.NotifyParentWindowPositionChanged();
                     break;
                 case Win32.WM_SETFOCUS:
                 case Win32.WM_ACTIVATE when Win32.LoWord(wParam) != 0:
@@ -505,13 +359,9 @@ internal sealed class EpicLogin
             return 0;
         }
 
-        private const int ClientWidthDip = 520;
-        private const int ClientHeightDip = 780;
-
         /// <summary>
-        /// Client area of 520 x 780 DIPs (Epic's login page wants ~480-520 px of width and 720-800 px of height, so it needs no
-        /// scrolling), at most 90 % of the work area of the monitor holding the owner (or the cursor), centered on the owner and kept
-        /// fully on that monitor. All in physical pixels at that monitor's DPI.
+        /// Client area of <see cref="ClientWidthDip"/> x <see cref="ClientHeightDip"/>, at most 90 % of the work area of the monitor holding
+        /// the owner (or the cursor), centered on the owner and kept fully on that monitor. All in physical pixels at that monitor's DPI.
         /// </summary>
         private void Place()
         {
@@ -538,25 +388,22 @@ internal sealed class EpicLogin
             }
 
             var dpi = Win32.GetDpiForMonitor(monitor, 0, out var dpiX, out _) == 0 && dpiX > 0 ? dpiX : 96u;
-            var style = (uint)Win32.GetWindowLongPtr(_hwnd, Win32.GWL_STYLE);
-            var exStyle = (uint)Win32.GetWindowLongPtr(_hwnd, Win32.GWL_EXSTYLE);
+            var style = (uint)Win32.GetWindowLongPtr(Hwnd, Win32.GWL_STYLE);
+            var exStyle = (uint)Win32.GetWindowLongPtr(Hwnd, Win32.GWL_EXSTYLE);
             var frame = new RECT { Right = ClientWidthDip * (int)dpi / 96, Bottom = ClientHeightDip * (int)dpi / 96 };
             Win32.AdjustWindowRectExForDpi(ref frame, style, false, exStyle, dpi);
             var work = info.Work;
-            var w = Math.Min(frame.Width, work.Width * 9 / 10);
-            var h = Math.Min(frame.Height, work.Height * 9 / 10);
-            var cx = anchor.Right > anchor.Left ? (anchor.Left + anchor.Right) / 2 : (work.Left + work.Right) / 2;
-            var cy = anchor.Bottom > anchor.Top ? (anchor.Top + anchor.Bottom) / 2 : (work.Top + work.Bottom) / 2;
-            var x = Math.Clamp(cx - w / 2, work.Left, work.Right - w);
-            var y = Math.Clamp(cy - h / 2, work.Top, work.Bottom - h);
-            Win32.SetWindowPos(_hwnd, 0, x, y, w, h, Win32.SWP_NOZORDER | Win32.SWP_NOACTIVATE);
+            var hasAnchor = anchor.Right > anchor.Left;
+            var p = LoginWindowLayout.Place(work.Left, work.Top, work.Right, work.Bottom, frame.Width, frame.Height,
+                hasAnchor ? (anchor.Left + anchor.Right) / 2 : null, anchor.Bottom > anchor.Top ? (anchor.Top + anchor.Bottom) / 2 : null);
+            Win32.SetWindowPos(Hwnd, 0, p.X, p.Y, p.Width, p.Height, Win32.SWP_NOZORDER | Win32.SWP_NOACTIVATE);
         }
 
-        private void FocusPage()
+        protected void FocusPage()
         {
             try
             {
-                _controller?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic);
+                Controller?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic);
             }
             catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
             {
@@ -564,12 +411,130 @@ internal sealed class EpicLogin
             }
         }
 
-        private void Resize()
+        protected void Resize()
         {
-            if (_controller is not null && Win32.GetClientRect(_hwnd, out var rc))
+            if (Controller is not null && Win32.GetClientRect(Hwnd, out var rc))
             {
-                _controller.Bounds = new System.Drawing.Rectangle(0, 0, rc.Width, rc.Height);
+                Controller.Bounds = new System.Drawing.Rectangle(0, 0, rc.Width, rc.Height);
             }
+        }
+
+        protected async Task CreateControllerAsync()
+        {
+            var options = Env.CreateCoreWebView2ControllerOptions();
+            options.ProfileName = HostConstants.WebViewProfileEpic;
+            options.IsInPrivateModeEnabled = Variant == LoginVariant.InPrivate;
+            options.DefaultBackgroundColor = DrawingColor.FromArgb(unchecked((int)ThemeState.BackgroundArgb));
+            Controller = await Env.CreateCoreWebView2ControllerAsync(Hwnd, options);
+            Controller.DefaultBackgroundColor = DrawingColor.FromArgb(unchecked((int)ThemeState.BackgroundArgb));
+            Controller.IsVisible = true;
+            Resize();
+            Controller.NotifyParentWindowPositionChanged();
+            await ConfigureAsync(Controller, Variant);
+            AttachPopups(Controller.CoreWebView2);
+        }
+
+        /// <summary>
+        /// Social logins (Google, Facebook, Xbox, PlayStation...) open a popup via window.open / target=_blank. It gets a window that looks
+        /// like this one instead of a default Edge popup, and the page receives that popup's CoreWebView2, so window.opener and
+        /// postMessage (which OAuth popups need) keep working. Only web popups are allowed.
+        /// </summary>
+        private void AttachPopups(CoreWebView2 web) => web.NewWindowRequested += OnNewWindowRequested;
+
+        private async void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
+        {
+            if (!LoginWindowLayout.IsAllowedPopupUrl(e.Uri))
+            {
+                e.Handled = true;
+                HostLog.Info("login: blocked a popup with an unsupported URL scheme");
+                return;
+            }
+
+            var deferral = e.GetDeferral();
+            try
+            {
+                var popup = new PopupWindow(Env, this);
+                _popups.Add(popup);
+                popup.Closed += (_, _) => _popups.Remove(popup);
+                await popup.InitAsync();
+                e.NewWindow = popup.WebView;
+                e.Handled = true;
+                HostLog.Info("login: opened a sign-in popup");
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException or ArgumentException)
+            {
+                HostLog.Warn("Opening a login popup failed", ex);
+                e.Handled = true;
+            }
+            finally
+            {
+                deferral.Complete();
+            }
+        }
+    }
+
+    /// <summary>A social-login popup: the login window's chrome around a CoreWebView2 that the opener page owns.</summary>
+    private sealed class PopupWindow : ChromeWindow
+    {
+        public PopupWindow(CoreWebView2Environment env, Window owner)
+            : base(env, owner, "Sign in")
+        {
+        }
+
+        protected override int ClientWidthDip => 480;
+
+        protected override int ClientHeightDip => 640;
+
+        public CoreWebView2 WebView => Controller!.CoreWebView2;
+
+        public async Task InitAsync()
+        {
+            Prepare();
+            Show();
+            Activate();
+            await CreateControllerAsync();
+            var web = WebView;
+            web.DocumentTitleChanged += (_, _) => Title = string.IsNullOrWhiteSpace(web.DocumentTitle) ? "Sign in" : web.DocumentTitle;
+            web.WindowCloseRequested += (_, _) => Close();
+            // Navigations inside a popup stay normal web navigations; nothing else (javascript:, data:, file:, custom schemes) may load.
+            web.NavigationStarting += (_, e) => e.Cancel = !LoginWindowLayout.IsAllowedPopupUrl(e.Uri);
+            FocusPage();
+        }
+    }
+
+    private sealed class LoginWindow : ChromeWindow
+    {
+        private readonly TaskCompletionSource<string?> _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<CoreWebView2Controller> _controllerReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private bool _shown;
+        private bool _finished;
+        private bool _injectBridge;
+
+        /// <summary>HWND of the most recent login window (self-test screenshots).</summary>
+        internal static nint LastHwnd { get; private set; }
+
+        public LoginWindow(CoreWebView2Environment env, Window? owner)
+            : base(env, owner, "Sign in to Epic Games")
+        {
+            Width = 520;
+            Height = 780;
+            MinHeight = 560;
+        }
+
+        protected override int ClientWidthDip => 520;
+
+        protected override int ClientHeightDip => 780;
+
+        protected override void OnClosedCore() => _done.TrySetResult(null);
+
+        public Task<string?> RunAsync()
+        {
+            Prepare();
+            LastHwnd = Hwnd;
+            // Show first: a WebView2 controller created under a never-shown parent can stay unpainted (blank window).
+            ShowNow();
+            _ = StartAsync(navigate: true);
+            return _done.Task;
         }
 
         public Task InitForClearAsync()
@@ -582,39 +547,27 @@ internal sealed class EpicLogin
         {
             try
             {
-                var options = _env.CreateCoreWebView2ControllerOptions();
-                options.ProfileName = HostConstants.WebViewProfileEpic;
-                options.IsInPrivateModeEnabled = Debug?.Variant == LoginVariant.InPrivate;
-                options.DefaultBackgroundColor = DrawingColor.FromArgb(unchecked((int)ThemeState.BackgroundArgb));
-                _controller = await _env.CreateCoreWebView2ControllerAsync(_hwnd, options);
-                _controller.DefaultBackgroundColor = DrawingColor.FromArgb(unchecked((int)ThemeState.BackgroundArgb));
-                _controller.IsVisible = true;
-                Resize();
-                _controller.NotifyParentWindowPositionChanged();
-                var web = _controller.CoreWebView2;
-                await ConfigureAsync(_controller, Debug?.Variant ?? LoginVariant.Current, Debug?.NoCdp ?? false);
+                await CreateControllerAsync();
+                var web = Controller!.CoreWebView2;
                 if (Debug is { } dbg)
                 {
                     await dbg.AttachAsync(web);
                 }
 
                 web.NavigationCompleted += OnNavigationCompleted;
-                _controllerReady.TrySetResult(_controller);
+                web.WebMessageReceived += OnBridgeMessage;
+                _controllerReady.TrySetResult(Controller);
                 if (navigate && IsActive)
                 {
                     FocusPage();
                 }
 
-                if (Debug?.Variant == LoginVariant.Legendary)
-                {
-                    web.WebMessageReceived += OnBridgeMessage;
-                }
-
                 if (navigate)
                 {
-                    // Legendary on Windows opens the logout URL first (drops existing cookies; it redirects to the login page).
+                    // Legendary on Windows opens the logout URL first (drops existing cookies; it redirects to the login page) and
+                    // does not inject the bridge into that first load.
                     _injectBridge = false;
-                    web.Navigate(Debug?.Variant == LoginVariant.Legendary ? LogoutUrl : LoginUrl);
+                    web.Navigate(LogoutUrl);
                 }
             }
             catch (Exception ex)
@@ -626,25 +579,40 @@ internal sealed class EpicLogin
             }
         }
 
-        /// <summary>Legendary variant only: the page called the window.ue bridge. The exchange code ends the sign-in (Legendary then loads a goodbye page).</summary>
+        /// <summary>The page called the window.ue bridge. Only the NAMES and the code's shape are logged, never the code.</summary>
         private void OnBridgeMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
         {
             try
             {
                 using var doc = JsonDocument.Parse(e.WebMessageAsJson);
-                var name = doc.RootElement.TryGetProperty("n", out var n) ? n.GetString() : null;
-                var code = doc.RootElement.TryGetProperty("code", out var c) ? c.GetString() : null;
-                Debug?.Log($"bridge invoked: {name} param={(doc.RootElement.TryGetProperty("p", out var p) && p.GetInt32() != 0 ? "present" : "absent")}");
-                if (name == "requestexchangecodesignin" && !string.IsNullOrEmpty(code) && !_finished)
+                var root = doc.RootElement;
+                var name = root.TryGetProperty("n", out var n) ? n.GetString() : null;
+                Note($"login bridge invoked: {name}");
+                switch (name)
                 {
-                    _finished = true;
-                    _done.TrySetResult(code);
-                    Close();
+                    case "requestexchangecodesignin" when !_finished:
+                        _finished = true;
+                        var code = root.TryGetProperty("code", out var c) ? EpicSignIn.ParseExchangeCode(c.GetRawText()) : null;
+                        if (code is null)
+                        {
+                            Note("login bridge: the exchange code had an unexpected shape");
+                            _done.TrySetException(new GliderException(Errors.AuthFailed("Epic's sign-in page returned an unexpected code")));
+                        }
+                        else
+                        {
+                            _done.TrySetResult(code);
+                        }
+
+                        Close();
+                        break;
+                    case "launchexternalurl" when root.TryGetProperty("url", out var u):
+                        WebViewSetup.OpenExternalSafe(u.GetString() ?? "");
+                        break;
                 }
             }
             catch (Exception ex) when (ex is JsonException or InvalidOperationException)
             {
-                Debug?.Log("bridge message could not be read");
+                HostLog.Warn("login bridge message could not be read", ex);
             }
         }
 
@@ -652,7 +620,7 @@ internal sealed class EpicLogin
         {
             try
             {
-                var web = _controller?.CoreWebView2;
+                var web = Controller?.CoreWebView2;
                 var uri = web?.Source ?? "";
                 if (IsActive)
                 {
@@ -666,63 +634,20 @@ internal sealed class EpicLogin
                     return;
                 }
 
-                if (Debug?.Variant == LoginVariant.Legendary)
+                // Legendary's on_loaded: inject window.ue after every load but the first (the logout page, after which injection is on).
+                if (_injectBridge)
                 {
-                    // Legendary's on_loaded: inject window.ue after every load but the first (which is the logout page, after which
-                    // injection is switched on), then keep going.
-                    if (_injectBridge)
-                    {
-                        await web.ExecuteScriptAsync(LegendaryBridgeJs);
-                        Debug?.Log("bridge injected (window.ue)");
-                    }
-                    else if (uri.Contains("logout", StringComparison.OrdinalIgnoreCase))
-                    {
-                        _injectBridge = true;
-                    }
+                    await web.ExecuteScriptAsync(BridgeJs);
+                    Note("login bridge injected (window.ue)");
                 }
-
-                if (!uri.StartsWith(RedirectPrefix, StringComparison.OrdinalIgnoreCase))
+                else if (uri.Contains("logout", StringComparison.OrdinalIgnoreCase))
                 {
-                    return;
-                }
-
-                var body = await web.ExecuteScriptAsync("document.body ? document.body.innerText : ''");
-                string? code;
-                try
-                {
-                    code = ParseAuthorizationCode(body);
-                }
-                catch (JsonException)
-                {
-                    code = null;
-                }
-
-                if (code is not null)
-                {
-                    _finished = true;
-                    _done.TrySetResult(code);
-                    Close();
-                }
-                else if (++_redirectMisses >= 2)
-                {
-                    _finished = true;
-                    _done.TrySetException(new GliderException(Errors.AuthFailed("Epic's redirect page held no authorizationCode")));
-                    Close();
-                }
-                else
-                {
-                    web.Navigate(LoginUrl); // session was not valid after all; show the login form
+                    _injectBridge = true;
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException or ObjectDisposedException)
             {
-                HostLog.Error("Reading the Epic redirect failed", ex);
-                if (!_finished)
-                {
-                    _finished = true;
-                    _done.TrySetException(new GliderException(Errors.AuthFailed(ex.Message), ex));
-                    Close();
-                }
+                HostLog.Warn("Login navigation handler failed", ex);
             }
         }
 
@@ -736,20 +661,20 @@ internal sealed class EpicLogin
             _shown = true;
             Show();
             Activate();
-            if (_controller is not null)
+            if (Controller is not null)
             {
                 // Re-assert bounds now that the parent is on screen.
                 Resize();
-                _controller.NotifyParentWindowPositionChanged();
+                Controller.NotifyParentWindowPositionChanged();
             }
         }
 
         public void BringToFront()
         {
             ShowNow();
-            if (Win32.IsIconic(_hwnd))
+            if (Win32.IsIconic(Hwnd))
             {
-                Win32.ShowWindow(_hwnd, Win32.SW_RESTORE);
+                Win32.ShowWindow(Hwnd, Win32.SW_RESTORE);
             }
 
             Activate();
@@ -759,6 +684,28 @@ internal sealed class EpicLogin
         {
             var controller = await _controllerReady.Task.ConfigureAwait(true);
             await controller.CoreWebView2.Profile.ClearBrowsingDataAsync();
+        }
+
+        public async Task<string> PopupSmokeAsync()
+        {
+            var web = (await _controllerReady.Task.ConfigureAwait(true)).CoreWebView2;
+            web.NavigateToString("<!doctype html><title>popup smoke</title><body>x</body>");
+            await Task.Delay(800);
+            await web.ExecuteScriptAsync("window.open('about:blank'); window.open('javascript:alert(1)');");
+            await Task.Delay(2500);
+            var p = Popups.Count > 0 ? Popups[0] : null;
+            if (p is null)
+            {
+                return "no popup was created";
+            }
+
+            var web2 = p.WebView;
+            var s = web2.Settings;
+            Win32.GetClientRect(new WindowInteropHelper(p).Handle, out var rc);
+            var result = $"{Popups.Count} popup(s); title='{p.Title}' owner={p.Owner is not null} taskbar={p.ShowInTaskbar} client={rc.Width}x{rc.Height}px "
+                + $"contextMenu={s.AreDefaultContextMenusEnabled} accelerators={s.AreBrowserAcceleratorKeysEnabled} autofill={s.IsGeneralAutofillEnabled} password={s.IsPasswordAutosaveEnabled} ua={web2.Settings.UserAgent}";
+            p.Close();
+            return result;
         }
     }
 }

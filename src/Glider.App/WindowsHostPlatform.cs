@@ -40,8 +40,11 @@ internal sealed class WindowsHostPlatform : IHostPlatform
 
     // ---------------------------------------------------------------- auth
 
-    public Task<string?> AcquireEpicAuthorizationCodeAsync(CancellationToken ct) =>
+    public Task<string?> AcquireEpicExchangeCodeAsync(CancellationToken ct) =>
         Ui.InvokeAsync(() => _login.AcquireAsync(_window, ct)).Task.Unwrap();
+
+    /// <summary>Self-test: make the open login page call window.open and describe the popup window that results.</summary>
+    internal Task<string> LoginPopupSmokeAsync() => Ui.InvokeAsync(() => _login.PopupSmokeAsync()).Task.Unwrap();
 
     public Task ClearLoginSessionAsync() => Ui.InvokeAsync(() => _login.ClearSessionAsync()).Task.Unwrap();
 

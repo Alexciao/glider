@@ -77,10 +77,8 @@ internal sealed class LoginDebug
                 // The environment is an STA COM object: read it on the UI thread.
                 var version = await rt.Ui.InvokeAsync(async () => (await rt.EnvTask).BrowserVersionString).Task.Unwrap();
                 debug.Log($"login-debug start variant={variant} noCdp={debug.NoCdp} webview2={version}");
-                var code = await rt.Platform.AcquireEpicAuthorizationCodeAsync(cts.Token);
-                debug.Log(code is null ? "window closed by user"
-                    : variant == LoginVariant.Legendary ? $"bridge callback reached, code length {code.Length} (an exchange code, not an authorization code)"
-                    : $"redirect reached, code length {code.Length}");
+                var code = await rt.Platform.AcquireEpicExchangeCodeAsync(cts.Token);
+                debug.Log(code is null ? "window closed by user" : $"bridge callback reached, code length {code.Length} (exchange code)");
             }
             catch (OperationCanceledException)
             {

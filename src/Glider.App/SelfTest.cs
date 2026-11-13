@@ -359,8 +359,8 @@ internal static partial class SelfTest
 
     private static async Task LoginTest(HostRuntime rt, string dir)
     {
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(12));
-        var task = await rt.Ui.InvokeAsync(() => rt.Platform.AcquireEpicAuthorizationCodeAsync(cts.Token)).Task;
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(24));
+        var task = await rt.Ui.InvokeAsync(() => rt.Platform.AcquireEpicExchangeCodeAsync(cts.Token)).Task;
         // What the user actually sees: screen pixels of the login window after the page had time to load.
         await Task.Delay(TimeSpan.FromSeconds(9));
         await rt.Ui.InvokeAsync(() =>
@@ -386,6 +386,8 @@ internal static partial class SelfTest
 
             Report["login.screenshot"] = $"{w}x{h}, distinct colors sampled: {distinct.Count} (blank window ≈ 1–3)";
         });
+        // Popups for social logins: the login page calls window.open (about:blank allowed, javascript: blocked).
+        Report["login.popup"] = await rt.Platform.LoginPopupSmokeAsync();
         try
         {
             var code = await task;
@@ -393,7 +395,7 @@ internal static partial class SelfTest
         }
         catch (OperationCanceledException)
         {
-            Report["login.result"] = "cancelled by token after 12s (window opened and closed cleanly)";
+            Report["login.result"] = "cancelled by token after 24s (window opened and closed cleanly)";
         }
 
         await rt.Platform.ClearLoginSessionAsync();
