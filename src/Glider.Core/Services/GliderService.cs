@@ -255,7 +255,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
     public Task CopyLogs() => Rpc(nameof(CopyLogs), () => _c.Host.SetClipboardText(LogText(2000)));
 
     private string LogText(int lines) =>
-        Diagnostics.Header(_c.Hub.BuildSnapshot(), _c.Records.Current) + Diagnostics.Redact(_c.Log.Tail(lines));
+        Diagnostics.Header(_c.Hub.BuildSnapshot(), _c.Records.Current) + Diagnostics.Redact(_c.Log.Tail(lines) + Diagnostics.HostLogTail(_c.Paths.Logs, Math.Min(lines, 300)));
 
     public Task<LicensesResult> GetLicenses() => Rpc(nameof(GetLicenses), _ => Task.FromResult(Licenses.Load(_c.Options.LicensesDirectory)));
 

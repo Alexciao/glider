@@ -46,6 +46,40 @@ internal static partial class Diagnostics
         return sb.ToString();
     }
 
+    /// <summary>
+    /// The newest lines of the host shell's own log (<c>host-*.log</c>: window, WebView2 and the Epic login window's navigation/HTTP status
+    /// trail), so one "Copy logs" / app.getLogs carries both. Empty when there is none.
+    /// </summary>
+    public static string HostLogTail(string logDirectory, int maxLines)
+    {
+        try
+        {
+            var file = Directory.EnumerateFiles(logDirectory, "host-*.log").OrderByDescending(f => f, StringComparer.Ordinal).FirstOrDefault();
+            if (file is null)
+            {
+                return "";
+            }
+
+            using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var sr = new StreamReader(fs);
+            var lines = new Queue<string>();
+            while (sr.ReadLine() is { } line)
+            {
+                lines.Enqueue(line);
+                if (lines.Count > maxLines)
+                {
+                    lines.Dequeue();
+                }
+            }
+
+            return lines.Count == 0 ? "" : Environment.NewLine + "--- host log ---" + Environment.NewLine + string.Join(Environment.NewLine, lines) + Environment.NewLine;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return "";
+        }
+    }
+
     /// <summary>Defense in depth: strips anything shaped like a secret even if a component logged one.</summary>
     public static string Redact(string text) => Infrastructure.SecretRedactor.Redact(text);
 }
