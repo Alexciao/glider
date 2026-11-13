@@ -83,6 +83,166 @@ internal sealed class EpicLogin
         }
     }
 
+    /// <summary>Settings and browser-identity compatibility for the Epic login view only (never the app UI's WebView2).</summary>
+    internal static async Task ConfigureAsync(CoreWebView2Controller controller)
+    {
+        var web = controller.CoreWebView2;
+        web.Settings.AreDevToolsEnabled = WebViewSetup.DeveloperMode;
+        web.Settings.AreDefaultContextMenusEnabled = WebViewSetup.DeveloperMode;
+        web.Settings.AreBrowserAcceleratorKeysEnabled = WebViewSetup.DeveloperMode;
+        web.Settings.IsZoomControlEnabled = false;
+        web.Settings.IsPinchZoomEnabled = false;
+        web.Settings.IsSwipeNavigationEnabled = false;
+        web.Settings.IsStatusBarEnabled = false;
+        // No Edge "Save password?" bubble or autofill dropdown on top of Epic's own form.
+        web.Settings.IsPasswordAutosaveEnabled = false;
+        web.Settings.IsGeneralAutofillEnabled = false;
+        // Epic's page has no business with the host bridge; with these off there is no window.chrome.webview, which real Edge lacks
+        // (found by --login-audit).
+        web.Settings.IsWebMessageEnabled = false;
+        web.Settings.AreHostObjectsAllowed = false;
+        // hCaptcha/Arkose frames need third-party storage: never let tracking prevention touch this profile.
+        try
+        {
+            web.Profile.PreferredTrackingPreventionLevel = CoreWebView2TrackingPreventionLevel.None;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
+        {
+            HostLog.Warn("Could not relax tracking prevention for the login profile", ex);
+        }
+
+        // Real Edge has no window.chrome.webview (the settings above do not remove the object itself).
+        await web.AddScriptToExecuteOnDocumentCreatedAsync("try { delete window.chrome.webview; } catch (e) {}");
+        await MatchEdgeClientHintsAsync(web);
+        AttachDiagnostics(web);
+    }
+
+    /// <summary>
+    /// WebView2 adds a "Microsoft Edge WebView2" brand to sec-ch-ua / navigator.userAgentData; the installed Edge never does. Replaces the
+    /// brand list (built from this runtime's own values) for this view only. Best effort: on any failure the view runs as before.
+    /// </summary>
+    private static async Task MatchEdgeClientHintsAsync(CoreWebView2 web)
+    {
+        // navigator.userAgentData only exists in a secure context, and about:blank is not one: probe a synthetic https page that is
+        // served from memory (nothing goes on the network).
+        const string probeUrl = "https://glider-probe.invalid/";
+        var loaded = new TaskCompletionSource();
+        void Serve(object? sender, CoreWebView2WebResourceRequestedEventArgs e) =>
+            e.Response = web.Environment.CreateWebResourceResponse(new MemoryStream("<!doctype html><title>probe</title>"u8.ToArray()), 200, "OK", "Content-Type: text/html");
+        void Done(object? sender, CoreWebView2NavigationCompletedEventArgs e) => loaded.TrySetResult();
+        web.AddWebResourceRequestedFilter(probeUrl + "*", CoreWebView2WebResourceContext.All);
+        web.WebResourceRequested += Serve;
+        web.NavigationCompleted += Done;
+        try
+        {
+            web.Navigate(probeUrl);
+            await loaded.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var probe = await web.CallDevToolsProtocolMethodAsync("Runtime.evaluate", JsonSerializer.Serialize(new
+            {
+                expression = "navigator.userAgentData.getHighEntropyValues(['architecture','bitness','model','platformVersion','fullVersionList','wow64']).then(v => JSON.stringify(v))",
+                awaitPromise = true,
+                returnByValue = true,
+            }));
+            using var doc = JsonDocument.Parse(probe);
+            var json = doc.RootElement.GetProperty("result").GetProperty("value").GetString() ?? "";
+            if (EdgeUserAgentMetadata.BuildOverrideJson(web.Settings.UserAgent, json) is { } over)
+            {
+                await web.CallDevToolsProtocolMethodAsync("Emulation.setUserAgentOverride", over);
+                HostLog.Info("login view: client hints match Microsoft Edge");
+            }
+            else
+            {
+                HostLog.Warn("login view: runtime client hints not in the expected shape, left unchanged");
+            }
+        }
+        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException or TimeoutException or System.Runtime.InteropServices.COMException)
+        {
+            HostLog.Warn("login view: matching Edge client hints failed", ex);
+        }
+        finally
+        {
+            web.NavigationCompleted -= Done;
+            web.WebResourceRequested -= Serve;
+            web.RemoveWebResourceRequestedFilter(probeUrl + "*", CoreWebView2WebResourceContext.All);
+        }
+    }
+
+    private static readonly string[] DiagnosticHosts = ["epicgames.com", "hcaptcha.com", "arkoselabs.com", "funcaptcha.com", "arkoselabs.cn"];
+    private static readonly string[] StaticExtensions = [".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".woff", ".woff2", ".ttf", ".map"];
+
+    /// <summary>
+    /// So the next "wrong response" can be diagnosed from the log: navigation events and, for Epic and its captcha providers, the status
+    /// and URL path of each response (never query, headers, cookies or bodies; the redactor runs on every line).
+    /// </summary>
+    private static void AttachDiagnostics(CoreWebView2 web)
+    {
+        web.NavigationStarting += (_, e) =>
+            HostLog.Info($"login nav start: {Glider.Core.Infrastructure.SecretRedactor.UrlForLog(e.Uri)} user={e.IsUserInitiated} redirect={e.IsRedirected}");
+        web.WebResourceResponseReceived += (_, e) =>
+        {
+            try
+            {
+                if (!Uri.TryCreate(e.Request.Uri, UriKind.Absolute, out var u) || !DiagnosticHosts.Any(h => u.Host.EndsWith(h, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return;
+                }
+
+                var status = e.Response.StatusCode;
+                if (status < 400 && StaticExtensions.Any(x => u.AbsolutePath.EndsWith(x, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return;
+                }
+
+                HostLog.Info($"login http {status} {e.Request.Method} {Glider.Core.Infrastructure.SecretRedactor.UrlForLog(u.AbsoluteUri)}");
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
+            {
+                // the response object can already be gone
+            }
+        };
+
+        // Requests that never got a response (blocked, CORS, DNS...) are invisible to the event above: log error + host/path.
+        var urls = new Dictionary<string, string>();
+        web.GetDevToolsProtocolEventReceiver("Network.requestWillBeSent").DevToolsProtocolEventReceived += (_, e) =>
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(e.ParameterObjectAsJson);
+                var id = doc.RootElement.GetProperty("requestId").GetString() ?? "";
+                var url = doc.RootElement.GetProperty("request").GetProperty("url").GetString() ?? "";
+                if (urls.Count > 400)
+                {
+                    urls.Clear();
+                }
+
+                urls[id] = Glider.Core.Infrastructure.SecretRedactor.UrlForLog(url);
+            }
+            catch (Exception ex) when (ex is JsonException or KeyNotFoundException)
+            {
+            }
+        };
+        web.GetDevToolsProtocolEventReceiver("Network.loadingFailed").DevToolsProtocolEventReceived += (_, e) =>
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(e.ParameterObjectAsJson);
+                var r = doc.RootElement;
+                var id = r.GetProperty("requestId").GetString() ?? "";
+                var url = urls.GetValueOrDefault(id, "?");
+                if (DiagnosticHosts.Any(h => url.Contains(h, StringComparison.OrdinalIgnoreCase)) && !(r.TryGetProperty("canceled", out var c) && c.ValueKind == JsonValueKind.True))
+                {
+                    var err = r.TryGetProperty("errorText", out var t) ? t.GetString() : "?";
+                    var blocked = r.TryGetProperty("blockedReason", out var b) ? b.GetString() : "-";
+                    HostLog.Warn($"login net failed: {url} error={err} blocked={blocked}");
+                }
+            }
+            catch (Exception ex) when (ex is JsonException or KeyNotFoundException)
+            {
+            }
+        };
+        _ = web.CallDevToolsProtocolMethodAsync("Network.enable", "{}");
+    }
+
     internal static string? ParseAuthorizationCode(string? innerText) => EpicSignIn.ParseAuthorizationCode(innerText);
 
     private sealed class LoginWindow : Window
@@ -274,16 +434,7 @@ internal sealed class EpicLogin
                 Resize();
                 _controller.NotifyParentWindowPositionChanged();
                 var web = _controller.CoreWebView2;
-                web.Settings.AreDevToolsEnabled = WebViewSetup.DeveloperMode;
-                web.Settings.AreDefaultContextMenusEnabled = WebViewSetup.DeveloperMode;
-                web.Settings.AreBrowserAcceleratorKeysEnabled = WebViewSetup.DeveloperMode;
-                web.Settings.IsZoomControlEnabled = false;
-                web.Settings.IsPinchZoomEnabled = false;
-                web.Settings.IsSwipeNavigationEnabled = false;
-                web.Settings.IsStatusBarEnabled = false;
-                // No Edge "Save password?" bubble or autofill dropdown on top of Epic's own form.
-                web.Settings.IsPasswordAutosaveEnabled = false;
-                web.Settings.IsGeneralAutofillEnabled = false;
+                await ConfigureAsync(_controller);
                 web.NavigationCompleted += OnNavigationCompleted;
                 _controllerReady.TrySetResult(_controller);
                 if (navigate && IsActive)
