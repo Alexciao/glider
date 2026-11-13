@@ -8,7 +8,7 @@ Measured numbers and method live in `docs/perf-host.md` (startup, idle memory, t
 - Idle host memory: 3 MB private working set after the one-off post-startup trim (74 MB commit); hidden in the tray the WebView2 is suspended and a start-in-tray launch creates no WebView2 at all.
 - Publish folder 154 MB, Setup.exe 90.7 MB (v0.1.0). Mostly the .NET + WPF runtime; WPF cannot be trimmed.
 
-## Idle wakeup audit (v0.1.1)
+## Idle wakeup audit (v0.1.2)
 
 | Source | Behaviour | Verdict |
 |---|---|---|
@@ -22,4 +22,4 @@ No wasteful polling was found, so nothing was changed. Not measured: CPU wakeups
 
 ## Not covered
 
-CDN throughput benchmark and Windows 10 numbers need real hardware and accounts; they are not part of v0.1.1.
+CDN throughput benchmark and Windows 10 numbers need real hardware and accounts; they are not part of v0.1.2.
