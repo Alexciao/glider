@@ -43,7 +43,8 @@ public class LaunchTests
         {
             lock (states)
             {
-                if (states.Count == 0 || states[^1] != s.RunState)
+                // Unrelated background updates (sizes, art, update checks) can publish a state while still Idle; only record the lifecycle.
+                if (states.Count == 0 ? s.RunState != RunState.Idle : states[^1] != s.RunState)
                 {
                     states.Add(s.RunState);
                 }
