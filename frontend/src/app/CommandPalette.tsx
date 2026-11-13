@@ -5,6 +5,7 @@ import {
   CornerDownLeft,
   Download,
   FolderInput,
+  ExternalLink,
   FolderOpen,
   Gamepad2,
   LogOut,
@@ -119,6 +120,9 @@ function PaletteBody({ close }: { close: () => void }) {
       { id: "scanDrives", group: "App", label: "Scan all drives for an existing install", icon: <RefreshCw size={15} />, run: () => void actions.rescanEgl(true) },
       { id: "logs", group: "App", label: "Copy logs for a bug report", icon: <Wrench size={15} />, run: () => void actions.copyLogs() },
     );
+    if (snap.auth.status !== "signedIn" && snap.auth.status !== "signingIn") {
+      cmds.push({ id: "browserSignIn", group: "App", label: "Sign in with your browser instead", icon: <ExternalLink size={15} />, keywords: "epic captcha login code", run: () => openDialog({ kind: "browserSignIn" }) });
+    }
     if (signedIn) cmds.push({ id: "signout", group: "App", label: "Sign out", icon: <LogOut size={15} />, run: () => void actions.signOut() });
     return cmds;
   }, [snap, hero.kind, hero.job, go, openDialog]);

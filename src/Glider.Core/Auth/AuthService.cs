@@ -32,24 +32,7 @@ internal sealed class AuthService
                 throw new GliderException(Errors.AuthCancelled());
             }
 
-            LegendaryAccount account;
-            try
-            {
-                account = await _c.Legendary.SignInWithCodeAsync(code.Trim(), ct);
-            }
-            catch (GliderException)
-            {
-                throw;
-            }
-            catch (Exception e) when (e is not OperationCanceledException)
-            {
-                throw new GliderException(Errors.AuthFailed(e.Message), e);
-            }
-
-            var state = AuthMapping.From(account);
-            _c.Hub.Mutate(s => s with { Auth = state });
-            _c.Log.Info("auth", "signed in");
-            return state;
+            return await CompleteAsync(code, ct);
         }
         catch (Exception) when (_c.Hub.State.Auth.Status == AuthStatus.SigningIn)
         {
@@ -60,6 +43,55 @@ internal sealed class AuthService
         {
             Volatile.Write(ref _signingIn, 0);
         }
+    }
+
+    /// <summary>Fallback sign-in: the user signed in with their own browser and pasted the code (or the whole JSON page).</summary>
+    public async Task<AuthState> SignInWithPastedCodeAsync(string? pasted, CancellationToken ct)
+    {
+        var code = EpicSignIn.ParsePastedCode(pasted)
+            ?? throw new GliderException(Errors.AuthCodeNotRecognized());
+        if (Interlocked.Exchange(ref _signingIn, 1) == 1)
+        {
+            throw new GliderException(Errors.Busy("sign-in"));
+        }
+
+        var previous = _c.Hub.State.Auth;
+        try
+        {
+            _c.Hub.Mutate(s => s with { Auth = new AuthState(AuthStatus.SigningIn, null) });
+            return await CompleteAsync(code, ct);
+        }
+        catch (Exception) when (_c.Hub.State.Auth.Status == AuthStatus.SigningIn)
+        {
+            _c.Hub.Mutate(s => s with { Auth = previous });
+            throw;
+        }
+        finally
+        {
+            Volatile.Write(ref _signingIn, 0);
+        }
+    }
+
+    private async Task<AuthState> CompleteAsync(string code, CancellationToken ct)
+    {
+        LegendaryAccount account;
+        try
+        {
+            account = await _c.Legendary.SignInWithCodeAsync(code.Trim(), ct);
+        }
+        catch (GliderException)
+        {
+            throw;
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            throw new GliderException(Errors.AuthFailed(e.Message), e);
+        }
+
+        var state = AuthMapping.From(account);
+        _c.Hub.Mutate(s => s with { Auth = state });
+        _c.Log.Info("auth", "signed in");
+        return state;
     }
 
     public async Task<AuthState> SignOutAsync(CancellationToken ct)

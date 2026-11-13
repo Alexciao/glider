@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { RadioGroup } from "radix-ui";
-import type { InstallPlan, UninstallMode } from "../../ipc/contract.gen";
+import { ExternalLink } from "lucide-react";
+import type { GliderError, InstallPlan, UninstallMode } from "../../ipc/contract.gen";
 import { actions, runFix } from "../../state/actions";
 import { JOB_NOUN } from "../../state/derive";
 import { formatBytes, joinPath } from "../../state/format";
 import { useApp, useSnap } from "../../state/store";
 import { FIX_LABELS, usePending, useUi, type DialogState } from "../../state/ui";
-import { AlertModal, Button, ErrorCallout, Modal, Switch, cx } from "../../ui";
+import { AlertModal, Button, ErrorCallout, Modal, Switch, TextArea, cx } from "../../ui";
 import { ErrorView } from "../common/ErrorView";
 import { InstallPlanner } from "../common/InstallPlanner";
 import { PathText } from "../common/PathText";
@@ -55,6 +56,67 @@ function InstallDialog({ open }: { open: boolean }) {
       <div className="flex flex-col gap-3 pb-1">
         <InstallPlanner onPlan={setPlan} onUseExisting={(p) => void adoptExisting(p)} />
         {error && <ErrorView error={error.error} retry={error.retry} onDismiss={() => useUi.getState().setError("install", undefined)} />}
+      </div>
+    </Modal>
+  );
+}
+
+/* ------------------------------------------------------------ browser sign-in */
+
+/** Fallback sign-in for when Epic keeps rejecting the captcha in the embedded window: Epic's page in the user's own browser. */
+function BrowserSignInDialog({ open }: { open: boolean }) {
+  const close = useUi((s) => s.closeDialog);
+  const opening = usePending("openBrowserLogin");
+  const signingIn = usePending("signInWithCode");
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<GliderError | null>(null);
+
+  const submit = async () => {
+    setError(null);
+    if (await actions.signInWithCode(code, setError)) close();
+  };
+
+  return (
+    <Modal
+      open={open}
+      onOpenChange={(o) => !o && !signingIn && close()}
+      size="md"
+      title="Sign in with your browser"
+      description="Your own browser is the one Epic already trusts. Sign in there, then bring the code back here."
+      footer={
+        <>
+          <Button variant="ghost" onClick={close} disabled={signingIn}>
+            Cancel
+          </Button>
+          <Button variant="primary" loading={signingIn} disabled={code.trim() === ""} onClick={() => void submit()}>
+            Sign in
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3 pb-1">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm text-fg">1. Open Epic's sign-in page and sign in as usual.</span>
+          <Button size="sm" icon={<ExternalLink size={14} />} loading={opening} onClick={() => void actions.openBrowserLogin()}>
+            Open
+          </Button>
+        </div>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm text-fg">2. The page that appears afterwards is a line of text. Select all, copy, and paste it here.</span>
+          <TextArea
+            value={code}
+            onChange={(e) => {
+              setCode(e.target.value);
+              setError(null);
+            }}
+            rows={3}
+            placeholder={'{"redirectUrl":"…","authorizationCode":"…"}'}
+            invalid={error !== null}
+            className="font-mono text-xs"
+            aria-label="Code from Epic's page"
+          />
+        </label>
+        {error && <ErrorView error={error} onDismiss={() => setError(null)} />}
       </div>
     </Modal>
   );
@@ -333,6 +395,8 @@ export function Dialogs() {
       return <UninstallDialog open={open} />;
     case "move":
       return <MoveDialog open={open} />;
+    case "browserSignIn":
+      return <BrowserSignInDialog open={open} />;
     case "cancelJob":
       return <CancelJobDialog jobId={last.jobId} open={open} />;
     case "error":

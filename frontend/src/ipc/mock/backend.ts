@@ -1,5 +1,6 @@
 import type {
   AppSnapshot,
+  AuthState,
   ErrorCode,
   FolderValidation,
   GliderError,
@@ -659,6 +660,26 @@ export class MockBackend {
     if (code) throw fail(errorForCode(code));
   }
 
+  /** Shared by `auth.signIn` and the browser fallback `auth.signInWithCode`. */
+  private async mockSignIn(): Promise<AuthState> {
+    await this.sleep(60);
+    const previous = this.s.auth;
+    const failure = this.takeFail();
+    this.s.auth = { status: "signingIn", account: previous.account };
+    this.emitState();
+    await this.sleep(1400);
+    if (failure) {
+      this.s.auth = previous;
+      this.emitState();
+      throw fail(errorForCode(failure));
+    }
+    this.s.auth = { status: "signedIn", account: { ...ACCOUNT } };
+    if (!this.s.onboarding.completed) this.s.onboarding = { completed: false, step: "chooseInstall" };
+    this.onSignedIn();
+    this.emitState();
+    return clone(this.s.auth);
+  }
+
   private requireAuth(): void {
     switch (this.s.auth.status) {
       case "signedIn":
@@ -772,23 +793,17 @@ export class MockBackend {
     },
 
     // ---- auth ----
-    "auth.signIn": async () => {
+    "auth.signIn": async () => this.mockSignIn(),
+    "auth.openBrowserLogin": async () => {
+      await this.sleep(20);
+      console.debug("[mock] auth.openBrowserLogin");
+    },
+    "auth.signInWithCode": async ({ code }) => {
       await this.sleep(60);
-      const previous = this.s.auth;
-      const failure = this.takeFail();
-      this.s.auth = { status: "signingIn", account: previous.account };
-      this.emitState();
-      await this.sleep(1400);
-      if (failure) {
-        this.s.auth = previous;
-        this.emitState();
-        throw fail(errorForCode(failure));
-      }
-      this.s.auth = { status: "signedIn", account: { ...ACCOUNT } };
-      if (!this.s.onboarding.completed) this.s.onboarding = { completed: false, step: "chooseInstall" };
-      this.onSignedIn();
-      this.emitState();
-      return clone(this.s.auth);
+      // Same rule as the host: the pasted text must hold something code-shaped (raw, quoted, or inside the JSON page).
+      const m = /"authorizationCode"\s*:\s*"([A-Za-z0-9]{16,128})"/.exec(code) ?? /^\s*["']?([A-Za-z0-9]{16,128})["']?\s*$/.exec(code);
+      if (!m) throw fail(Errors.authCodeNotRecognized());
+      return this.mockSignIn();
     },
     "auth.signOut": async () => {
       await this.sleep(80);

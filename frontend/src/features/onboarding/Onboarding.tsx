@@ -111,6 +111,14 @@ function SignIn({ onBack }: { onBack: () => void }) {
         <Button variant="ghost" icon={<ArrowLeft size={14} />} disabled={signingIn} onClick={onBack}>
           Back
         </Button>
+        <button
+          type="button"
+          disabled={signingIn}
+          className="mx-auto rounded text-xs text-fg-muted underline-offset-2 hover:text-fg hover:underline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-45"
+          onClick={() => useUi.getState().openDialog({ kind: "browserSignIn" })}
+        >
+          Trouble signing in? Use your browser instead
+        </button>
       </div>
     </div>
   );

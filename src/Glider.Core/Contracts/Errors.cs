@@ -18,6 +18,9 @@ public static class Errors
     public static GliderError AuthFailed(string? detail = null) => new(ErrorCode.AuthFailed,
         "Sign-in failed", "Epic didn't accept the sign-in. Try again.", FixAction.SignIn, detail);
 
+    public static GliderError AuthCodeNotRecognized() => new(ErrorCode.AuthFailed,
+        "That isn't a sign-in code", "Paste the code from Epic's page, or everything on it, including the curly brackets.", null, null);
+
     public static GliderError AuthCancelled() => new(ErrorCode.AuthCancelled,
         "Sign-in cancelled", "The sign-in window was closed before finishing.", null, null);
 
