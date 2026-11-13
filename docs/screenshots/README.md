@@ -7,6 +7,7 @@ Nothing here is hand-edited.
 |---|---|
 | `<theme>-<backdrop>-<WxH>/` | Every screen and state (63): onboarding steps, each scenario, Library morph states, Downloads, all Settings sections, dialogs, menus, palette, toasts, keyboard focus. `theme` = `dark` / `light`; `backdrop` = `solid` (Windows 10) / `mica` (a blurred gradient "wallpaper" behind the translucent page); size = 1280×800 or 960×600. |
 | `break-ui/<mode>-<WxH>/` | The same key screens with worst-case / empty / one / huge data (`src/dev/stress.ts`), including 960×540 (1080p at 200 % zoom). |
+| `surface-<theme>-<surface>/` | Host surface emulation via `e2e/surfaces.spec.ts` (sets `data-backdrop` / `data-surface`): `mica-active`, `mica-solid` (inactive, transparency off, Battery Saver), `win10`. Committed: `mica-solid` and `win10`, Library + Settings only (`pnpm exec playwright test e2e/surfaces.spec.ts` writes 5 states for all three). |
 
 Only the canonical reference sets (`dark-solid-1280x800`, `light-solid-1280x800`) are committed;
 the other variants are about 100 MB of PNG and are git-ignored. Regenerate them any time:
