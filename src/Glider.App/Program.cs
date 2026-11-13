@@ -7,12 +7,13 @@ using Velopack;
 namespace Glider.App;
 
 /// <summary>Parsed command line. Unknown arguments (Velopack's --veloapp-* are consumed earlier) are ignored.</summary>
-internal sealed record HostOptions(bool Background, string? MeasureFile, int MeasureSeconds, string? SelfTestDir, string? DataDir)
+internal sealed record HostOptions(bool Background, string? MeasureFile, int MeasureSeconds, string? SelfTestDir, string? DataDir, bool LoginAudit = false)
 {
     public static HostOptions Parse(string[] args)
     {
         bool background = false;
         string? measure = null, selftest = null, dataDir = null;
+        var audit = false;
         var seconds = 5;
         for (var i = 0; i < args.Length; i++)
         {
@@ -30,6 +31,11 @@ internal sealed record HostOptions(bool Background, string? MeasureFile, int Mea
             {
                 seconds = Math.Clamp(s, 1, 120);
             }
+            else if (a.StartsWith("--login-audit", StringComparison.Ordinal))
+            {
+                selftest = Value() ?? Path.Combine(Path.GetTempPath(), "glider-login-audit");
+                audit = true;
+            }
             else if (a.StartsWith("--selftest", StringComparison.Ordinal))
             {
                 selftest = Value() ?? Path.Combine(Path.GetTempPath(), "glider-selftest");
@@ -40,7 +46,7 @@ internal sealed record HostOptions(bool Background, string? MeasureFile, int Mea
             }
         }
 
-        return new HostOptions(background, measure, seconds, selftest, dataDir);
+        return new HostOptions(background, measure, seconds, selftest, dataDir, audit);
     }
 
     public bool IsTestRun => MeasureFile is not null || SelfTestDir is not null;
@@ -155,7 +161,14 @@ internal static class HostApp
 
         if (options.SelfTestDir is not null)
         {
-            SelfTest.Begin(rt, window, options.SelfTestDir);
+            if (options.LoginAudit)
+            {
+                LoginAudit.Begin(rt, window, options.SelfTestDir);
+            }
+            else
+            {
+                SelfTest.Begin(rt, window, options.SelfTestDir);
+            }
         }
 
         app.Run();
