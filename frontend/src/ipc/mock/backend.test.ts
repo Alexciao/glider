@@ -433,7 +433,7 @@ describe("auth", () => {
   it("fail=authCancelled rejects and leaves the user signed out", async () => {
     const t = setup({ scenario: "fresh", fail: "authCancelled" });
     const err = await t.callError("auth.signIn");
-    expect(err.error).toMatchObject({ code: "authCancelled", title: "Sign-in cancelled", fix: null });
+    expect(err.error).toMatchObject({ code: "authCancelled", title: "Sign-in was cancelled", fix: null });
     expect((await t.snapshot()).auth.status).toBe("signedOut");
     expect((await t.call("auth.signIn")).status).toBe("signedIn");
   });

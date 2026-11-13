@@ -22,7 +22,7 @@ public static class Errors
         "That isn't a sign-in code", "Paste the code from Epic's page, or everything on it, including the curly brackets.", null, null);
 
     public static GliderError AuthCancelled() => new(ErrorCode.AuthCancelled,
-        "Sign-in cancelled", "The sign-in window was closed before finishing.", null, null);
+        "Sign-in was cancelled", "The sign-in window was closed before you finished. If Epic showed an error, copy the diagnostic logs so it can be looked into.", null, null);
 
     public static GliderError InsufficientSpace(long requiredBytes, long freeBytes, string? detail = null) => new(ErrorCode.InsufficientSpace,
         "Not enough disk space",

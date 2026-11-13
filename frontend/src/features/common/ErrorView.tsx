@@ -1,7 +1,7 @@
 import type { FixAction, GliderError } from "../../ipc/contract.gen";
-import { runFix } from "../../state/actions";
+import { actions, runFix } from "../../state/actions";
 import { FIX_LABELS, usePending, useUi } from "../../state/ui";
-import { ErrorCallout } from "../../ui";
+import { Button, ErrorCallout } from "../../ui";
 
 const PENDING_KEY: Partial<Record<FixAction, string>> = { signIn: "signIn", repair: "verify" };
 
@@ -23,11 +23,12 @@ export function ErrorView({
   const loading = usePending(fix ? (PENDING_KEY[fix] ?? "_") : "_");
   const waiting = error.code === "eglBusy";
   // Epic rejected the sign-in (often its captcha in the embedded window): offer the browser route, quietly.
-  const browserRoute = error.code === "authFailed" && fix === "signIn";
+  const cancelled = error.code === "authCancelled";
+  const browserRoute = cancelled || (error.code === "authFailed" && fix === "signIn");
   const callout = (
     <ErrorCallout
       className={className}
-      tone={waiting ? "warning" : "error"}
+      tone={waiting || cancelled ? "warning" : "error"}
       title={error.title}
       message={error.message}
       detail={error.detail}
@@ -35,6 +36,13 @@ export function ErrorView({
       fixLoading={loading}
       onFix={fix ? () => runFix(fix, { retry, path }) : undefined}
       onDismiss={onDismiss}
+      secondary={
+        cancelled ? (
+          <Button size="sm" variant="ghost" onClick={() => void actions.copyLogs()}>
+            Copy diagnostic logs
+          </Button>
+        ) : undefined
+      }
     />
   );
   if (!browserRoute) return callout;

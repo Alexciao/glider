@@ -50,7 +50,7 @@ export const Errors = {
   authCodeNotRecognized: () =>
     err("authFailed", "That isn't a sign-in code", "Paste the code from Epic's page, or everything on it, including the curly brackets.", null),
   authCancelled: () =>
-    err("authCancelled", "Sign-in cancelled", "The sign-in window was closed before finishing.", null),
+    err("authCancelled", "Sign-in was cancelled", "The sign-in window was closed before you finished. If Epic showed an error, copy the diagnostic logs so it can be looked into.", null),
   insufficientSpace: (requiredBytes: number, freeBytes: number, detail: string | null = null) =>
     err(
       "insufficientSpace",

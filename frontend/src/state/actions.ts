@@ -31,8 +31,8 @@ export function toGliderError(e: unknown): GliderError {
   };
 }
 
-/** Errors that are the user's own choice, not failures. */
-const SILENT = new Set(["authCancelled", "cancelled"]);
+/** Errors that are the user's own choice, not failures. (A closed sign-in window is not silent: Epic may have shown an error the user never reported.) */
+const SILENT = new Set(["cancelled"]);
 
 async function run<T>(key: string, fn: () => Promise<T>, onError: (e: GliderError) => void): Promise<T | undefined> {
   const ui = useUi.getState();
