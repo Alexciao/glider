@@ -18,6 +18,8 @@ internal enum LoginVariant
     Plain,
     InPrivate,
     NoUa,
+    /// <summary>Heroic's login user agent (no Chrome/Edg token, "EpicGamesLauncher"); a diagnostic experiment.</summary>
+    EpicUa,
 }
 
 /// <summary>
@@ -96,7 +98,10 @@ internal sealed class EpicLogin
     }
 
     /// <summary>Settings and browser-identity compatibility for the Epic login view only (never the app UI's WebView2).</summary>
-    internal static async Task ConfigureAsync(CoreWebView2Controller controller, LoginVariant variant = LoginVariant.Current)
+    /// <summary>What Heroic's Epic login window sets (HeroicGamesLauncher src/frontend/screens/WebView/index.tsx).</summary>
+    internal const string EpicLauncherUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) EpicGamesLauncher";
+
+    internal static async Task ConfigureAsync(CoreWebView2Controller controller, LoginVariant variant = LoginVariant.Current, bool noCdp = false)
     {
         var web = controller.CoreWebView2;
         web.Settings.AreDevToolsEnabled = WebViewSetup.DeveloperMode;
@@ -129,8 +134,21 @@ internal sealed class EpicLogin
             await web.AddScriptToExecuteOnDocumentCreatedAsync("try { delete window.chrome.webview; } catch (e) {}");
         }
 
-        await MatchEdgeClientHintsAsync(web);
-        AttachDiagnostics(web);
+        if (variant == LoginVariant.EpicUa)
+        {
+            // One Emulation.setUserAgentOverride call, no client-hint metadata (an overridden UA without metadata sends no sec-ch-ua).
+            web.Settings.UserAgent = EpicLauncherUserAgent;
+            await web.CallDevToolsProtocolMethodAsync("Emulation.setUserAgentOverride", JsonSerializer.Serialize(new { userAgent = EpicLauncherUserAgent }));
+        }
+        else
+        {
+            await MatchEdgeClientHintsAsync(web, noCdp);
+        }
+
+        if (!noCdp)
+        {
+            AttachDiagnostics(web);
+        }
     }
 
     private static void TrySetTrackingPrevention(CoreWebView2 web, CoreWebView2TrackingPreventionLevel level)
@@ -149,7 +167,7 @@ internal sealed class EpicLogin
     /// WebView2 adds a "Microsoft Edge WebView2" brand to sec-ch-ua / navigator.userAgentData; the installed Edge never does. Replaces the
     /// brand list (built from this runtime's own values) for this view only. Best effort: on any failure the view runs as before.
     /// </summary>
-    private static async Task MatchEdgeClientHintsAsync(CoreWebView2 web)
+    private static async Task MatchEdgeClientHintsAsync(CoreWebView2 web, bool managedProbe = false)
     {
         // navigator.userAgentData only exists in a secure context, and about:blank is not one: probe a synthetic https page that is
         // served from memory (nothing goes on the network).
@@ -165,14 +183,7 @@ internal sealed class EpicLogin
         {
             web.Navigate(probeUrl);
             await loaded.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            var probe = await web.CallDevToolsProtocolMethodAsync("Runtime.evaluate", JsonSerializer.Serialize(new
-            {
-                expression = "navigator.userAgentData.getHighEntropyValues(['architecture','bitness','model','platformVersion','fullVersionList','wow64']).then(v => JSON.stringify(v))",
-                awaitPromise = true,
-                returnByValue = true,
-            }));
-            using var doc = JsonDocument.Parse(probe);
-            var json = doc.RootElement.GetProperty("result").GetProperty("value").GetString() ?? "";
+            var json = await ReadHighEntropyHintsAsync(web, managedProbe);
             if (EdgeUserAgentMetadata.BuildOverrideJson(web.Settings.UserAgent, json) is { } over)
             {
                 await web.CallDevToolsProtocolMethodAsync("Emulation.setUserAgentOverride", over);
@@ -193,6 +204,33 @@ internal sealed class EpicLogin
             web.WebResourceRequested -= Serve;
             web.RemoveWebResourceRequestedFilter(probeUrl + "*", CoreWebView2WebResourceContext.All);
         }
+    }
+
+    private const string HintsExpression = "navigator.userAgentData.getHighEntropyValues(['architecture','bitness','model','platformVersion','fullVersionList','wow64']).then(v => JSON.stringify(v))";
+
+    /// <summary>The runtime's own high-entropy client hints. <paramref name="managed"/> avoids any DevTools Runtime call (--no-cdp experiments).</summary>
+    private static async Task<string> ReadHighEntropyHintsAsync(CoreWebView2 web, bool managed)
+    {
+        if (managed)
+        {
+            // ExecuteScriptAsync does not await promises: park the result in a variable of the throwaway probe page and poll for it.
+            await web.ExecuteScriptAsync("window.__hints = null; " + HintsExpression.Replace(".then(v => JSON.stringify(v))", ".then(v => { window.__hints = JSON.stringify(v); })"));
+            for (var i = 0; i < 40; i++)
+            {
+                await Task.Delay(50);
+                var raw = await web.ExecuteScriptAsync("window.__hints");
+                if (raw != "null")
+                {
+                    return JsonSerializer.Deserialize<string>(raw) ?? "";
+                }
+            }
+
+            throw new TimeoutException("client hints probe timed out");
+        }
+
+        var probe = await web.CallDevToolsProtocolMethodAsync("Runtime.evaluate", JsonSerializer.Serialize(new { expression = HintsExpression, awaitPromise = true, returnByValue = true }));
+        using var doc = JsonDocument.Parse(probe);
+        return doc.RootElement.GetProperty("result").GetProperty("value").GetString() ?? "";
     }
 
     private static readonly string[] DiagnosticHosts = ["epicgames.com", "hcaptcha.com", "arkoselabs.com", "funcaptcha.com", "arkoselabs.cn"];
@@ -366,6 +404,11 @@ internal sealed class EpicLogin
                     // Without this WebView2 keeps the old screen position: window.screenX/Y and popup positions go stale after a move.
                     _controller.NotifyParentWindowPositionChanged();
                     break;
+                case Win32.WM_SETFOCUS:
+                case Win32.WM_ACTIVATE when Win32.LoWord(wParam) != 0:
+                    // The host window got focus or was activated: hand real keyboard focus to the page (captcha scripts look at it).
+                    Dispatcher.BeginInvoke(FocusPage, DispatcherPriority.Input);
+                    break;
                 case Win32.WM_DPICHANGED when _placements < 3:
                     // The first placement can cross a monitor DPI boundary: re-apply once the DPI switch has settled.
                     Dispatcher.BeginInvoke(Place, DispatcherPriority.Send);
@@ -462,7 +505,7 @@ internal sealed class EpicLogin
                 Resize();
                 _controller.NotifyParentWindowPositionChanged();
                 var web = _controller.CoreWebView2;
-                await ConfigureAsync(_controller, Debug?.Variant ?? LoginVariant.Current);
+                await ConfigureAsync(_controller, Debug?.Variant ?? LoginVariant.Current, Debug?.NoCdp ?? false);
                 if (Debug is { } dbg)
                 {
                     await dbg.AttachAsync(web);
@@ -495,6 +538,11 @@ internal sealed class EpicLogin
             {
                 var web = _controller?.CoreWebView2;
                 var uri = web?.Source ?? "";
+                if (IsActive)
+                {
+                    FocusPage();
+                }
+
                 // Never the query/fragment: IdP callbacks (Google, Xbox, PSN…) carry one-time codes there.
                 HostLog.Info($"login navigation: {Glider.Core.Infrastructure.SecretRedactor.UrlForLog(uri)} success={e.IsSuccess} status={e.WebErrorStatus}");
                 if (_finished || web is null)

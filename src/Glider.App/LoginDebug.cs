@@ -36,16 +36,20 @@ internal sealed class LoginDebug
     private int _shots;
     private bool _snapshotting;
 
-    public LoginDebug(string dir, LoginVariant variant)
+    public LoginDebug(string dir, LoginVariant variant, bool noCdp)
     {
         _dir = dir;
         Variant = variant;
+        NoCdp = noCdp;
         Directory.CreateDirectory(Path.Combine(dir, "shots"));
-        _logPath = Path.Combine(dir, $"login-debug-{variant.ToString().ToLowerInvariant()}.log");
+        _logPath = Path.Combine(dir, $"login-debug-{variant.ToString().ToLowerInvariant()}{(noCdp ? "-nocdp" : "")}.log");
         _timer.Tick += async (_, _) => await SnapshotAsync();
     }
 
     public LoginVariant Variant { get; }
+
+    /// <summary>Managed WebView2 events only: no DevTools Network/Runtime/Log session (anti-bot scripts can detect an attached one).</summary>
+    public bool NoCdp { get; }
 
     public void Log(string line)
     {
@@ -61,9 +65,9 @@ internal sealed class LoginDebug
         }
     }
 
-    public static void Begin(HostRuntime rt, MainWindow win, string dir, LoginVariant variant)
+    public static void Begin(HostRuntime rt, MainWindow win, string dir, LoginVariant variant, bool noCdp)
     {
-        var debug = new LoginDebug(dir, variant);
+        var debug = new LoginDebug(dir, variant, noCdp);
         EpicLogin.Debug = debug;
         _ = Task.Run(async () =>
         {
@@ -72,7 +76,7 @@ internal sealed class LoginDebug
             {
                 // The environment is an STA COM object: read it on the UI thread.
                 var version = await rt.Ui.InvokeAsync(async () => (await rt.EnvTask).BrowserVersionString).Task.Unwrap();
-                debug.Log($"login-debug start variant={variant} webview2={version}");
+                debug.Log($"login-debug start variant={variant} noCdp={noCdp} webview2={version}");
                 var code = await rt.Platform.AcquireEpicAuthorizationCodeAsync(cts.Token);
                 debug.Log(code is null ? "window closed by user" : $"redirect reached, code length {code.Length}");
             }
@@ -107,6 +111,13 @@ internal sealed class LoginDebug
         web.FrameNavigationCompleted += (_, e) => Log($"FRAME done success={e.IsSuccess} error={e.WebErrorStatus} http={e.HttpStatusCode}");
         web.ProcessFailed += (_, e) => Log($"PROCESS FAILED kind={e.ProcessFailedKind} reason={e.Reason} exit={e.ExitCode}");
 
+        if (NoCdp)
+        {
+            AttachManaged(web);
+            _timer.Start();
+            return;
+        }
+
         On(web, "Network.requestWillBeSent", OnRequestWillBeSent);
         On(web, "Network.requestWillBeSentExtraInfo", OnRequestExtraInfo);
         On(web, "Network.responseReceived", OnResponseReceived);
@@ -121,6 +132,60 @@ internal sealed class LoginDebug
         }
 
         _timer.Start();
+    }
+
+    /// <summary>
+    /// --no-cdp: what the managed API can see after the fact (WebResourceResponseReceived carries the request as sent, so header NAMES
+    /// and POST key names are available without a request filter or any DevTools session). No timings, console or exceptions.
+    /// </summary>
+    private void AttachManaged(CoreWebView2 web)
+    {
+        Log("no-cdp: managed events only; no console/exception capture, no durations");
+        web.WebResourceResponseReceived += async (_, e) =>
+        {
+            try
+            {
+                var url = e.Request.Uri;
+                if (!IsInteresting(url))
+                {
+                    return;
+                }
+
+                var status = e.Response.StatusCode;
+                var method = e.Request.Method;
+                var req = new Req(url, method, 0) { Status = status };
+                var mime = e.Response.Headers.Contains("Content-Type") ? e.Response.Headers.GetHeader("Content-Type") : "";
+                Log($"RES {status} {method} {LoginDebugRedaction.UrlNoQuery(url)} mime={mime}");
+                if (IsEpicApiPost(req))
+                {
+                    var names = e.Request.Headers.Select(h => h.Key.ToLowerInvariant()).Order();
+                    var keys = "?";
+                    if (e.Request.Content is { } content)
+                    {
+                        using var ms = new MemoryStream();
+                        await content.CopyToAsync(ms);
+                        keys = string.Join(",", LoginDebugRedaction.BodyKeyNames(System.Text.Encoding.UTF8.GetString(ms.ToArray())));
+                    }
+
+                    var contentType = e.Request.Headers.Contains("Content-Type") ? e.Request.Headers.GetHeader("Content-Type") : "";
+                    Log($"REQ POST {LoginDebugRedaction.UrlNoQuery(url)} content-type={contentType} bodyKeys=[{keys}] headerNames=[{string.Join(",", names)}]");
+                }
+
+                if (status >= 400 && IsEpic(req))
+                {
+                    var stream = await e.Response.GetContentAsync();
+                    if (stream is not null)
+                    {
+                        using var sr = new StreamReader(stream);
+                        Log($"BODY {status} {LoginDebugRedaction.UrlNoQuery(url)}: {LoginDebugRedaction.RedactBody(await sr.ReadToEndAsync())}");
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException or IOException or ObjectDisposedException)
+            {
+                Log($"(debug: could not read a response: {ex.GetType().Name})");
+            }
+        };
     }
 
     private void On(CoreWebView2 web, string name, Action<JsonElement> handler) =>
