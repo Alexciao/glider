@@ -115,8 +115,6 @@ public class ContractTests
         public Task Close() => throw new NotImplementedException();
         public Task<WindowInfo> GetWindowInfo() => throw new NotImplementedException();
         public Task<AuthState> SignIn() => throw new NotImplementedException();
-        public Task OpenBrowserLogin() => throw new NotImplementedException();
-        public Task<AuthState> SignInWithCode(AuthCodeRequest request) => throw new NotImplementedException();
         public Task<AuthState> SignOut() => throw new NotImplementedException();
         public Task<InstallPlan> PlanInstall(InstallPlanRequest request) => throw new NotImplementedException();
         public Task<JobInfo> Install(InstallRequest request) => throw new NotImplementedException();

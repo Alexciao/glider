@@ -207,7 +207,7 @@ public class AuthAndSettingsTests
         Assert.Equal(AuthStatus.SignedIn, state.Status);
         Assert.Equal("Alice", state.Account!.DisplayName);
         Assert.Null(state.Account.AvatarUrl);
-        Assert.True(rig.Calls.Has("legendary.signIn:auth-code"));
+        Assert.True(rig.Calls.Has("legendary.signInToken:exchange-code"));
 
         state = await rig.Service.SignOut();
         Assert.Equal(AuthStatus.SignedOut, state.Status);

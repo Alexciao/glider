@@ -344,9 +344,6 @@ public sealed record PathRequest(string Path);
 
 public sealed record UrlRequest(string Url);
 
-/// <summary>Text the user pasted from Epic's login page in their own browser: the authorization code or the whole JSON page.</summary>
-public sealed record AuthCodeRequest(string Code);
-
 public sealed record PickFolderRequest(string? InitialPath, string? Title);
 
 public sealed record PickFolderResult(string? Path);

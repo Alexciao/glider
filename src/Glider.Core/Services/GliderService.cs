@@ -289,15 +289,6 @@ public sealed class GliderService : IGliderRpc, IDisposable
         return state;
     });
 
-    public Task OpenBrowserLogin() => Rpc(nameof(OpenBrowserLogin), () => _c.Host.OpenUrl(EpicSignIn.LoginUrl));
-
-    public Task<AuthState> SignInWithCode(AuthCodeRequest request) => Rpc(nameof(SignInWithCode), async ct =>
-    {
-        var state = await _auth.SignInWithPastedCodeAsync(Require(request, "request").Code, ct);
-        _ = Task.Run(() => _updates.CheckAsync(userInitiated: false, ct), ct);
-        return state;
-    });
-
     public Task<AuthState> SignOut() => Rpc(nameof(SignOut), ct =>
     {
         _launch.InvalidatePrepared();

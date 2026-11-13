@@ -222,14 +222,14 @@ public class LegendaryProcessRunnerTests
         env.Script("launch", """out {"egl_parameters": ["-AUTH_PASSWORD=supersecret"]}""");
         using var runner = new LegendaryProcessRunner(env.Paths, env.Log);
         var ct = TestContext.Current.CancellationToken;
-        await runner.RunAsync(new LegendaryCommand(LegendaryCommandKind.AuthCode, ["auth", "--code", "hunter2"]) { RedactedArguments = [2] }, null, ct);
+        await runner.RunAsync(new LegendaryCommand(LegendaryCommandKind.AuthCode, ["auth", "--token", "hunter2"]) { RedactedArguments = [2] }, null, ct);
         var launch = await runner.RunAsync(new LegendaryCommand(LegendaryCommandKind.Launch, ["launch"]) { CaptureStdout = true, SensitiveStdout = true }, null, ct);
 
         Assert.Contains("supersecret", launch.Stdout); // the caller still gets it...
         Assert.DoesNotContain(launch.Tail, l => l.Contains("supersecret", StringComparison.Ordinal));
         Assert.False(env.Log.Contains("supersecret")); // ...but it never reaches the log
         Assert.False(env.Log.Contains("hunter2"));
-        Assert.True(env.Log.Contains("auth --code ***"));
+        Assert.True(env.Log.Contains("auth --token ***"));
     }
 
     internal static async Task WaitUntil(Func<bool> condition, int timeoutMs = 10_000)

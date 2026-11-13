@@ -17,6 +17,7 @@ public class SecretRedactorTests
     [InlineData("Fortnite.exe -AUTH_LOGIN=unused -AUTH_PASSWORD=aabbccdd -AUTH_TYPE=exchangecode", "aabbccdd")]
     [InlineData("exchangeCode: 99aa88bb77cc66dd", "99aa88bb77cc66dd")]
     [InlineData("legendary auth --code deadbeefcafebabe --disable-webview", "deadbeefcafebabe")]
+    [InlineData("legendary auth --token 0123456789abcdef0123456789abcdef --disable-webview", "0123456789abcdef0123456789abcdef")]
     [InlineData("bearer eg1~eyJhbGciOiJIUzI1NiJ9.payload.sig", "eyJhbGciOiJIUzI1NiJ9")]
     public void RemovesTheSecret(string line, string secret)
     {

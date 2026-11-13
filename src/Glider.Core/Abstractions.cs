@@ -42,8 +42,8 @@ public sealed class AppPaths
 /// <summary>Host services Core needs but cannot implement cross-platform. Implemented by Glider.App.</summary>
 public interface IHostPlatform
 {
-    /// <summary>Shows the Epic login window; returns the authorizationCode, or null if the user closed it.</summary>
-    Task<string?> AcquireEpicAuthorizationCodeAsync(CancellationToken ct);
+    /// <summary>Shows the Epic login window; returns the exchange code Epic's page hands to the launcher bridge, or null if the user closed it.</summary>
+    Task<string?> AcquireEpicExchangeCodeAsync(CancellationToken ct);
 
     /// <summary>Clears the login webview's cookies (sign-out).</summary>
     Task ClearLoginSessionAsync();
@@ -156,7 +156,8 @@ public interface ILegendary
     /// <summary>Online `status --json`: refreshes tokens. Throws AuthExpired / Network GliderExceptions.</summary>
     Task<LegendaryAccount?> RefreshSessionAsync(CancellationToken ct);
 
-    Task<LegendaryAccount> SignInWithCodeAsync(string authorizationCode, CancellationToken ct);
+    /// <summary>`auth --token`: the sign-in the login window produces (an exchange code).</summary>
+    Task<LegendaryAccount> SignInWithExchangeTokenAsync(string exchangeToken, CancellationToken ct);
     Task SignOutAsync(CancellationToken ct);
 
     /// <summary>`info &lt;app&gt; --json` (online; refreshes metadata + manifest).</summary>

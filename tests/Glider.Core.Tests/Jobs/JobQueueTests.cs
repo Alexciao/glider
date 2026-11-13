@@ -62,7 +62,7 @@ internal class StubLegendary(bool verifySucceeds) : ILegendary
 
     public Task<LegendaryAccount?> RefreshSessionAsync(CancellationToken ct) => Task.FromResult<LegendaryAccount?>(null);
 
-    public Task<LegendaryAccount> SignInWithCodeAsync(string authorizationCode, CancellationToken ct) => throw new NotSupportedException();
+    public Task<LegendaryAccount> SignInWithExchangeTokenAsync(string exchangeToken, CancellationToken ct) => throw new NotSupportedException();
 
     public Task SignOutAsync(CancellationToken ct) => Task.CompletedTask;
 

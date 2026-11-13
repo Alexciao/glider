@@ -53,7 +53,7 @@ public static partial class SecretRedactor
     [GeneratedRegex(@"([?&#](?:code|access_token|refresh_token|id_token|token|exchange_code|exchangeCode)=)[^&#\s""']+", RegexOptions.IgnoreCase)]
     private static partial Regex QueryParameter();
 
-    [GeneratedRegex(@"(--code[=\s]+)(?!\*\*\*)[^\s""']+", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"(--(?:code|token)[=\s]+)(?!\*\*\*)[^\s""']+", RegexOptions.IgnoreCase)]
     private static partial Regex CodeArgument();
 
     // Epic OAuth access/refresh tokens are "eg1~<base64url JWT>".

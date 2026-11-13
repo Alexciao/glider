@@ -4,7 +4,7 @@ using Glider.Core.Services;
 namespace Glider.Core.Auth;
 
 /// <summary>
-/// Epic sign-in via the host's login window (authorizationCode) → `legendary auth --code`.
+/// Epic sign-in via the host's login window (an exchange code from Epic's launcher bridge) → `legendary auth --token`.
 /// Never uses `auth --import`: it spends EGL's refresh token and logs EGL out.
 /// </summary>
 internal sealed class AuthService
@@ -25,7 +25,7 @@ internal sealed class AuthService
         try
         {
             _c.Hub.Mutate(s => s with { Auth = new AuthState(AuthStatus.SigningIn, null) });
-            var code = await _c.Host.AcquireEpicAuthorizationCodeAsync(ct);
+            var code = await _c.Host.AcquireEpicExchangeCodeAsync(ct);
             if (string.IsNullOrWhiteSpace(code))
             {
                 _c.Hub.Mutate(s => s with { Auth = previous });
@@ -45,39 +45,12 @@ internal sealed class AuthService
         }
     }
 
-    /// <summary>Fallback sign-in: the user signed in with their own browser and pasted the code (or the whole JSON page).</summary>
-    public async Task<AuthState> SignInWithPastedCodeAsync(string? pasted, CancellationToken ct)
-    {
-        var code = EpicSignIn.ParsePastedCode(pasted)
-            ?? throw new GliderException(Errors.AuthCodeNotRecognized());
-        if (Interlocked.Exchange(ref _signingIn, 1) == 1)
-        {
-            throw new GliderException(Errors.Busy("sign-in"));
-        }
-
-        var previous = _c.Hub.State.Auth;
-        try
-        {
-            _c.Hub.Mutate(s => s with { Auth = new AuthState(AuthStatus.SigningIn, null) });
-            return await CompleteAsync(code, ct);
-        }
-        catch (Exception) when (_c.Hub.State.Auth.Status == AuthStatus.SigningIn)
-        {
-            _c.Hub.Mutate(s => s with { Auth = previous });
-            throw;
-        }
-        finally
-        {
-            Volatile.Write(ref _signingIn, 0);
-        }
-    }
-
     private async Task<AuthState> CompleteAsync(string code, CancellationToken ct)
     {
         LegendaryAccount account;
         try
         {
-            account = await _c.Legendary.SignInWithCodeAsync(code.Trim(), ct);
+            account = await _c.Legendary.SignInWithExchangeTokenAsync(code.Trim(), ct);
         }
         catch (GliderException)
         {

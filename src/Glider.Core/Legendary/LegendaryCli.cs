@@ -151,17 +151,18 @@ public sealed class LegendaryCli : ILegendary, IDisposable
         throw new GliderException(ErrorClassifier.Classify(LegendaryCommandKind.Status, run)!);
     }
 
-    public async Task<LegendaryAccount> SignInWithCodeAsync(string authorizationCode, CancellationToken ct)
+    /// <summary>`auth --token &lt;exchange code&gt;`: a one-time credential, masked in every log line.</summary>
+    public async Task<LegendaryAccount> SignInWithExchangeTokenAsync(string exchangeToken, CancellationToken ct)
     {
-        var code = authorizationCode?.Trim().Trim('"') ?? "";
+        var code = exchangeToken?.Trim().Trim('"') ?? "";
         if (code.Length == 0)
         {
-            throw new GliderException(Errors.AuthFailed("Empty authorization code."));
+            throw new GliderException(Errors.AuthFailed("Empty sign-in code."));
         }
 
         for (var attempt = 0; ; attempt++)
         {
-            var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.AuthCode, ["auth", "--code", code, "--disable-webview"])
+            var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.AuthCode, ["auth", "--token", code, "--disable-webview"])
             {
                 Exclusive = true,
                 RedactedArguments = [2],

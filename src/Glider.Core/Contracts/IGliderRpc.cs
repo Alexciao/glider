@@ -36,10 +36,6 @@ public interface IGliderRpc
     // ---- auth ----
     /// <summary>Opens the Epic login window; resolves when signed in, throws AuthCancelled if closed.</summary>
     [RpcMethod("auth.signIn")] Task<AuthState> SignIn();
-    /// <summary>Fallback for when Epic's page in the embedded window keeps asking for captchas: opens Epic's login page in the default browser.</summary>
-    [RpcMethod("auth.openBrowserLogin")] Task OpenBrowserLogin();
-    /// <summary>Completes the browser fallback: takes the authorization code (or the whole JSON page) the user pasted.</summary>
-    [RpcMethod("auth.signInWithCode")] Task<AuthState> SignInWithCode(AuthCodeRequest request);
     [RpcMethod("auth.signOut")] Task<AuthState> SignOut();
 
     // ---- game ----

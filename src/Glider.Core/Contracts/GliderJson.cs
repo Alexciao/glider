@@ -36,7 +36,6 @@ namespace Glider.Core.Contracts;
 [JsonSerializable(typeof(JobRef))]
 [JsonSerializable(typeof(PathRequest))]
 [JsonSerializable(typeof(UrlRequest))]
-[JsonSerializable(typeof(AuthCodeRequest))]
 [JsonSerializable(typeof(PickFolderRequest))]
 [JsonSerializable(typeof(PickFolderResult))]
 [JsonSerializable(typeof(UpdateCheckResult))]

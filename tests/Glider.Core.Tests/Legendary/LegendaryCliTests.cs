@@ -204,13 +204,13 @@ public class LegendaryCliTests
         File.Copy(Fixture.PathOf("synthetic-user.json"), Path.Combine(env.Config, "user.json"));
         using var cli = Cli(env);
 
-        var account = await cli.SignInWithCodeAsync(" \"abc123\" ", TestContext.Current.CancellationToken);
+        var account = await cli.SignInWithExchangeTokenAsync(" \"abc123\" ", TestContext.Current.CancellationToken);
 
         Assert.Equal(new LegendaryAccount("Åsa 日本", "0123456789abcdef0123456789abcdef"), account);
         var calls = env.Invocations();
-        Assert.Equal(["auth", "--code", "abc123", "--disable-webview"], calls[0].Args);
+        Assert.Equal(["auth", "--token", "abc123", "--disable-webview"], calls[0].Args);
         Assert.Equal(["auth", "--delete"], calls[1].Args);
-        Assert.Equal(["auth", "--code", "abc123", "--disable-webview"], calls[2].Args);
+        Assert.Equal(["auth", "--token", "abc123", "--disable-webview"], calls[2].Args);
         Assert.False(env.Log.Contains("abc123"));
     }
 
@@ -221,7 +221,7 @@ public class LegendaryCliTests
         env.UseFixture("synthetic-auth-failed.stderr.txt");
         env.Script("auth", "errfile synthetic-auth-failed.stderr.txt");
         using var cli = Cli(env);
-        var e = await Assert.ThrowsAsync<GliderException>(() => cli.SignInWithCodeAsync("bad", TestContext.Current.CancellationToken));
+        var e = await Assert.ThrowsAsync<GliderException>(() => cli.SignInWithExchangeTokenAsync("bad", TestContext.Current.CancellationToken));
         Assert.Equal(ErrorCode.AuthFailed, e.Error.Code);
     }
 

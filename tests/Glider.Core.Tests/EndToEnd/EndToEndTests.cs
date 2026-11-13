@@ -22,7 +22,7 @@ public sealed class EndToEndTests
         var auth = await h.Rpc.SignIn();
         Assert.Equal(AuthStatus.SignedIn, auth.Status);
         Assert.Equal(EndToEndHarness.Account, auth.Account!.DisplayName);
-        Assert.Equal(["auth", "--code", "auth-code", "--disable-webview"], h.Legendary.Invocations().Single(i => i.Command == "auth").Args);
+        Assert.Equal(["auth", "--token", "exchange-code", "--disable-webview"], h.Legendary.Invocations().Single(i => i.Command == "auth").Args);
 
         var job = await h.Rpc.Install(new InstallRequest(h.GamesRoot));
         var done = await h.WaitForJob(job.Id, j => j.Status is JobStatus.Completed or JobStatus.Failed, "install");

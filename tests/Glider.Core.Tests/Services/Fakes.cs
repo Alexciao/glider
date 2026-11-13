@@ -109,7 +109,7 @@ public sealed class ManualTime : TimeProvider
 
 public sealed class FakeHost(CallLog log) : IHostPlatform
 {
-    public string? AuthCode { get; set; } = "auth-code";
+    public string? AuthCode { get; set; } = "exchange-code";
     public int? ElevatedResult { get; set; } = 0;
     public bool Focused { get; set; }
     public List<(string Exe, string Args)> Elevated { get; } = [];
@@ -120,7 +120,7 @@ public sealed class FakeHost(CallLog log) : IHostPlatform
     public string? Clipboard { get; private set; }
     public List<string> Opened { get; } = [];
 
-    public Task<string?> AcquireEpicAuthorizationCodeAsync(CancellationToken ct)
+    public Task<string?> AcquireEpicExchangeCodeAsync(CancellationToken ct)
     {
         log.Add("host.login");
         return Task.FromResult(AuthCode);
@@ -204,9 +204,9 @@ public sealed class FakeLegendary(CallLog log) : ILegendary
         return RefreshError is { } e ? Task.FromException<LegendaryAccount?>(e) : Task.FromResult(Account);
     }
 
-    public Task<LegendaryAccount> SignInWithCodeAsync(string authorizationCode, CancellationToken ct)
+    public Task<LegendaryAccount> SignInWithExchangeTokenAsync(string exchangeToken, CancellationToken ct)
     {
-        log.Add($"legendary.signIn:{authorizationCode}");
+        log.Add($"legendary.signInToken:{exchangeToken}");
         Account = Alice;
         return Task.FromResult(Alice);
     }
