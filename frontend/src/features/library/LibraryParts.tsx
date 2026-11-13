@@ -88,7 +88,7 @@ export function Facts({ snap }: { snap: AppSnapshot }) {
       );
     }
     items.push(
-      <Fact key="p" label="Playtime" hint="Time Fortnite has run through Glider.">
+      <Fact key="p" label="Playtime" hint="Only counts time played through Glider, not in the Epic Games Launcher or before Glider.">
         <span className="tabular-nums">{game.playtimeSeconds > 0 ? formatPlaytime(game.playtimeSeconds) : "Not played yet"}</span>
       </Fact>,
     );
