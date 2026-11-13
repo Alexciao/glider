@@ -7,13 +7,14 @@ using Velopack;
 namespace Glider.App;
 
 /// <summary>Parsed command line. Unknown arguments (Velopack's --veloapp-* are consumed earlier) are ignored.</summary>
-internal sealed record HostOptions(bool Background, string? MeasureFile, int MeasureSeconds, string? SelfTestDir, string? DataDir, bool LoginAudit = false)
+internal sealed record HostOptions(bool Background, string? MeasureFile, int MeasureSeconds, string? SelfTestDir, string? DataDir, bool LoginAudit = false, string? LoginDebugDir = null, string? Variant = null)
 {
     public static HostOptions Parse(string[] args)
     {
         bool background = false;
         string? measure = null, selftest = null, dataDir = null;
         var audit = false;
+        string? loginDebug = null, variant = null;
         var seconds = 5;
         for (var i = 0; i < args.Length; i++)
         {
@@ -31,6 +32,14 @@ internal sealed record HostOptions(bool Background, string? MeasureFile, int Mea
             {
                 seconds = Math.Clamp(s, 1, 120);
             }
+            else if (a.StartsWith("--login-debug", StringComparison.Ordinal))
+            {
+                loginDebug = Value() ?? Path.Combine(Path.GetTempPath(), "glider-login-debug");
+            }
+            else if (a.StartsWith("--variant", StringComparison.Ordinal))
+            {
+                variant = Value();
+            }
             else if (a.StartsWith("--login-audit", StringComparison.Ordinal))
             {
                 selftest = Value() ?? Path.Combine(Path.GetTempPath(), "glider-login-audit");
@@ -46,10 +55,18 @@ internal sealed record HostOptions(bool Background, string? MeasureFile, int Mea
             }
         }
 
-        return new HostOptions(background, measure, seconds, selftest, dataDir, audit);
+        return new HostOptions(background, measure, seconds, selftest, dataDir, audit, loginDebug, variant);
     }
 
-    public bool IsTestRun => MeasureFile is not null || SelfTestDir is not null;
+    public bool IsTestRun => MeasureFile is not null || SelfTestDir is not null || LoginDebugDir is not null;
+
+    public LoginVariant ParsedVariant => Variant?.ToLowerInvariant() switch
+    {
+        "plain" => LoginVariant.Plain,
+        "inprivate" => LoginVariant.InPrivate,
+        "noua" => LoginVariant.NoUa,
+        _ => LoginVariant.Current,
+    };
 }
 
 public static class Program
@@ -78,7 +95,9 @@ public static class Program
 
         try
         {
-            var root = options.DataDir ?? (options.IsTestRun ? Path.Combine(Path.GetTempPath(), "glider-host-test") : null);
+            var root = options.DataDir
+                ?? (options.LoginDebugDir is not null ? Path.Combine(options.LoginDebugDir, "data-" + options.ParsedVariant.ToString().ToLowerInvariant())
+                : options.IsTestRun ? Path.Combine(Path.GetTempPath(), "glider-host-test") : null);
             var paths = root is null
                 ? AppPaths.ForCurrentUser()
                 : new AppPaths(root, Path.Combine(AppContext.BaseDirectory, "legendary", "legendary.exe"));
@@ -127,7 +146,7 @@ internal static class HostApp
 
         var window = new MainWindow(rt);
         app.MainWindow = window;
-        var startHidden = (options.Background || startMinimized) && !options.IsTestRun;
+        var startHidden = ((options.Background || startMinimized) && !options.IsTestRun) || options.LoginDebugDir is not null;
         window.Begin(startHidden);
 
         var tray = new TrayIcon(
@@ -157,6 +176,11 @@ internal static class HostApp
         if (options.MeasureFile is not null)
         {
             StartupMeasure.Begin(rt, window, options.MeasureFile, options.MeasureSeconds);
+        }
+
+        if (options.LoginDebugDir is not null)
+        {
+            LoginDebug.Begin(rt, window, options.LoginDebugDir, options.ParsedVariant);
         }
 
         if (options.SelfTestDir is not null)

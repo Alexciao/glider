@@ -11,6 +11,15 @@ using DrawingColor = System.Drawing.Color;
 
 namespace Glider.App;
 
+/// <summary>Identity variants of the login view; only <c>--login-debug</c> picks anything but <see cref="Current"/>.</summary>
+internal enum LoginVariant
+{
+    Current,
+    Plain,
+    InPrivate,
+    NoUa,
+}
+
 /// <summary>
 /// Epic sign-in. A second top-level window with its own WebView2 controller in the SAME environment (one browser process group,
 /// lowest RAM) but a dedicated profile ("GliderEpic"), so Epic's cookies never mix with the app UI and can be wiped on sign-out.
@@ -19,6 +28,9 @@ namespace Glider.App;
 /// </summary>
 internal sealed class EpicLogin
 {
+    /// <summary>Set only by <c>--login-debug</c>: which identity variant to run and where to write the trail.</summary>
+    internal static LoginDebug? Debug { get; set; }
+
     internal static nint LastHwndForTests => LoginWindow.LastHwnd;
 
     public const string RedirectPrefix = EpicSignIn.RedirectPrefix;
@@ -84,7 +96,7 @@ internal sealed class EpicLogin
     }
 
     /// <summary>Settings and browser-identity compatibility for the Epic login view only (never the app UI's WebView2).</summary>
-    internal static async Task ConfigureAsync(CoreWebView2Controller controller)
+    internal static async Task ConfigureAsync(CoreWebView2Controller controller, LoginVariant variant = LoginVariant.Current)
     {
         var web = controller.CoreWebView2;
         web.Settings.AreDevToolsEnabled = WebViewSetup.DeveloperMode;
@@ -97,24 +109,40 @@ internal sealed class EpicLogin
         // No Edge "Save password?" bubble or autofill dropdown on top of Epic's own form.
         web.Settings.IsPasswordAutosaveEnabled = false;
         web.Settings.IsGeneralAutofillEnabled = false;
+        if (variant == LoginVariant.Plain)
+        {
+            // Diagnostic baseline: WebView2's default identity (default tracking prevention, no rewrites, no injected script).
+            TrySetTrackingPrevention(web, CoreWebView2TrackingPreventionLevel.Balanced);
+            return;
+        }
+
         // Epic's page has no business with the host bridge; with these off there is no window.chrome.webview, which real Edge lacks
         // (found by --login-audit).
         web.Settings.IsWebMessageEnabled = false;
         web.Settings.AreHostObjectsAllowed = false;
         // hCaptcha/Arkose frames need third-party storage: never let tracking prevention touch this profile.
+        TrySetTrackingPrevention(web, CoreWebView2TrackingPreventionLevel.None);
+
+        // Real Edge has no window.chrome.webview (the settings above do not remove the object itself).
+        if (variant != LoginVariant.NoUa)
+        {
+            await web.AddScriptToExecuteOnDocumentCreatedAsync("try { delete window.chrome.webview; } catch (e) {}");
+        }
+
+        await MatchEdgeClientHintsAsync(web);
+        AttachDiagnostics(web);
+    }
+
+    private static void TrySetTrackingPrevention(CoreWebView2 web, CoreWebView2TrackingPreventionLevel level)
+    {
         try
         {
-            web.Profile.PreferredTrackingPreventionLevel = CoreWebView2TrackingPreventionLevel.None;
+            web.Profile.PreferredTrackingPreventionLevel = level;
         }
         catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
         {
-            HostLog.Warn("Could not relax tracking prevention for the login profile", ex);
+            HostLog.Warn("Could not set tracking prevention for the login profile", ex);
         }
-
-        // Real Edge has no window.chrome.webview (the settings above do not remove the object itself).
-        await web.AddScriptToExecuteOnDocumentCreatedAsync("try { delete window.chrome.webview; } catch (e) {}");
-        await MatchEdgeClientHintsAsync(web);
-        AttachDiagnostics(web);
     }
 
     /// <summary>
@@ -426,7 +454,7 @@ internal sealed class EpicLogin
             {
                 var options = _env.CreateCoreWebView2ControllerOptions();
                 options.ProfileName = HostConstants.WebViewProfileEpic;
-                options.IsInPrivateModeEnabled = false;
+                options.IsInPrivateModeEnabled = Debug?.Variant == LoginVariant.InPrivate;
                 options.DefaultBackgroundColor = DrawingColor.FromArgb(unchecked((int)ThemeState.BackgroundArgb));
                 _controller = await _env.CreateCoreWebView2ControllerAsync(_hwnd, options);
                 _controller.DefaultBackgroundColor = DrawingColor.FromArgb(unchecked((int)ThemeState.BackgroundArgb));
@@ -434,7 +462,12 @@ internal sealed class EpicLogin
                 Resize();
                 _controller.NotifyParentWindowPositionChanged();
                 var web = _controller.CoreWebView2;
-                await ConfigureAsync(_controller);
+                await ConfigureAsync(_controller, Debug?.Variant ?? LoginVariant.Current);
+                if (Debug is { } dbg)
+                {
+                    await dbg.AttachAsync(web);
+                }
+
                 web.NavigationCompleted += OnNavigationCompleted;
                 _controllerReady.TrySetResult(_controller);
                 if (navigate && IsActive)
