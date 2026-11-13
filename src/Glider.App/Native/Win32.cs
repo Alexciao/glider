@@ -393,6 +393,13 @@ internal static unsafe partial class Win32
     [LibraryImport("user32.dll")]
     public static partial uint GetDpiForWindow(nint hwnd);
 
+    [LibraryImport("shcore.dll")]
+    public static partial int GetDpiForMonitor(nint monitor, int dpiType, out uint dpiX, out uint dpiY);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool AdjustWindowRectExForDpi(ref RECT rect, uint style, [MarshalAs(UnmanagedType.Bool)] bool menu, uint exStyle, uint dpi);
+
     [LibraryImport("user32.dll")]
     public static partial int GetSystemMetrics(int index);
 

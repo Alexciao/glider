@@ -4,6 +4,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Glider.App.Native;
+using Glider.Core.Auth;
 using Glider.Core.Contracts;
 using Microsoft.Web.WebView2.Core;
 using DrawingColor = System.Drawing.Color;
@@ -20,11 +21,8 @@ internal sealed class EpicLogin
 {
     internal static nint LastHwndForTests => LoginWindow.LastHwnd;
 
-    private const string ClientId = "34a02cf8f4414e29b15921876da36f9a";
-    public const string RedirectPrefix = "https://www.epicgames.com/id/api/redirect";
-
-    public const string LoginUrl =
-        "https://www.epicgames.com/id/login?redirectUrl=https%3A%2F%2Fwww.epicgames.com%2Fid%2Fapi%2Fredirect%3FclientId%3D" + ClientId + "%26responseType%3Dcode";
+    public const string RedirectPrefix = EpicSignIn.RedirectPrefix;
+    public const string LoginUrl = EpicSignIn.LoginUrl;
 
     private readonly HostRuntime _rt;
     private Task<string?>? _current;
@@ -85,37 +83,20 @@ internal sealed class EpicLogin
         }
     }
 
-    internal static string? ParseAuthorizationCode(string? innerText)
-    {
-        if (string.IsNullOrWhiteSpace(innerText))
-        {
-            return null;
-        }
-
-        var text = innerText.Trim();
-        if (text.StartsWith('"'))
-        {
-            text = JsonSerializer.Deserialize<string>(text) ?? "";
-        }
-
-        using var doc = JsonDocument.Parse(text);
-        return doc.RootElement.TryGetProperty("authorizationCode", out var c) && c.ValueKind == JsonValueKind.String && c.GetString() is { Length: > 0 } s
-            ? s
-            : null;
-    }
+    internal static string? ParseAuthorizationCode(string? innerText) => EpicSignIn.ParseAuthorizationCode(innerText);
 
     private sealed class LoginWindow : Window
     {
         private readonly CoreWebView2Environment _env;
         private readonly TaskCompletionSource<string?> _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<CoreWebView2Controller> _controllerReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly DispatcherTimer _showTimer = new() { Interval = TimeSpan.FromSeconds(10) };
+        private readonly Window? _placementOwner;
         private nint _hwnd;
         private CoreWebView2Controller? _controller;
         private bool _shown;
         private bool _finished;
         private int _redirectMisses;
-        private bool _awaitingFirstPage;
+        private int _placements;
 
         /// <summary>HWND of the most recent login window (self-test screenshots).</summary>
         internal static nint LastHwnd { get; private set; }
@@ -129,32 +110,19 @@ internal sealed class EpicLogin
             MinWidth = 420;
             MinHeight = 560;
             ShowInTaskbar = owner is null;
+            _placementOwner = owner;
             if (owner is not null)
             {
                 Owner = owner;
-                WindowStartupLocation = WindowStartupLocation.CenterOwner;
-            }
-            else
-            {
-                WindowStartupLocation = WindowStartupLocation.CenterScreen;
             }
 
             var argb = ThemeState.BackgroundArgb;
             Background = new SolidColorBrush(Color.FromRgb((byte)(argb >> 16), (byte)(argb >> 8), (byte)argb));
-            // Themed loading state: visible (the WebView2 child is hidden) until Epic's first page has loaded, so there is never a
-            // white or empty window while the page is fetched.
-            Content = new System.Windows.Controls.TextBlock
-            {
-                Text = "Connecting to Epic Games…",
-                FontFamily = new FontFamily("Segoe UI"),
-                FontSize = 14,
-                Foreground = new SolidColorBrush(ThemeState.IsDark ? Color.FromRgb(0xB4, 0xB8, 0xBF) : Color.FromRgb(0x55, 0x59, 0x60)),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
+            // The WebView2 child paints DefaultBackgroundColor (the theme background) until Epic's page renders, so there is no
+            // white flash. It is visible and sized from the start: a hidden/zero-size page loads Epic's captcha scripts with
+            // document.visibilityState == "hidden", which looks like a bot.
             Closed += (_, _) =>
             {
-                _showTimer.Stop();
                 try
                 {
                     _controller?.Close();
@@ -166,18 +134,13 @@ internal sealed class EpicLogin
 
                 _done.TrySetResult(null);
             };
-            _showTimer.Tick += (_, _) =>
-            {
-                ShowNow();
-                RevealPage(); // safety net: never stay on the loading state forever
-            };
+            // The page must see real focus (document.hasFocus(), window focus events); captcha scripts check it.
+            Activated += (_, _) => FocusPage();
         }
 
         public Task<string?> RunAsync()
         {
             Prepare();
-            _awaitingFirstPage = true;
-            _showTimer.Start();
             // Show first: a WebView2 controller created under a never-shown parent can stay unpainted (blank window).
             ShowNow();
             _ = StartAsync(navigate: true);
@@ -200,17 +163,87 @@ internal sealed class EpicLogin
                 Win32.DwmSetWindowAttribute(_hwnd, Win32.DWMWA_TEXT_COLOR, ref text, sizeof(int));
             }
 
+            Place();
             HwndSource.FromHwnd(_hwnd)?.AddHook(Hook);
         }
 
         private nint Hook(nint hwnd, int msg, nint wParam, nint lParam, ref bool handled)
         {
-            if ((uint)msg == Win32.WM_SIZE && _controller is not null)
+            switch ((uint)msg)
             {
-                Resize();
+                case Win32.WM_SIZE when _controller is not null:
+                    Resize();
+                    break;
+                case Win32.WM_MOVE or Win32.WM_WINDOWPOSCHANGED when _controller is not null:
+                    // Without this WebView2 keeps the old screen position: window.screenX/Y and popup positions go stale after a move.
+                    _controller.NotifyParentWindowPositionChanged();
+                    break;
+                case Win32.WM_DPICHANGED when _placements < 3:
+                    // The first placement can cross a monitor DPI boundary: re-apply once the DPI switch has settled.
+                    Dispatcher.BeginInvoke(Place, DispatcherPriority.Send);
+                    break;
             }
 
             return 0;
+        }
+
+        private const int ClientWidthDip = 520;
+        private const int ClientHeightDip = 780;
+
+        /// <summary>
+        /// Client area of 520 x 780 DIPs (Epic's login page wants ~480-520 px of width and 720-800 px of height, so it needs no
+        /// scrolling), at most 90 % of the work area of the monitor holding the owner (or the cursor), centered on the owner and kept
+        /// fully on that monitor. All in physical pixels at that monitor's DPI.
+        /// </summary>
+        private void Place()
+        {
+            _placements++;
+            RECT anchor = default;
+            nint monitor;
+            if (_placementOwner is not null && new WindowInteropHelper(_placementOwner).Handle is var oh && oh != 0
+                && !Win32.IsIconic(oh) && Win32.GetWindowRect(oh, out anchor))
+            {
+                monitor = Win32.MonitorFromWindow(oh, Win32.MONITOR_DEFAULTTONEAREST);
+            }
+            else
+            {
+                Win32.GetCursorPos(out var pt);
+                var probe = new RECT { Left = pt.X, Top = pt.Y, Right = pt.X + 1, Bottom = pt.Y + 1 };
+                monitor = Win32.MonitorFromRect(in probe, Win32.MONITOR_DEFAULTTONEAREST);
+                anchor = default;
+            }
+
+            var info = new MONITORINFO { Size = (uint)System.Runtime.InteropServices.Marshal.SizeOf<MONITORINFO>() };
+            if (monitor == 0 || !Win32.GetMonitorInfo(monitor, ref info))
+            {
+                return;
+            }
+
+            var dpi = Win32.GetDpiForMonitor(monitor, 0, out var dpiX, out _) == 0 && dpiX > 0 ? dpiX : 96u;
+            var style = (uint)Win32.GetWindowLongPtr(_hwnd, Win32.GWL_STYLE);
+            var exStyle = (uint)Win32.GetWindowLongPtr(_hwnd, Win32.GWL_EXSTYLE);
+            var frame = new RECT { Right = ClientWidthDip * (int)dpi / 96, Bottom = ClientHeightDip * (int)dpi / 96 };
+            Win32.AdjustWindowRectExForDpi(ref frame, style, false, exStyle, dpi);
+            var work = info.Work;
+            var w = Math.Min(frame.Width, work.Width * 9 / 10);
+            var h = Math.Min(frame.Height, work.Height * 9 / 10);
+            var cx = anchor.Right > anchor.Left ? (anchor.Left + anchor.Right) / 2 : (work.Left + work.Right) / 2;
+            var cy = anchor.Bottom > anchor.Top ? (anchor.Top + anchor.Bottom) / 2 : (work.Top + work.Bottom) / 2;
+            var x = Math.Clamp(cx - w / 2, work.Left, work.Right - w);
+            var y = Math.Clamp(cy - h / 2, work.Top, work.Bottom - h);
+            Win32.SetWindowPos(_hwnd, 0, x, y, w, h, Win32.SWP_NOZORDER | Win32.SWP_NOACTIVATE);
+        }
+
+        private void FocusPage()
+        {
+            try
+            {
+                _controller?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
+            {
+                HostLog.Warn("Focusing the login page failed", ex);
+            }
         }
 
         private void Resize()
@@ -237,17 +270,27 @@ internal sealed class EpicLogin
                 options.DefaultBackgroundColor = DrawingColor.FromArgb(unchecked((int)ThemeState.BackgroundArgb));
                 _controller = await _env.CreateCoreWebView2ControllerAsync(_hwnd, options);
                 _controller.DefaultBackgroundColor = DrawingColor.FromArgb(unchecked((int)ThemeState.BackgroundArgb));
-                _controller.IsVisible = !_awaitingFirstPage;
+                _controller.IsVisible = true;
                 Resize();
                 _controller.NotifyParentWindowPositionChanged();
                 var web = _controller.CoreWebView2;
                 web.Settings.AreDevToolsEnabled = WebViewSetup.DeveloperMode;
                 web.Settings.AreDefaultContextMenusEnabled = WebViewSetup.DeveloperMode;
+                web.Settings.AreBrowserAcceleratorKeysEnabled = WebViewSetup.DeveloperMode;
                 web.Settings.IsZoomControlEnabled = false;
+                web.Settings.IsPinchZoomEnabled = false;
+                web.Settings.IsSwipeNavigationEnabled = false;
                 web.Settings.IsStatusBarEnabled = false;
-                web.Settings.IsPasswordAutosaveEnabled = true;
+                // No Edge "Save password?" bubble or autofill dropdown on top of Epic's own form.
+                web.Settings.IsPasswordAutosaveEnabled = false;
+                web.Settings.IsGeneralAutofillEnabled = false;
                 web.NavigationCompleted += OnNavigationCompleted;
                 _controllerReady.TrySetResult(_controller);
+                if (navigate && IsActive)
+                {
+                    FocusPage();
+                }
+
                 if (navigate)
                 {
                     web.Navigate(LoginUrl);
@@ -266,7 +309,6 @@ internal sealed class EpicLogin
         {
             try
             {
-                RevealPage();
                 var web = _controller?.CoreWebView2;
                 var uri = web?.Source ?? "";
                 // Never the query/fragment: IdP callbacks (Google, Xbox, PSN…) carry one-time codes there.
@@ -278,7 +320,6 @@ internal sealed class EpicLogin
 
                 if (!uri.StartsWith(RedirectPrefix, StringComparison.OrdinalIgnoreCase))
                 {
-                    ShowNow(); // a real login page: show the window (not for an instant redirect from an existing session)
                     return;
                 }
 
@@ -334,27 +375,7 @@ internal sealed class EpicLogin
             Activate();
             if (_controller is not null)
             {
-                // Re-assert visibility + bounds now that the parent is on screen.
-                _controller.IsVisible = false;
-                _controller.IsVisible = !_awaitingFirstPage;
-                Resize();
-                _controller.NotifyParentWindowPositionChanged();
-            }
-        }
-
-        /// <summary>The first page has loaded (or the safety timer fired): swap the themed loading state for the page.</summary>
-        private void RevealPage()
-        {
-            if (!_awaitingFirstPage)
-            {
-                return;
-            }
-
-            _awaitingFirstPage = false;
-            _showTimer.Stop();
-            if (_controller is not null)
-            {
-                _controller.IsVisible = true;
+                // Re-assert bounds now that the parent is on screen.
                 Resize();
                 _controller.NotifyParentWindowPositionChanged();
             }

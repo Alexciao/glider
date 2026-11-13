@@ -374,6 +374,9 @@ internal static partial class SelfTest
 
             int w = wr.Right - wr.Left, h = wr.Bottom - wr.Top;
             var px = Capture(dc => { var sdc = Win32.GetDC(0); var ok = BitBlt(dc, 0, 0, w, h, sdc, wr.Left, wr.Top, 0x00CC0020 | 0x40000000); _ = Win32.ReleaseDC(0, sdc); return ok; }, w, h);
+            SavePng(Path.Combine(dir, "login-screen.png"), px, w, h); // may show whatever covers the window
+            // PrintWindow does not depend on occlusion (the window may sit behind the user's foreground app).
+            px = Capture(dc => Win32.PrintWindow(hwnd, dc, 2 /* PW_RENDERFULLCONTENT */), w, h);
             SavePng(Path.Combine(dir, "login.png"), px, w, h);
             var distinct = new HashSet<int>();
             for (var i = 0; i + 3 < px.Length && distinct.Count < 64; i += 4 * 97)
