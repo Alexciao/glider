@@ -895,6 +895,9 @@ export class MockBackend {
       const info = this.createJob("install", { targetPath: plan.gamePath, toVersion: plan.version });
       return clone(info);
     },
+    "game.close": async () => {
+      this.setRunState("idle");
+    },
     "game.prepareLaunch": async () => undefined,
     "game.launch": async () => {
       await this.sleep(40);
