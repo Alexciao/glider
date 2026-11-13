@@ -40,9 +40,9 @@ internal sealed class LoginDebug
     {
         _dir = dir;
         Variant = variant;
-        NoCdp = noCdp;
+        NoCdp = noCdp || variant == LoginVariant.Legendary; // the Legendary replica attaches no DevTools session
         Directory.CreateDirectory(Path.Combine(dir, "shots"));
-        _logPath = Path.Combine(dir, $"login-debug-{variant.ToString().ToLowerInvariant()}{(noCdp ? "-nocdp" : "")}.log");
+        _logPath = Path.Combine(dir, $"login-debug-{variant.ToString().ToLowerInvariant()}{(NoCdp ? "-nocdp" : "")}.log");
         _timer.Tick += async (_, _) => await SnapshotAsync();
     }
 
@@ -76,9 +76,11 @@ internal sealed class LoginDebug
             {
                 // The environment is an STA COM object: read it on the UI thread.
                 var version = await rt.Ui.InvokeAsync(async () => (await rt.EnvTask).BrowserVersionString).Task.Unwrap();
-                debug.Log($"login-debug start variant={variant} noCdp={noCdp} webview2={version}");
+                debug.Log($"login-debug start variant={variant} noCdp={debug.NoCdp} webview2={version}");
                 var code = await rt.Platform.AcquireEpicAuthorizationCodeAsync(cts.Token);
-                debug.Log(code is null ? "window closed by user" : $"redirect reached, code length {code.Length}");
+                debug.Log(code is null ? "window closed by user"
+                    : variant == LoginVariant.Legendary ? $"bridge callback reached, code length {code.Length} (an exchange code, not an authorization code)"
+                    : $"redirect reached, code length {code.Length}");
             }
             catch (OperationCanceledException)
             {

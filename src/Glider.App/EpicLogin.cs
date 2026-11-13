@@ -20,6 +20,8 @@ internal enum LoginVariant
     NoUa,
     /// <summary>Heroic's login user agent (no Chrome/Edg token, "EpicGamesLauncher"); a diagnostic experiment.</summary>
     EpicUa,
+    /// <summary>Legendary 0.21's webview login, replicated: logout-first, UA <c>EpicGamesLauncher/&lt;version&gt;</c>, injected <c>window.ue</c> bridge.</summary>
+    Legendary,
 }
 
 /// <summary>
@@ -99,6 +101,22 @@ internal sealed class EpicLogin
 
     /// <summary>Settings and browser-identity compatibility for the Epic login view only (never the app UI's WebView2).</summary>
     /// <summary>What Heroic's Epic login window sets (HeroicGamesLauncher src/frontend/screens/WebView/index.tsx).</summary>
+    /// <summary>Legendary passes <c>EpicGamesLauncher/{egl_version}</c> to pywebview as the whole UA (core.py default version).</summary>
+    internal const string LegendaryUserAgent = "EpicGamesLauncher/11.0.1-14907503+++Portal+Release-Live";
+
+    private const string LogoutUrl = "https://www.epicgames.com/id/logout?productName=epic-games&redirectUrl=https://www.epicgames.com/id/login";
+
+    /// <summary>Legendary's <c>window_js</c> with pywebview.api.* replaced by WebView2 web messages (names only reach the host, plus the code).</summary>
+    private const string LegendaryBridgeJs = """
+        window.ue = {
+          signinprompt: {
+            requestexchangecodesignin: function (code, param) { window.chrome.webview.postMessage({ n: 'requestexchangecodesignin', code: String(code), p: param ? 1 : 0 }); },
+            registersignincompletecallback: function () { window.chrome.webview.postMessage({ n: 'registersignincompletecallback' }); }
+          },
+          common: { launchexternalurl: function (url) { window.chrome.webview.postMessage({ n: 'launchexternalurl' }); } }
+        };
+        """;
+
     internal const string EpicLauncherUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) EpicGamesLauncher";
 
     internal static async Task ConfigureAsync(CoreWebView2Controller controller, LoginVariant variant = LoginVariant.Current, bool noCdp = false)
@@ -114,10 +132,18 @@ internal sealed class EpicLogin
         // No Edge "Save password?" bubble or autofill dropdown on top of Epic's own form.
         web.Settings.IsPasswordAutosaveEnabled = false;
         web.Settings.IsGeneralAutofillEnabled = false;
-        if (variant == LoginVariant.Plain)
+        AttachReloadSupport(controller);
+        if (variant is LoginVariant.Plain or LoginVariant.Legendary)
         {
             // Diagnostic baseline: WebView2's default identity (default tracking prevention, no rewrites, no injected script).
             TrySetTrackingPrevention(web, CoreWebView2TrackingPreventionLevel.Balanced);
+            if (variant == LoginVariant.Legendary)
+            {
+                // pywebview: user_agent replaces the whole UA; web messages stay on (the bridge needs them).
+                web.Settings.UserAgent = LegendaryUserAgent;
+                await web.CallDevToolsProtocolMethodAsync("Emulation.setUserAgentOverride", JsonSerializer.Serialize(new { userAgent = LegendaryUserAgent }));
+            }
+
             return;
         }
 
@@ -149,6 +175,66 @@ internal sealed class EpicLogin
         {
             AttachDiagnostics(web);
         }
+    }
+
+    /// <summary>
+    /// F5 / Ctrl+R / Ctrl+F5 reload (the other accelerator keys stay off), and one automatic reload (max 2 per window) when Epic rejects
+    /// the invisible captcha token (<c>captcha_invalid</c> on /id/api/login*); only those 400 bodies are read.
+    /// </summary>
+    private static void AttachReloadSupport(CoreWebView2Controller controller)
+    {
+        var web = controller.CoreWebView2;
+        controller.AcceleratorKeyPressed += (_, e) =>
+        {
+            if (e.KeyEventKind is not (CoreWebView2KeyEventKind.KeyDown or CoreWebView2KeyEventKind.SystemKeyDown))
+            {
+                return;
+            }
+
+            var ctrl = System.Windows.Input.Keyboard.IsKeyDown(System.Windows.Input.Key.LeftCtrl) || System.Windows.Input.Keyboard.IsKeyDown(System.Windows.Input.Key.RightCtrl);
+            if (e.VirtualKey == 0x74 /* F5 */ || (ctrl && e.VirtualKey == 0x52 /* R */))
+            {
+                e.Handled = true;
+                Note("login: manual reload (F5 / Ctrl+R)");
+                web.Reload();
+            }
+        };
+
+        var reloads = 0;
+        web.WebResourceResponseReceived += async (_, e) =>
+        {
+            try
+            {
+                if (e.Response.StatusCode != 400 || reloads >= 2 || !Uri.TryCreate(e.Request.Uri, UriKind.Absolute, out var u)
+                    || !u.Host.EndsWith("epicgames.com", StringComparison.OrdinalIgnoreCase) || !u.AbsolutePath.StartsWith("/id/api/login", StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                var stream = await e.Response.GetContentAsync();
+                if (stream is null)
+                {
+                    return;
+                }
+
+                using var sr = new StreamReader(stream);
+                if ((await sr.ReadToEndAsync()).Contains("errors.com.epicgames.accountportal.captcha_invalid", StringComparison.Ordinal) && reloads < 2)
+                {
+                    reloads++;
+                    Note($"login: auto-reload due to captcha_invalid ({reloads}/2) after {Glider.Core.Infrastructure.SecretRedactor.UrlForLog(u.AbsoluteUri)}");
+                    web.Reload();
+                }
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException or IOException or ObjectDisposedException)
+            {
+            }
+        };
+    }
+
+    private static void Note(string message)
+    {
+        HostLog.Info(message);
+        Debug?.Log(message);
     }
 
     private static void TrySetTrackingPrevention(CoreWebView2 web, CoreWebView2TrackingPreventionLevel level)
@@ -323,6 +409,7 @@ internal sealed class EpicLogin
         private bool _finished;
         private int _redirectMisses;
         private int _placements;
+        private bool _injectBridge;
 
         /// <summary>HWND of the most recent login window (self-test screenshots).</summary>
         internal static nint LastHwnd { get; private set; }
@@ -518,9 +605,16 @@ internal sealed class EpicLogin
                     FocusPage();
                 }
 
+                if (Debug?.Variant == LoginVariant.Legendary)
+                {
+                    web.WebMessageReceived += OnBridgeMessage;
+                }
+
                 if (navigate)
                 {
-                    web.Navigate(LoginUrl);
+                    // Legendary on Windows opens the logout URL first (drops existing cookies; it redirects to the login page).
+                    _injectBridge = false;
+                    web.Navigate(Debug?.Variant == LoginVariant.Legendary ? LogoutUrl : LoginUrl);
                 }
             }
             catch (Exception ex)
@@ -529,6 +623,28 @@ internal sealed class EpicLogin
                 _controllerReady.TrySetException(ex);
                 _done.TrySetException(new GliderException(Errors.AuthFailed(ex.Message), ex));
                 Close();
+            }
+        }
+
+        /// <summary>Legendary variant only: the page called the window.ue bridge. The exchange code ends the sign-in (Legendary then loads a goodbye page).</summary>
+        private void OnBridgeMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(e.WebMessageAsJson);
+                var name = doc.RootElement.TryGetProperty("n", out var n) ? n.GetString() : null;
+                var code = doc.RootElement.TryGetProperty("code", out var c) ? c.GetString() : null;
+                Debug?.Log($"bridge invoked: {name} param={(doc.RootElement.TryGetProperty("p", out var p) && p.GetInt32() != 0 ? "present" : "absent")}");
+                if (name == "requestexchangecodesignin" && !string.IsNullOrEmpty(code) && !_finished)
+                {
+                    _finished = true;
+                    _done.TrySetResult(code);
+                    Close();
+                }
+            }
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+            {
+                Debug?.Log("bridge message could not be read");
             }
         }
 
@@ -548,6 +664,21 @@ internal sealed class EpicLogin
                 if (_finished || web is null)
                 {
                     return;
+                }
+
+                if (Debug?.Variant == LoginVariant.Legendary)
+                {
+                    // Legendary's on_loaded: inject window.ue after every load but the first (which is the logout page, after which
+                    // injection is switched on), then keep going.
+                    if (_injectBridge)
+                    {
+                        await web.ExecuteScriptAsync(LegendaryBridgeJs);
+                        Debug?.Log("bridge injected (window.ue)");
+                    }
+                    else if (uri.Contains("logout", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _injectBridge = true;
+                    }
                 }
 
                 if (!uri.StartsWith(RedirectPrefix, StringComparison.OrdinalIgnoreCase))

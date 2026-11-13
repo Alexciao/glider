@@ -71,6 +71,7 @@ internal sealed record HostOptions(bool Background, string? MeasureFile, int Mea
         "inprivate" => LoginVariant.InPrivate,
         "noua" => LoginVariant.NoUa,
         "epicua" => LoginVariant.EpicUa,
+        "legendary" => LoginVariant.Legendary,
         _ => LoginVariant.Current,
     };
 }
