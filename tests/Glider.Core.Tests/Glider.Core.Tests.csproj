@@ -21,6 +21,7 @@
   <ItemGroup>
     <!-- Pure (no WPF/Win32) host chrome logic, compiled into the tests because the WPF host has no test project of its own. -->
     <Compile Include="..\..\src\Glider.App\ChromeLogic.cs" Link="Host\ChromeLogic.cs" />
+    <Compile Include="..\..\src\Glider.App\EdgeUserAgentMetadata.cs" Link="Host\EdgeUserAgentMetadata.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
