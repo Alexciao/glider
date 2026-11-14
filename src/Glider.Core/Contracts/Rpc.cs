@@ -36,8 +36,11 @@ public sealed record RpcEvent(string Type, string Event, JsonElement Data);
 /// <summary>Event names. Keep in sync with the [RpcEvent] attributes on <see cref="IGliderRpc"/>.</summary>
 public static class RpcEvents
 {
-    /// <summary>Full <see cref="AppSnapshot"/>; coalesced, at most ~30/s. The UI replaces its store with it.</summary>
+    /// <summary>Small app-wide <see cref="AppSnapshot"/>; coalesced, at most ~30/s. The UI replaces its store with it.</summary>
     public const string State = "state";
+
+    /// <summary><see cref="LibraryDelta"/>: per-game upserts/removes with a monotonic revision.</summary>
+    public const string Library = "library";
 
     /// <summary><see cref="JobProgress"/> for the running job; throttled to ~10 Hz.</summary>
     public const string Progress = "progress";
@@ -50,6 +53,12 @@ public static class RpcEvents
 
     /// <summary><see cref="CaptionEvent"/> from the native Snap Layouts overlay over the HTML maximize button.</summary>
     public const string Caption = "caption";
+
+    /// <summary><see cref="NavigateEvent"/>: show a route (glider:// links, tray, toasts).</summary>
+    public const string Navigate = "navigate";
+
+    /// <summary><see cref="StoreState"/> of the native Store view.</summary>
+    public const string Store = "store";
 }
 
 /// <summary>Thrown by service code to return a structured, human-readable error to the UI.</summary>

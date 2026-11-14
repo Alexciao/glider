@@ -8,16 +8,7 @@ export interface Account {
   avatarUrl: string | null;
 }
 
-export interface AdoptRequest {
-  candidateId: string | null;
-  path: string | null;
-  verify: VerifyMode;
-}
-
-export interface AdoptResult {
-  game: GameState;
-  verifyJob: JobInfo | null;
-}
+export type AntiCheat = "none" | "easyAntiCheat" | "battlEye";
 
 export interface AppInfo {
   version: string;
@@ -31,14 +22,24 @@ export interface AppInfo {
   autoWorkers: number;
   autoSharedMemoryMb: number;
   warm: boolean;
+  migratedFrom: string | null;
+}
+
+export interface AppRef {
+  appName: string;
 }
 
 export interface AppSnapshot {
   app: AppInfo;
   auth: AuthState;
-  game: GameState;
-  jobs: JobInfo[];
+  connectivity: Connectivity;
+  library: LibraryStatus;
+  queue: QueueState;
+  sessions: RunningGame[];
+  storage: StorageState;
   egl: EglState;
+  overlay: OverlayState;
+  collections: Collection[];
   settings: Settings;
   onboarding: OnboardingState;
 }
@@ -50,9 +51,11 @@ export interface AuthState {
 
 export type AuthStatus = "unknown" | "signedOut" | "signingIn" | "signedIn" | "expired";
 
+export type AutoUpdatePolicy = "default" | "always" | "ask" | "never";
+
 export type BackdropKind = "mica" | "solid";
 
-export type CandidateSource = "epicGamesLauncher" | "manual";
+export type CandidateSource = "epicGamesLauncher" | "gliderV1" | "manual";
 
 export interface CaptionEvent {
   button: string;
@@ -61,51 +64,217 @@ export interface CaptionEvent {
 
 export type CaptionState = "hover" | "leave" | "down";
 
+export interface Collection {
+  id: string;
+  name: string;
+  appNames: string[];
+}
+
+export interface CollectionCreateRequest {
+  name: string;
+}
+
+export interface CollectionMembershipRequest {
+  id: string;
+  appName: string;
+  member: boolean;
+}
+
+export interface CollectionRef {
+  id: string;
+}
+
+export interface CollectionRenameRequest {
+  id: string;
+  name: string;
+}
+
+export type Connectivity = "unknown" | "online" | "offline";
+
+export interface DiskStats {
+  writtenBytes: number;
+  totalBytes: number;
+  bytesPerSecond: number;
+  averageBytesPerSecond: number;
+  peakBytesPerSecond: number;
+  installSizeBytes: number | null;
+}
+
+export interface DlcOption {
+  appName: string;
+  title: string;
+  downloadSizeBytes: number | null;
+  installSizeBytes: number | null;
+  installable: boolean;
+  selected: boolean;
+}
+
+export type DownloadMode = "background" | "balanced" | "full";
+
+export interface DriveInfoDto {
+  root: string;
+  label: string | null;
+  freeBytes: number;
+  totalBytes: number;
+  isSsd: boolean;
+}
+
+export type EglDrift = "none" | "eglNewer" | "gliderNewer" | "unknown";
+
+export interface EglImportRequest {
+  ids: string[];
+  verify: VerifyMode;
+}
+
+export interface EglImportResult {
+  jobs: JobInfo[];
+}
+
+export interface EglInstall {
+  id: string;
+  source: CandidateSource;
+  appName: string;
+  title: string;
+  installPath: string;
+  drive: string;
+  version: string | null;
+  sizeBytes: number | null;
+  status: EglInstallStatus;
+  drift: EglDrift;
+  reason: string | null;
+  artUrl: string | null;
+}
+
+export type EglInstallStatus = "importable" | "imported" | "stale" | "busy" | "notOwned";
+
+export interface EglReadiness {
+  ready: boolean;
+  items: ReadinessItem[];
+}
+
 export interface EglState {
   launcherInstalled: boolean;
   launcherRunning: boolean;
-  busyWithGame: boolean;
-  candidates: InstallCandidate[];
+  scanning: boolean;
+  installs: EglInstall[];
+  busyApps: string[];
   syncEnabled: boolean;
-  syncAvailable: boolean;
-  manifestPath: string | null;
   lastScan: string | null;
 }
 
-export type ErrorCode = "unknown" | "invalidRequest" | "notSignedIn" | "authExpired" | "authFailed" | "authCancelled" | "insufficientSpace" | "network" | "cdnUnavailable" | "filesLocked" | "permissionDenied" | "eglBusy" | "gameRunning" | "notInstalled" | "alreadyInstalled" | "invalidFolder" | "corrupted" | "busy" | "legendaryMissing" | "legendaryFailed" | "eacSetupFailed" | "launchFailed" | "cancelled" | "timeout";
+export type ErrorCode = "unknown" | "invalidRequest" | "notSignedIn" | "authExpired" | "authFailed" | "authCancelled" | "insufficientSpace" | "network" | "offline" | "cdnUnavailable" | "filesLocked" | "permissionDenied" | "eglBusy" | "gameRunning" | "gameBusy" | "notFound" | "notOwned" | "notInstalled" | "alreadyInstalled" | "invalidFolder" | "corrupted" | "busy" | "legendaryMissing" | "legendaryFailed" | "legendaryLocked" | "eacSetupFailed" | "prerequisiteFailed" | "launchFailed" | "thirdPartyRequired" | "activationRequired" | "saveConflict" | "saveSyncFailed" | "overlayFailed" | "cancelled" | "timeout";
 
-export type FixAction = "signIn" | "freeSpace" | "repair" | "retry" | "chooseFolder" | "openLogs" | "closeGame" | "waitForEgl";
+export type FixAction = "signIn" | "freeSpace" | "repair" | "retry" | "chooseFolder" | "openLogs" | "closeGame" | "waitForEgl" | "activate" | "resolveSaves" | "installPrerequisites" | "playOffline";
 
 export interface FolderValidation {
   valid: boolean;
+  appName: string | null;
+  title: string | null;
   gamePath: string | null;
   version: string | null;
   reason: string | null;
 }
 
-export interface GameArt {
-  heroUrl: string | null;
-  tallUrl: string | null;
-  logoUrl: string | null;
+export interface FreeGame {
+  id: string;
+  title: string;
+  imageUrl: string | null;
+  slug: string | null;
+  startsAt: string;
+  endsAt: string;
+  status: FreeGameStatus;
+  owned: boolean;
 }
 
-export interface GameState {
+export type FreeGameStatus = "freeNow" | "upcoming";
+
+export interface FreeGamesResult {
+  items: FreeGame[];
+  fetchedAt: string | null;
+}
+
+export interface GameArt {
+  tall: string | null;
+  tallThumb: string | null;
+  wide: string | null;
+  logo: string | null;
+  placeholder: string | null;
+}
+
+export interface GameDetail {
+  summary: GameSummary;
+  description: string | null;
+  publisher: string | null;
+  releaseDate: string | null;
+  dlc: string[];
+  components: InstallComponent[];
+  prerequisites: Prerequisite[];
+  saves: SaveState | null;
+  settings: GameSettings;
+  launchOptions: LaunchOption[];
+  shortcuts: ShortcutState;
+  quirks: string[];
+  antiCheat: AntiCheat;
+  executable: string | null;
+  installedAt: string | null;
+  eglManifestPath: string | null;
+}
+
+export interface GameFlagRequest {
+  appName: string;
+  value: boolean;
+}
+
+export type GameKind = "game" | "dlc" | "launchableAddon";
+
+export interface GameSettings {
+  launchArgs: string;
+  executableOverride: string | null;
+  workingDirectory: string | null;
+  autoUpdate: AutoUpdatePolicy;
+  cloudSaves: boolean;
+  launchMode: LaunchMode;
+  launchOption: string | null;
+}
+
+export interface GameSettingsRequest {
+  appName: string;
+  settings: GameSettings;
+}
+
+export interface GameSummary {
   appName: string;
   title: string;
+  kind: GameKind;
+  baseAppName: string | null;
+  namespace: string;
+  catalogItemId: string;
+  developer: string | null;
   installStatus: InstallStatus;
-  installed: InstalledGame | null;
+  installedVersion: string | null;
   latestVersion: string | null;
   updateAvailable: boolean;
-  checkingForUpdates: boolean;
-  lastUpdateCheck: string | null;
-  runState: RunState;
-  runningSince: string | null;
-  art: GameArt | null;
-  downloadSizeBytes: number | null;
+  installPath: string | null;
   installSizeBytes: number | null;
   installedSizeBytes: number | null;
-  playtimeSeconds: number;
+  downloadSizeBytes: number | null;
+  cloudSaves: boolean;
+  saveStatus: SaveSyncStatus;
+  canRunOffline: boolean;
+  thirdParty: ThirdPartyStore;
+  thirdPartyName: string | null;
+  dlcCount: number;
+  favorite: boolean;
+  hidden: boolean;
+  addedAt: string | null;
   lastPlayedAt: string | null;
+  playtimeSeconds: number;
+  art: GameArt;
+  runState: RunState;
+  activeJobId: string | null;
+  activeJobKind: JobKind | null;
+  sharedWithEgl: boolean;
+  needsVerification: boolean;
 }
 
 export interface GliderError {
@@ -114,21 +283,21 @@ export interface GliderError {
   message: string;
   fix: FixAction | null;
   detail: string | null;
+  appName: string | null;
 }
 
-export interface InstallCandidate {
+export interface InstallComponent {
   id: string;
-  source: CandidateSource;
-  installPath: string;
-  version: string | null;
-  folderExists: boolean;
-  executableFound: boolean;
-  isStale: boolean;
+  name: string;
+  description: string | null;
   sizeBytes: number | null;
-  reason: string | null;
+  required: boolean;
+  selected: boolean;
 }
 
 export interface InstallPlan {
+  appName: string;
+  title: string;
   basePath: string;
   gamePath: string;
   version: string;
@@ -137,70 +306,144 @@ export interface InstallPlan {
   freeBytes: number;
   hasEnoughSpace: boolean;
   existingInstallFound: boolean;
+  components: InstallComponent[];
+  dlc: DlcOption[];
+  prerequisites: Prerequisite[];
+  thirdParty: ThirdPartyStore;
+  thirdPartyName: string | null;
 }
 
 export interface InstallPlanRequest {
+  appName: string;
   basePath: string | null;
+  components: string[] | null;
+  dlc: string[] | null;
 }
 
 export interface InstallRequest {
+  appName: string;
   basePath: string;
+  components: string[] | null;
+  dlc: string[] | null;
+  priority: boolean;
 }
 
-export type InstallStatus = "unknown" | "notInstalled" | "installed" | "installing" | "broken";
+export type InstallStatus = "notInstalled" | "installed" | "broken" | "notInstallable";
 
-export interface InstalledGame {
-  installPath: string;
-  version: string;
-  installSizeBytes: number;
-  sharedWithEgl: boolean;
-  needsVerification: boolean;
-  installedAt: string | null;
+export interface JobHistory {
+  jobId: string;
+  samples: JobSample[];
 }
 
 export interface JobInfo {
   id: string;
+  appName: string;
+  title: string;
   kind: JobKind;
   status: JobStatus;
+  phases: JobPhase[];
+  phase: JobPhase | null;
   progress: JobProgress | null;
   error: GliderError | null;
   createdAt: string;
+  startedAt: string | null;
   finishedAt: string | null;
   targetPath: string | null;
   fromVersion: string | null;
   toVersion: string | null;
   blockedReason: string | null;
   verify: VerifyReport | null;
+  outcome: JobOutcome | null;
 }
 
-export type JobKind = "install" | "update" | "repair" | "verify" | "move" | "uninstall" | "import";
+export type JobKind = "install" | "update" | "repair" | "verify" | "move" | "uninstall" | "import" | "modify" | "overlay";
 
-export type JobPhase = "preparing" | "downloading" | "verifying" | "finalizing" | "moving" | "removing";
+export interface JobOutcome {
+  kind: OutcomeKind;
+  message: string;
+}
+
+export type JobPhase = "preparing" | "verifying" | "repairing" | "downloading" | "installing" | "finalizing" | "moving" | "removing" | "importing";
 
 export interface JobProgress {
   jobId: string;
+  appName: string;
   phase: JobPhase;
   percent: number;
-  downloadedBytes: number;
-  totalDownloadBytes: number;
-  writtenBytes: number;
-  totalWriteBytes: number;
-  downloadBytesPerSecond: number;
-  diskBytesPerSecond: number;
-  rawDownloadBytesPerSecond: number;
-  etaSeconds: number | null;
+  phasePercent: number;
   elapsedSeconds: number;
+  etaSeconds: number | null;
+  network: NetworkStats | null;
+  disk: DiskStats | null;
+  verify: VerifyStats | null;
+  filesDone: number | null;
+  filesTotal: number | null;
+  mode: DownloadMode;
+  limiter: Limiter;
 }
 
 export interface JobRef {
   jobId: string;
 }
 
+export interface JobReorderRequest {
+  jobId: string;
+  toIndex: number;
+}
+
+export interface JobSample {
+  t: number;
+  networkBytesPerSecond: number;
+  diskBytesPerSecond: number;
+}
+
 export type JobStatus = "queued" | "running" | "paused" | "waiting" | "completed" | "failed" | "cancelled";
 
+export type LaunchMode = "auto" | "online" | "offline";
+
+export interface LaunchOption {
+  name: string;
+  args: string;
+}
+
+export type LaunchOutcome = "started" | "saveConflict" | "thirdPartyLauncher" | "needsActivation";
+
+export interface LaunchRequest {
+  appName: string;
+  mode: LaunchMode | null;
+  skipSaveSync: boolean;
+}
+
 export interface LaunchResult {
-  started: boolean;
-  eacInstalled: boolean;
+  outcome: LaunchOutcome;
+  conflict: SaveConflict | null;
+  offline: boolean;
+  message: string | null;
+}
+
+export interface LibraryDelta {
+  revision: number;
+  reset: boolean;
+  upserts: GameSummary[];
+  removes: string[];
+}
+
+export interface LibraryFolder {
+  path: string;
+  isDefault: boolean;
+  exists: boolean;
+  drive: string;
+  freeBytes: number;
+  gameCount: number;
+}
+
+export interface LibraryStatus {
+  revision: number;
+  gameCount: number;
+  syncing: boolean;
+  lastSyncedAt: string | null;
+  syncError: GliderError | null;
+  updatesAvailable: number;
 }
 
 export interface LicenseInfo {
@@ -215,6 +458,13 @@ export interface LicensesResult {
   items: LicenseInfo[];
 }
 
+export type Limiter = "unknown" | "network" | "cdn" | "cpu" | "disk" | "speedLimit" | "mode" | "paused";
+
+export interface LocateRequest {
+  path: string;
+  verify: VerifyMode;
+}
+
 export type LogLevel = "debug" | "info" | "warning" | "error";
 
 export interface LogsRequest {
@@ -226,8 +476,29 @@ export interface LogsResult {
   logFile: string;
 }
 
+export interface ModifyRequest {
+  appName: string;
+  components: string[];
+  dlc: string[];
+}
+
 export interface MoveRequest {
+  appName: string;
   destinationBase: string;
+}
+
+export interface NavigateEvent {
+  route: string;
+}
+
+export interface NetworkStats {
+  downloadedBytes: number;
+  totalBytes: number;
+  bytesPerSecond: number;
+  averageBytesPerSecond: number;
+  peakBytesPerSecond: number;
+  cdn: string | null;
+  connections: number | null;
 }
 
 export interface Notice {
@@ -236,6 +507,8 @@ export interface Notice {
   title: string;
   message: string | null;
   action: FixAction | null;
+  appName: string | null;
+  jobId: string | null;
 }
 
 export type NoticeLevel = "info" | "success" | "warning" | "error";
@@ -243,9 +516,27 @@ export type NoticeLevel = "info" | "success" | "warning" | "error";
 export interface OnboardingState {
   completed: boolean;
   step: OnboardingStep;
+  skipped: OnboardingStep[];
 }
 
-export type OnboardingStep = "welcome" | "signIn" | "chooseInstall" | "done";
+export type OnboardingStep = "welcome" | "signIn" | "scan" | "folders" | "mode" | "done";
+
+export interface OnboardingStepRequest {
+  step: OnboardingStep;
+  skipped: boolean;
+}
+
+export type OutcomeKind = "success" | "needsRepair" | "failed";
+
+export interface OverlayState {
+  installed: boolean;
+  enabled: boolean;
+  version: string | null;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  installPath: string | null;
+  busy: boolean;
+}
 
 export interface PathRequest {
   path: string;
@@ -259,6 +550,28 @@ export interface PickFolderRequest {
 export interface PickFolderResult {
   path: string | null;
 }
+
+export interface Prerequisite {
+  id: string;
+  name: string;
+  installed: boolean;
+}
+
+export interface QueueState {
+  jobs: JobInfo[];
+  paused: boolean;
+  effectiveMode: DownloadMode;
+  modeReason: string | null;
+}
+
+export interface ReadinessItem {
+  appName: string | null;
+  title: string;
+  severity: ReadinessSeverity;
+  message: string;
+}
+
+export type ReadinessSeverity = "ok" | "warning" | "blocker";
 
 export interface RpcEvent {
   type: string;
@@ -280,39 +593,139 @@ export interface RpcResponse {
   error: GliderError | null;
 }
 
-export type RunState = "idle" | "preparing" | "installingPrerequisites" | "launching" | "running" | "closing";
+export type RunState = "idle" | "preparing" | "syncingSaves" | "installingPrerequisites" | "launching" | "running" | "closing";
+
+export interface RunningGame {
+  appName: string;
+  title: string;
+  state: RunState;
+  since: string | null;
+  offline: boolean;
+  untracked: boolean;
+}
+
+export interface SaveConflict {
+  appName: string;
+  title: string;
+  localModifiedAt: string | null;
+  cloudModifiedAt: string | null;
+  localSizeBytes: number | null;
+  cloudSizeBytes: number | null;
+  lastSyncedAt: string | null;
+}
+
+export interface SaveResolveRequest {
+  appName: string;
+  keep: SaveSide;
+  thenLaunch: boolean;
+}
+
+export type SaveSide = "local" | "cloud";
+
+export interface SaveState {
+  supported: boolean;
+  enabled: boolean;
+  status: SaveSyncStatus;
+  savePath: string | null;
+  localModifiedAt: string | null;
+  cloudModifiedAt: string | null;
+  lastSyncedAt: string | null;
+  lastError: GliderError | null;
+  backups: number;
+}
+
+export interface SaveSyncRequest {
+  appName: string;
+  direction: SyncDirection;
+}
+
+export type SaveSyncStatus = "notSupported" | "disabled" | "unknown" | "inSync" | "localNewer" | "cloudNewer" | "conflict" | "syncing" | "error";
 
 export interface Settings {
+  downloadMode: DownloadMode;
+  speedLimitBytesPerSecond: number | null;
+  idleFullSpeed: boolean;
+  whilePlaying: WhilePlayingPolicy;
   downloadWorkers: number | null;
   sharedMemoryMb: number | null;
   preferredCdn: string | null;
-  autoUpdate: boolean;
+  autoUpdate: AutoUpdatePolicy;
   autoUpdateOnlyWhenIdle: boolean;
   updateCheckIntervalMinutes: number;
   startWithWindows: boolean;
   startMinimized: boolean;
   closeToTray: boolean;
   minimizeToTrayWhilePlaying: boolean;
-  launchArgs: string;
   logLevel: LogLevel;
   theme: ThemePreference;
   eglSync: boolean;
   notifications: boolean;
   defaultInstallBase: string | null;
+  libraryFolders: string[];
+  cloudSaves: boolean;
+  handleEpicLinks: boolean;
 }
 
+export type ShortcutLocation = "desktop" | "startMenu";
+
+export interface ShortcutRequest {
+  appName: string;
+  location: ShortcutLocation;
+  create: boolean;
+}
+
+export interface ShortcutState {
+  desktop: boolean;
+  startMenu: boolean;
+}
+
+export interface StorageState {
+  folders: LibraryFolder[];
+  drives: DriveInfoDto[];
+}
+
+export interface StoreBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface StoreShowRequest {
+  target: StoreTarget | null;
+  bounds: StoreBounds;
+}
+
+export interface StoreState {
+  created: boolean;
+  visible: boolean;
+  loading: boolean;
+  canGoBack: boolean;
+  title: string | null;
+}
+
+export interface StoreTarget {
+  kind: StoreTargetKind;
+  slug: string | null;
+}
+
+export type StoreTargetKind = "home" | "product" | "freeGames" | "wishlist" | "library";
+
+export type SyncDirection = "auto" | "upload" | "download";
+
 export type ThemePreference = "system" | "dark" | "light";
+
+export type ThirdPartyStore = "none" | "ubisoft" | "ea" | "other";
 
 export type UninstallMode = "gliderOnly" | "deleteFiles";
 
 export interface UninstallRequest {
+  appName: string;
   mode: UninstallMode;
 }
 
-export interface UpdateCheckResult {
-  updateAvailable: boolean;
-  installedVersion: string | null;
-  latestVersion: string | null;
+export interface UpdateAllResult {
+  jobs: JobInfo[];
 }
 
 export interface UrlRequest {
@@ -330,16 +743,29 @@ export interface VerifyReport {
   filesBad: number;
   filesFixed: number;
   verified: boolean;
+  bytesToFix: number;
 }
+
+export interface VerifyStats {
+  filesChecked: number;
+  filesTotal: number;
+  bytesChecked: number;
+  bytesTotal: number;
+  readBytesPerSecond: number;
+  badFiles: number;
+  fixedFiles: number;
+}
+
+export type WhilePlayingPolicy = "pause" | "throttle" | "continue";
 
 export interface WindowInfo {
   maximized: boolean;
   focused: boolean;
+  visible: boolean;
 }
 
 /** Request/response map: method name → params and result types. */
 export interface RpcMethods {
-  "app.completeOnboarding": { params: void; result: void };
   "app.copyLogs": { params: void; result: void };
   "app.getLicenses": { params: void; result: LicensesResult };
   "app.getLogs": { params: LogsRequest; result: LogsResult };
@@ -351,27 +777,66 @@ export interface RpcMethods {
   "app.ready": { params: void; result: void };
   "auth.signIn": { params: void; result: AuthState };
   "auth.signOut": { params: void; result: AuthState };
+  "collections.create": { params: CollectionCreateRequest; result: Collection };
+  "collections.delete": { params: CollectionRef; result: void };
+  "collections.rename": { params: CollectionRenameRequest; result: Collection };
+  "collections.setMembership": { params: CollectionMembershipRequest; result: Collection };
+  "egl.checkReadiness": { params: void; result: EglReadiness };
+  "egl.import": { params: EglImportRequest; result: EglImportResult };
+  "egl.importFolder": { params: LocateRequest; result: JobInfo };
   "egl.quickScan": { params: void; result: EglState };
   "egl.rescan": { params: void; result: EglState };
-  "game.adopt": { params: AdoptRequest; result: AdoptResult };
-  "game.checkForUpdates": { params: void; result: UpdateCheckResult };
-  "game.close": { params: void; result: void };
+  "egl.validateFolder": { params: ValidateFolderRequest; result: FolderValidation };
+  "freeGames.get": { params: void; result: FreeGamesResult };
+  "game.activate": { params: AppRef; result: void };
+  "game.close": { params: AppRef; result: void };
+  "game.getDetail": { params: AppRef; result: GameDetail };
   "game.install": { params: InstallRequest; result: JobInfo };
-  "game.launch": { params: void; result: LaunchResult };
+  "game.installPrerequisites": { params: AppRef; result: void };
+  "game.launch": { params: LaunchRequest; result: LaunchResult };
+  "game.modify": { params: ModifyRequest; result: JobInfo };
   "game.move": { params: MoveRequest; result: JobInfo };
-  "game.openInstallFolder": { params: void; result: void };
+  "game.openFolder": { params: AppRef; result: void };
   "game.planInstall": { params: InstallPlanRequest; result: InstallPlan };
-  "game.prepareLaunch": { params: void; result: void };
+  "game.prepareLaunch": { params: AppRef; result: void };
+  "game.setShortcut": { params: ShortcutRequest; result: ShortcutState };
   "game.uninstall": { params: UninstallRequest; result: JobInfo };
-  "game.update": { params: void; result: JobInfo };
-  "game.validateFolder": { params: ValidateFolderRequest; result: FolderValidation };
-  "game.verify": { params: void; result: JobInfo };
+  "game.update": { params: AppRef; result: JobInfo };
+  "game.updateSettings": { params: GameSettingsRequest; result: GameSettings };
+  "game.verify": { params: AppRef; result: JobInfo };
   "jobs.cancel": { params: JobRef; result: JobInfo };
   "jobs.dismiss": { params: JobRef; result: void };
+  "jobs.getHistory": { params: JobRef; result: JobHistory };
+  "jobs.moveToTop": { params: JobRef; result: QueueState };
   "jobs.pause": { params: JobRef; result: JobInfo };
+  "jobs.reorder": { params: JobReorderRequest; result: QueueState };
   "jobs.resume": { params: JobRef; result: JobInfo };
+  "library.checkUpdates": { params: void; result: void };
+  "library.get": { params: void; result: LibraryDelta };
+  "library.refresh": { params: void; result: void };
+  "library.setFavorite": { params: GameFlagRequest; result: void };
+  "library.setHidden": { params: GameFlagRequest; result: void };
+  "library.updateAll": { params: void; result: UpdateAllResult };
+  "onboarding.complete": { params: void; result: OnboardingState };
+  "onboarding.restart": { params: void; result: OnboardingState };
+  "onboarding.setStep": { params: OnboardingStepRequest; result: OnboardingState };
+  "overlay.install": { params: void; result: JobInfo };
+  "overlay.remove": { params: void; result: OverlayState };
+  "overlay.setEnabled": { params: GameFlagRequest; result: OverlayState };
+  "queue.clearFinished": { params: void; result: QueueState };
+  "queue.pauseAll": { params: void; result: QueueState };
+  "queue.resumeAll": { params: void; result: QueueState };
+  "saves.get": { params: AppRef; result: SaveState };
+  "saves.openBackups": { params: AppRef; result: void };
+  "saves.resolve": { params: SaveResolveRequest; result: LaunchResult | null };
+  "saves.sync": { params: SaveSyncRequest; result: SaveState };
   "settings.reset": { params: void; result: Settings };
   "settings.update": { params: Settings; result: Settings };
+  "store.back": { params: void; result: StoreState };
+  "store.hide": { params: void; result: StoreState };
+  "store.reload": { params: void; result: StoreState };
+  "store.setBounds": { params: StoreBounds; result: void };
+  "store.show": { params: StoreShowRequest; result: StoreState };
   "window.close": { params: void; result: void };
   "window.getInfo": { params: void; result: WindowInfo };
   "window.minimize": { params: void; result: void };
@@ -383,16 +848,18 @@ export type RpcMethodName = keyof RpcMethods;
 /** Server-pushed events: event name → payload type. */
 export interface RpcEventMap {
   "caption": CaptionEvent;
+  "library": LibraryDelta;
+  "navigate": NavigateEvent;
   "notice": Notice;
   "progress": JobProgress;
   "state": AppSnapshot;
+  "store": StoreState;
   "window": WindowInfo;
 }
 
 export type RpcEventName = keyof RpcEventMap;
 
 export const RPC_METHODS = [
-  "app.completeOnboarding",
   "app.copyLogs",
   "app.getLicenses",
   "app.getLogs",
@@ -404,27 +871,66 @@ export const RPC_METHODS = [
   "app.ready",
   "auth.signIn",
   "auth.signOut",
+  "collections.create",
+  "collections.delete",
+  "collections.rename",
+  "collections.setMembership",
+  "egl.checkReadiness",
+  "egl.import",
+  "egl.importFolder",
   "egl.quickScan",
   "egl.rescan",
-  "game.adopt",
-  "game.checkForUpdates",
+  "egl.validateFolder",
+  "freeGames.get",
+  "game.activate",
   "game.close",
+  "game.getDetail",
   "game.install",
+  "game.installPrerequisites",
   "game.launch",
+  "game.modify",
   "game.move",
-  "game.openInstallFolder",
+  "game.openFolder",
   "game.planInstall",
   "game.prepareLaunch",
+  "game.setShortcut",
   "game.uninstall",
   "game.update",
-  "game.validateFolder",
+  "game.updateSettings",
   "game.verify",
   "jobs.cancel",
   "jobs.dismiss",
+  "jobs.getHistory",
+  "jobs.moveToTop",
   "jobs.pause",
+  "jobs.reorder",
   "jobs.resume",
+  "library.checkUpdates",
+  "library.get",
+  "library.refresh",
+  "library.setFavorite",
+  "library.setHidden",
+  "library.updateAll",
+  "onboarding.complete",
+  "onboarding.restart",
+  "onboarding.setStep",
+  "overlay.install",
+  "overlay.remove",
+  "overlay.setEnabled",
+  "queue.clearFinished",
+  "queue.pauseAll",
+  "queue.resumeAll",
+  "saves.get",
+  "saves.openBackups",
+  "saves.resolve",
+  "saves.sync",
   "settings.reset",
   "settings.update",
+  "store.back",
+  "store.hide",
+  "store.reload",
+  "store.setBounds",
+  "store.show",
   "window.close",
   "window.getInfo",
   "window.minimize",
