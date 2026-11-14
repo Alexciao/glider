@@ -511,7 +511,9 @@ public sealed record JobProgress(
     int? FilesTotal,
     DownloadMode Mode,
     /// <summary>What is limiting speed right now.</summary>
-    Limiter Limiter);
+    Limiter Limiter,
+    /// <summary>One plain-language sentence explaining <see cref="Limiter"/> ("Limited by drive D: (≈8 MB/s). Your connection can do ≈40 MB/s."); null when there is nothing to say.</summary>
+    string? LimiterReason = null);
 
 public sealed record NetworkStats(
     long DownloadedBytes,
@@ -612,7 +614,14 @@ public sealed record StorageState(IReadOnlyList<LibraryFolder> Folders, IReadOnl
 
 public sealed record LibraryFolder(string Path, bool IsDefault, bool Exists, string Drive, long FreeBytes, int GameCount);
 
-public sealed record DriveInfoDto(string Root, string? Label, long FreeBytes, long TotalBytes, bool IsSsd);
+public sealed record DriveInfoDto(
+    string Root,
+    string? Label,
+    long FreeBytes,
+    long TotalBytes,
+    bool IsSsd,
+    /// <summary>A plain-language warning for the install picker (hard disk, nearly full, or slow in practice); null when the drive looks fine.</summary>
+    string? Hint = null);
 
 // ===================================== EGL =====================================
 

@@ -129,6 +129,9 @@ internal sealed class WindowsJobObject : IDisposable
         return new WindowsJobObject(handle);
     }
 
+    /// <summary>For per-process tuning (ProcessTuning.JobProcessIds).</summary>
+    public SafeJobHandle Handle => _handle;
+
     public bool TryAssign(Process process) => NativeMethods.AssignProcessToJobObject(_handle, process.SafeHandle);
 
     public void Terminate()

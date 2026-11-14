@@ -312,7 +312,7 @@ internal sealed class StorageService
                 installed.Count(g => g.InstallPath!.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))));
         }
 
-        var state = new StorageState(folders, [.. drives.Select(d => new DriveInfoDto(d.RootPath, null, d.FreeBytes, d.TotalBytes, false))]);
+        var state = new StorageState(folders, DriveHints.Describe(drives, DriveSpeeds.Read(_c.Paths)));
         lock (_gate)
         {
             _cached = (state, now, key);

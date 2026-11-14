@@ -808,7 +808,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _c.Log.MinimumLevel = next.LogLevel;
         var saved = await _c.SettingsStore.UpdateAsync(next);
         _c.Hub.Invalidate();
-        if (prev.WhilePlaying != saved.WhilePlaying || prev.DownloadMode != saved.DownloadMode || prev.IdleFullSpeed != saved.IdleFullSpeed)
+        if (prev.WhilePlaying != saved.WhilePlaying || prev.DownloadMode != saved.DownloadMode || prev.IdleFullSpeed != saved.IdleFullSpeed || prev.SpeedLimitBytesPerSecond != saved.SpeedLimitBytesPerSecond)
         {
             _c.Jobs.Reevaluate();
         }

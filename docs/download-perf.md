@@ -461,3 +461,80 @@ outside the repo, a manifest copied from `%LocalAppData%\Glider\legendary\manife
 5. Fork only: failover test from §3.7 (`ChunkServer --reset-pct 100` primary, healthy fallback; must switch within
    15 s and finish) and a control-file switch.
 6. Summarise with `py -I tools/bench/summarize_runs.py runs.jsonl` and add the table to this file.
+
+---
+
+## 8. v0.2 implementation and re-run (2026-11-14, same machine)
+
+What shipped (Core, `Glider.Core/Legendary` + `Jobs`): modes applied per process by PID (`RunTuner`, `ModeSettings`, `ProcessRoles`), 16 workers /
+1 GiB (`AutoTune`), cache-usage + `+ Glider` line parsing, manifest chunk reader + CDN probe + one failover restart (`ManifestReader`,
+`CdnProbe`, `DownloadMonitor`), disk-bound / slow-CDN detection and the limiter sentence (`DiskBoundDetector`, `CdnWatch`,
+`LimiterDecision`), speed limit by worker throttling (`SpeedGovernor`), drive hints for the install picker (`DriveHints`), and the fork recipe
+(`tools/legendary-fork/`, `.github/workflows/legendary-fork.yml`; not adopted, see DECISIONS).
+
+### 8.1 Method
+
+`DownloadBenchmarkTests` (opt-in, `GLIDER_BENCH_*`) runs Legendary's own DLManager from the 0.21.1 source through **Glider's real process runner**
+(`tools/bench/legendary_run.py` is a stand-in for `legendary install` that logs in the real CLI format), so the job object, the tuner, the parser and
+the modes are the shipped code. File set: `pakchunk90-` + `pakchunk80-` (818 MiB), real Epic CDN `egdownload.fastly-edge.com`, 16 workers, 1 GiB cache
+(256 MiB on D: so the cache can fill). Before every run a 6 s, 16-connection ceiling sample on the same host (`CdnBench`). "Steady" = mean raw rate
+of the progress blocks without the first 3 and last 2. Total traffic ≈ 11.5 GB; install folders and scratch files deleted afterwards.
+
+**Caveat: the machine was at 73-100 % CPU the whole time** (other agents were building and testing in parallel) and the CDN drifted from 34 to 24 MB/s
+inside one session. Single runs differ by ±20 %, so compare the averages and the ceiling sampled right before each run, not single numbers.
+
+### 8.2 Install on C: (NVMe), network side
+
+| Run | Ceiling right before (MB/s) | Steady raw (MB/s) | % of ceiling | Start → first progress | Process priorities seen mid-run |
+|---|---:|---:|---:|---:|---|
+| v0.1 settings (BELOW_NORMAL tree), round 1 | 34.7 | 27.8 | 80 % | **13.5 s** | 20 × BelowNormal / I/O 2 / mem 5 |
+| **Full**, round 1 | 26.5 | 24.7 | 93 % | 4.2 s | 20 × Normal / 2 / 5 |
+| **Balanced**, round 1 | 24.4 | 23.7 | 97 % | 4.6 s | 19 × Normal / 2 / mem 2, **1 × BelowNormal / I/O 1 / mem 2 (the writer)** |
+| **Background**, round 1 (workers not capped in this harness) | 24.3 | 22.2 | 91 % | 5.3 s | 20 × Idle / I/O 0 / mem 1 |
+| **Balanced**, round 2 | 34.2 | 27.5 | 80 % | 4.4 s | same as above |
+| **Full**, round 2 | 28.9 | 25.5 | 88 % | 4.2 s | |
+| v0.1 settings, round 2 | 27.4 | 28.8 | 105 % | 4.9 s | |
+
+| Averages of the two rounds | Steady raw | Mean ceiling | % of ceiling |
+|---|---:|---:|---:|
+| v0.1 | 28.3 | 31.1 | 91 % |
+| **Full** | 25.1 | 27.7 | **91 %** (target ≥ 90 %: met on average; single runs 93 % and 88 %) |
+| **Balanced** | 25.6 | 29.3 | 87 % |
+| Balanced ÷ Full (same metric) | | | **102 %** (target ≥ 85-90 %: met) |
+
+Reading: the network side of Full, Balanced and v0.1 is the same within noise (as §3.6 predicted: workers wait on sockets). What changed is
+*what the priorities protect*: Balanced puts exactly one process (the writer) at below-normal CPU / low I/O and every process at low memory priority;
+v0.1 left I/O and memory at normal for all 20 processes. Start-up under load went from 13.5 s (BELOW_NORMAL tree) to 4-5 s. Background runs fully idle
+but, with the same 16 workers, still reached 91 % of the ceiling; the production Background spawn uses 4 workers (`ModeResourcePolicy.BackgroundWorkers`),
+which this harness did not apply, so its cap is not measured here.
+
+### 8.3 Install on D: (DRAM-less SATA SSD, 82 % full), disk-bound check
+
+Cache 256 MiB. Full: steady raw 6.5 MB/s, write 6.7 MB/s, **cache 256/256 MiB full for the whole run**, 139 s for 818 MiB while the ceiling sampled before
+it was 34 MB/s. Balanced: 6.2 MB/s, write 6.5 MB/s, cache full, 165 s (the 15.7 s start includes the disk being busy). The full cache is exactly what
+`DiskBoundDetector` keys on, so the job card reads "Limited by drive D: (≈6.5 MB/s). Your connection can do ≈34 MB/s." and `DriveSpeeds` remembers
+≈6.5 MB/s for D:, which the install picker then shows as "Slow in practice".
+
+### 8.4 CDN probe on the real hosts (3 rounds, the shipped C# probe)
+
+Rounds took **1.3-1.4 s** (a slow host is cut at 1.2 s of warm-up; the first version took 3 s because Akamai's slow edge ate the budget). Verdicts: round 1
+fastly 18.7 / akamai 30.5 / cloudfront 29.0 MB/s all ok -> pick fastly (Epic's order); round 2 akamai 12.9 MB/s "slow" vs cloudfront 37.7 -> pick fastly;
+round 3 fastly 15.0 "slow" vs cloudfront 49.8 -> pick akamai (the second good host). As §3.1 warned, single 4 MB samples are ±50 %, so the probe flips between equally
+good hosts; it excludes the really bad ones (earlier session: Akamai at 3.7 MB/s, TTFB 160 ms).
+
+### 8.5 Speed limit
+
+- **Job Object net-rate control** (`JobObjectNetRateControlInformation`, 32): accepted unelevated, but a job capped at **5 MB/s downloaded at 31.5 MB/s** and one
+  capped at 12 MB/s at 27.9 MB/s (unlimited: 26.9). It only shapes outgoing traffic. Rejected.
+- **Worker throttling** (kept): duty-cycle suspension of the download-worker processes with feedback on the raw rate. Test (4 real worker processes against a local
+  server paced at 10 MB/s per connection, ≈40 MB/s unlimited): limit 10 MB/s -> measured within 5-16 MB/s after ~10 s, and back to full speed within seconds when the
+  limit is removed. The feedback law is unit-tested (converges within ±30 % under ±10 % noise). Floor: the duty cycle never goes below 3 %, and a limit far below
+  what 16 workers move in one 250 ms slice (< ~2 MB/s) is only approximate; the fork's `max_active` AIMD has no such floor.
+
+### 8.6 Not measured / open
+
+- Foreground benefit (game frame time, disk latency of a competing copy) under Full vs Balanced vs Background: the priorities are applied and verified, the effect
+  needs a game and a quiet machine.
+- Fork: patch applies cleanly to 0.21.1, the PyInstaller exe builds locally (14.7 MB), reports `0.21.1-glider.1`, shows `--control-file` and honours
+  `LEGENDARY_CONFIG_PATH`; the GitHub Actions run itself has not been executed (nothing is pushed), and the failover test of §3.7 was not re-run against the exe.
+- A real Epic install/update through the whole app (needs a sign-in).

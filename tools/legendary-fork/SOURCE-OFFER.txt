@@ -1,0 +1,20 @@
+Legendary (Glider fork) - source code offer
+============================================
+
+legendary.exe in this folder is a modified build of Legendary 0.21.1 (https://github.com/legendary-gl/legendary),
+which is free software licensed under the GNU General Public License, version 3 or later (see LICENSE.txt).
+
+What was changed: glider-legendary.patch (next to this file) lists every change; each one is marked "# glider:" in the
+source. In short: a failing chunk download is retried a bounded number of times (0.21.1 retried forever), a failed chunk is
+requeued correctly, the download fails over to the next CDN of Epic's list after repeated failures, a control file
+(--control-file) lets the host change the number of in-flight downloads or the CDN while it runs, and one extra machine-readable
+line is printed per progress block. The build also replaces the package-metadata version lookup with a literal version string.
+
+The complete corresponding source code (upstream commit 42f6bdeadde3a9526dc8eb713763476999ac217b with the patch applied, the exact
+tree that was built) is published next to the binary, in the release "legendary-fork-<version>" of
+https://github.com/Alexciao/glider/releases as legendary-<version>-source.tar.gz. The build recipe is
+.github/workflows/legendary-fork.yml in https://github.com/Alexciao/glider. If you cannot get it from there, ask the Glider
+maintainers (open an issue on that repository) and the source will be provided to you.
+
+Glider itself is MIT licensed; Legendary runs as a separate program that Glider starts. No part of Legendary's source is
+linked into Glider.

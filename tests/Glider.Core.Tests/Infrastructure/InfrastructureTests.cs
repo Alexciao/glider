@@ -279,12 +279,12 @@ public class AutoTuneTests
     private const long GiB = 1024L * 1024 * 1024;
 
     [Theory]
-    [InlineData(2, 3, 4, 1024)]     // tiny laptop: RAM caps workers
-    [InlineData(4, 8, 8, 2048)]
-    [InlineData(6, 16, 12, 3072)]
-    [InlineData(12, 32, 16, 4096)]  // Legendary's own min(2*cpu, 16)
-    [InlineData(64, 128, 16, 4096)] // writer-bound beyond 16
-    [InlineData(1, 6, 6, 2048)]     // floor keeps a fast pipe full on 1-2 cores
+    [InlineData(2, 3, 12, 1024)]    // under 4 GiB RAM: 12 workers
+    [InlineData(4, 8, 16, 1024)]    // 16 everywhere else, whatever the CPU count (workers wait on sockets)
+    [InlineData(6, 16, 16, 1024)]
+    [InlineData(12, 32, 16, 1024)]
+    [InlineData(64, 128, 16, 1024)]
+    [InlineData(1, 6, 16, 1024)]
     public void PicksSaneValues(int cpus, long ramGiB, int workers, int shm)
     {
         var r = AutoTune.Compute(cpus, ramGiB * GiB);
@@ -304,8 +304,8 @@ public class AutoTuneTests
     public void CurrentMachineIsWithinLimits()
     {
         var r = AutoTune.ForCurrentMachine();
-        Assert.InRange(r.Workers, 4, 16);
-        Assert.InRange(r.SharedMemoryMb, 1024, 4096);
+        Assert.InRange(r.Workers, 12, 16);
+        Assert.Equal(1024, r.SharedMemoryMb);
         Assert.True(Encoding.UTF8.GetByteCount(r.ToString()) > 0);
     }
 }

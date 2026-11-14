@@ -70,7 +70,42 @@ public class ProgressParserTests
         Assert.Equal(120.4 * MiB, s.DecompressedBytesPerSecond, tolerance: 1);
         Assert.Equal(118 * MiB, s.DiskWriteBytesPerSecond, tolerance: 1);
         Assert.Equal(0.5 * MiB, s.DiskReadBytesPerSecond, tolerance: 1);
+        Assert.Equal(96.0, s.CacheUsedMiB);
+        Assert.Equal(16, s.ActiveTasks);
+        Assert.Null(s.Cdn); // stock Legendary prints no CDN
         Assert.Equal(ProgressKind.Download, parser.SnapshotKind);
+    }
+
+    [Fact]
+    public void GliderForkLineSuppliesCdnAndCacheSizeToTheNextSnapshot()
+    {
+        var parser = new ProgressParser();
+        string[] block =
+        [
+            "[DLManager] INFO: = Progress: 1.00% (10/1000), Running for 00:00:10, ETA: 00:16:00",
+            "[DLManager] INFO:  - Downloaded: 10.00 MiB, Written: 10.00 MiB",
+            "[DLManager] INFO:  - Cache usage: 1010.00 MiB, active tasks: 32",
+            "[DLManager] INFO:  + Download	- 5.00 MiB/s (raw) / 5.00 MiB/s (decompressed)",
+            "[DLManager] INFO:  + Disk	- 8.00 MiB/s (write) / 0.00 MiB/s (read)",
+        ];
+        const string glider = "[DLManager] INFO:  + Glider	- {\"cdn\": \"egdownload.fastly-edge.com\", \"cdn_failures_30s\": 0, \"active\": 32, \"max_active\": 32, " +
+                              "\"cache_used_mib\": 1010, \"cache_total_mib\": 1024, \"dl_bps\": 5242880, \"write_bps\": 8388608, \"read_bps\": 0}";
+        foreach (var line in block)
+        {
+            Assert.True(parser.TryParse(line, out _));
+        }
+
+        Assert.True(parser.TryParse(glider, out var published));
+        Assert.False(published); // the block was already published at its Disk line
+        foreach (var line in block)
+        {
+            Assert.True(parser.TryParse(line, out _));
+        }
+
+        var s = parser.Snapshot;
+        Assert.Equal("egdownload.fastly-edge.com", s.Cdn);
+        Assert.Equal(1024, s.CacheTotalMiB);
+        Assert.Equal(1010, s.CacheUsedMiB);
     }
 
     [Fact]

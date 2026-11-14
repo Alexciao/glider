@@ -1,6 +1,7 @@
 // Fetches the pinned Legendary release into src/Glider.App/legendary/ and verifies SHA-256.
-// Usage: dotnet run build/FetchLegendary.cs [-- <repo-root>]
-// Pins live in build/legendary.json. Idempotent: files whose hash already matches are left alone.
+// Usage: dotnet run build/FetchLegendary.cs [-- [--fork] [<repo-root>]]
+// Pins live in build/legendary.json (--fork: build/legendary-fork.json, the Glider fork, which also ships its patch and source offer).
+// Idempotent: files whose hash already matches are left alone.
 using System.Security.Cryptography;
 using System.Text.Json;
 
@@ -16,11 +17,15 @@ catch (Exception ex)
 
 static async Task<int> RunAsync(string[] args)
 {
-    var root = args.Length > 0 ? Path.GetFullPath(args[0]) : FindRoot();
-    var pinPath = Path.Combine(root, "build", "legendary.json");
+    var fork = args.Contains("--fork");
+    var positional = args.Where(a => a != "--fork").ToArray();
+    var root = positional.Length > 0 ? Path.GetFullPath(positional[0]) : FindRoot();
+    var pinPath = Path.Combine(root, "build", fork ? "legendary-fork.json" : "legendary.json");
     using var pinDoc = JsonDocument.Parse(await File.ReadAllTextAsync(pinPath));
     string Pin(string name) => pinDoc.RootElement.GetProperty(name).GetString()
-        ?? throw new InvalidDataException($"{pinPath}: '{name}' is null");
+        ?? throw new InvalidDataException($"{pinPath}: '{name}' is null" + (fork && name == "sha256"
+            ? " (the fork is not published yet: run the legendary-fork workflow on a legendary-fork-* tag and record the hash, see tools/legendary-fork/README.md)"
+            : ""));
 
     var destDir = Path.Combine(root, "src", "Glider.App", "legendary");
     Directory.CreateDirectory(destDir);
@@ -30,6 +35,13 @@ static async Task<int> RunAsync(string[] args)
 
     await EnsureAsync(http, "legendary.exe", Pin("url"), Pin("sha256"), Path.Combine(destDir, "legendary.exe"));
     await EnsureAsync(http, "LICENSE.txt", Pin("licenseUrl"), Pin("licenseSha256"), Path.Combine(destDir, "LICENSE.txt"));
+    if (fork)
+    {
+        // GPLv3: the patch and the source offer travel with the modified binary.
+        File.Copy(Path.Combine(root, "tools", "bench", "legendary-0.21.1-glider.patch"), Path.Combine(destDir, "glider-legendary.patch"), overwrite: true);
+        File.Copy(Path.Combine(root, "tools", "legendary-fork", "SOURCE-OFFER.txt"), Path.Combine(destDir, "SOURCE-OFFER.txt"), overwrite: true);
+    }
+
     Console.WriteLine($"Legendary {Pin("version")} ready in {destDir}");
     return 0;
 }

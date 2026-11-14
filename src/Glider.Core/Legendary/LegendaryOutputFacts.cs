@@ -75,6 +75,12 @@ internal sealed class LegendaryOutputFacts
     public bool SdlDownloadFailed { get; private set; }
     public bool ManifestMissing { get; private set; }
     public bool DownloadStarted { get; private set; }
+
+    /// <summary>Pid of Legendary's DLManager process ("Download Manager running with process-id: N"); 0 until printed.</summary>
+    public int DownloadManagerPid { get; private set; }
+
+    /// <summary>"Starting file writing worker..." was printed: the file-writer process is the DLManager's next (last) child.</summary>
+    public bool WriterStarting { get; private set; }
     public bool Finalizing { get; private set; }
     public bool SwitchedToRepair { get; private set; }
 
@@ -227,6 +233,15 @@ internal sealed class LegendaryOutputFacts
         {
             DownloadStarted = true;
             Phase = JobPhase.Downloading;
+            if (msg.StartsWith("Download Manager running with process-id: ", StringComparison.Ordinal) &&
+                int.TryParse(msg[42..].Trim(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var pid))
+            {
+                DownloadManagerPid = pid;
+            }
+        }
+        else if (msg.StartsWith("Starting file writing worker", StringComparison.Ordinal))
+        {
+            WriterStarting = true;
         }
         else if (msg.StartsWith("Waiting for installation to finish", StringComparison.Ordinal))
         {

@@ -11,7 +11,7 @@ namespace FakeLegendary;
 /// invocation to <c>$LEGENDARY_CONFIG_PATH/fake/invocations.log</c>, then executes the script
 /// <c>fake/&lt;command&gt;.&lt;n&gt;.script</c> (n = 1-based invocation count of that command) or <c>fake/&lt;command&gt;.script</c>.
 ///
-/// Script directives (one per line, '#' comments; text supports \t \r \n \\ \uXXXX escapes and {basepath} {config} {arg:N}):
+/// Script directives (one per line, '#' comments; text supports \t \r \n \\ \uXXXX escapes and {basepath} {config} {pid} {arg:N}; `child [TAG]` writes fake/child[.TAG].pid):
 ///   err TEXT / out TEXT          line to stderr (ANSI code page + Python backslashreplace) / stdout (UTF-8), CRLF-terminated
 ///   errraw TEXT / outraw TEXT    same without a line terminator
 ///   errfile PATH [ms] / outfile PATH [ms]   replay a fixture line by line (leading '#' header lines skipped)
@@ -40,6 +40,11 @@ internal static partial class Program
             File.WriteAllText(args[1], Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
             Thread.Sleep(Timeout.Infinite);
             return 0;
+        }
+
+        if (args.Length == 2 && args[0] == "--fake-worker")
+        {
+            return FakeWorker(int.Parse(args[1], CultureInfo.InvariantCulture));
         }
 
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
@@ -98,7 +103,8 @@ internal static partial class Program
                 case "sleep": Thread.Sleep(int.Parse(rest, CultureInfo.InvariantCulture)); break;
                 case "hang": Thread.Sleep(Timeout.Infinite); break;
                 case "exit": return int.Parse(rest, CultureInfo.InvariantCulture);
-                case "child": SpawnChild(); break;
+                case "child": SpawnChild(rest.Trim()); break;
+                case "worker": SpawnWorker(rest.Trim()); break;
                 case "readstdin": if (ReadStdin() is { } code) { return code; } break;
                 case "download": Download(KeyValues(rest)); break;
                 case "verify": Verify(KeyValues(rest)); break;
@@ -267,6 +273,7 @@ internal static partial class Program
         }
 
         var s = sb.ToString().Replace("{config}", _config, StringComparison.Ordinal)
+            .Replace("{pid}", Environment.ProcessId.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
             .Replace("{basepath}", _options.GetValueOrDefault("--base-path", ""), StringComparison.Ordinal);
         for (var a = 0; a < _positional.Count; a++)
         {
@@ -322,9 +329,41 @@ internal static partial class Program
 
     // ------------------------------------------------------------------ behaviours
 
-    private static void SpawnChild()
+    /// <summary>`worker PORT`: a child that GETs 1 MiB bodies from 127.0.0.1:PORT forever over one keep-alive connection (a stand-in DLWorker).</summary>
+    private static void SpawnWorker(string port)
     {
-        var pidFile = Path.Combine(_config, "fake", "child.pid");
+        var psi = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
+        psi.ArgumentList.Add("--fake-worker");
+        psi.ArgumentList.Add(port);
+        Process.Start(psi);
+    }
+
+    private static int FakeWorker(int port)
+    {
+        using var client = new System.Net.Sockets.TcpClient("127.0.0.1", port);
+        using var stream = client.GetStream();
+        var request = Encoding.ASCII.GetBytes("GET /chunk HTTP/1.1\r\nHost: x\r\n\r\n");
+        var buffer = new byte[64 * 1024];
+        while (true)
+        {
+            stream.Write(request);
+            long remaining = 1 << 20; // the server answers every request with exactly 1 MiB, no headers
+            while (remaining > 0)
+            {
+                var n = stream.Read(buffer);
+                if (n <= 0)
+                {
+                    return 0;
+                }
+
+                remaining -= n;
+            }
+        }
+    }
+
+    private static void SpawnChild(string tag = "")
+    {
+        var pidFile = Path.Combine(_config, "fake", tag.Length == 0 ? "child.pid" : $"child.{tag}.pid");
         var psi = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
         psi.ArgumentList.Add("--fake-child");
         psi.ArgumentList.Add(pidFile);

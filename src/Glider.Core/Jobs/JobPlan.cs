@@ -84,6 +84,33 @@ public sealed class DefaultResourcePolicy : IResourcePolicy
 }
 
 /// <summary>
+/// The v0.2 download modes (docs/download-perf.md §5.6). Install/update/repair/verify runs get a live <see cref="RunControl"/>; the runner
+/// then applies, per process and after Legendary's multiprocessing children exist: Full = everything normal; Balanced = normal CPU
+/// while Legendary starts up, then below-normal CPU + low I/O + low memory priority on the file-writer process only (the network
+/// side keeps its normal priority, so throughput matches Full); Background = the whole tree at idle CPU, very-low I/O and memory
+/// priority, EcoQoS, and at most <see cref="BackgroundWorkers"/> download workers. Other job kinds keep the v0.1 profile.
+/// </summary>
+public sealed class ModeResourcePolicy : IResourcePolicy
+{
+    public const int BackgroundWorkers = 4;
+
+    private readonly Func<long?> _speedLimit;
+
+    public ModeResourcePolicy(Func<long?>? speedLimitBytesPerSecond = null) => _speedLimit = speedLimitBytesPerSecond ?? (() => null);
+
+    public ResourceProfile For(DownloadMode mode, JobKind kind) => kind switch
+    {
+        JobKind.Install or JobKind.Update or JobKind.Repair or JobKind.Modify => new ResourceProfile(LowPriority: false)
+        {
+            Control = new RunControl(mode, _speedLimit()),
+            WorkerCap = mode == DownloadMode.Background ? BackgroundWorkers : null,
+        },
+        JobKind.Verify => new ResourceProfile(LowPriority: false) { Control = new RunControl(mode, null), WholeTree = true },
+        _ => ResourceProfile.Default,
+    };
+}
+
+/// <summary>
 /// Shared between the writer lane and the metadata lane: a writer job is in its pre-download phase (spawned, logging in and
 /// refreshing the same metadata files) until its first progress line or exit. Metadata-lane commands wait for it to pass.
 /// </summary>

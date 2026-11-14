@@ -35,6 +35,18 @@ public sealed class LegendaryOptions
 
     /// <summary>Answer `status --offline` from user.json directly when the file is unambiguous (no process).</summary>
     public bool ReadAccountFromUserJson { get; init; } = true;
+
+    /// <summary>Probe Epic's CDNs at job start and pick a good one (docs/download-perf.md §5.1). Skipped when the user chose a CDN or there is no cached manifest.</summary>
+    public bool ProbeCdn { get; init; } = true;
+
+    /// <summary>HTTP handler for the CDN probe (tests inject a fake). Null = <see cref="SocketsHttpHandler"/>.</summary>
+    public Func<HttpMessageHandler>? CdnProbeHandler { get; init; }
+
+    /// <summary>
+    /// The bundled exe is the Glider fork (docs/download-perf.md §5.4): CDN failover inside Legendary, a runtime control file
+    /// (<c>--control-file</c>) and the extra " + Glider" progress line. False = stock Legendary 0.21.1.
+    /// </summary>
+    public bool Fork { get; init; } = LegendaryPin.IsFork;
 }
 
 /// <summary>The Legendary version this build bundles (from build/legendary.json, stamped into the assembly at build time).</summary>
@@ -44,6 +56,9 @@ public static class LegendaryPin
         .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false)
         .OfType<System.Reflection.AssemblyMetadataAttribute>()
         .FirstOrDefault(a => a.Key == "LegendaryVersion")?.Value is { Length: > 0 } v ? v : null;
+
+    /// <summary>The pinned exe is the Glider fork ("0.21.1-glider.N"), which understands <c>--control-file</c>.</summary>
+    public static bool IsFork => Version?.Contains("-glider", StringComparison.OrdinalIgnoreCase) == true;
 }
 
 /// <summary>
@@ -293,31 +308,73 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
         var sharedMemory = args.MaxSharedMemoryMb;
         var repairAndUpdate = false;
         var ceiling = _options.SharedMemoryRetryCeilingMb ?? AutoTune.MaxSharedMemoryMb(AutoTune.TotalMemoryBytes());
-
-        for (var attempt = 0; ; attempt++)
+        var resources = args.Resources ?? ResourceProfile.Default;
+        if (resources.WorkerCap is { } cap && (args.MaxWorkers <= 0 || args.MaxWorkers > cap))
         {
-            var command = new LegendaryCommand(kind, InstallArguments(args, before is not null, sharedMemory, repairAndUpdate))
+            args = args with { MaxWorkers = cap }; // Background: a few workers are enough for a download that stays out of the way
+        }
+
+        // Which CDN: the user's choice, else the job-start probe (needs a cached manifest), else Legendary's default.
+        var sink = progress as ILegendaryProgressSink;
+        CdnPlan? plan = null;
+        CdnHostResult? current = null;
+        if (string.IsNullOrWhiteSpace(args.PreferredCdn) && string.IsNullOrWhiteSpace(args.BaseUrl) && _options.ProbeCdn)
+        {
+            plan = await ProbeCdnAsync(args.AppName, ct);
+            if (plan?.Pick is { } pick)
+            {
+                current = pick;
+                args = WithCdn(args, pick);
+            }
+        }
+
+        var switched = false;
+        var attempt = 0;
+        while (true)
+        {
+            var cdnHost = current?.Host ?? args.PreferredCdn?.Trim() ?? (args.BaseUrl is { } baseUrl ? SafeHost(baseUrl) : CdnProbe.ReadBaseUrls(Config, args.AppName).Select(SafeHost).FirstOrDefault());
+            var cacheMiB = sharedMemory > 0 ? sharedMemory : 2048;
+            sink?.OnRunInfo(new RunInfo(cdnHost, args.MaxWorkers > 0 ? args.MaxWorkers : null, cacheMiB, plan?.ProbeMegabytesPerSecond(cdnHost)));
+            var monitor = new DownloadMonitor(_time, sink, cacheMiB, plan?.ProbeMegabytesPerSecond(cdnHost));
+            var wasSwitched = switched;
+            var command = new LegendaryCommand(kind, InstallArguments(args, before is not null, sharedMemory, repairAndUpdate, _options.Fork ? ControlFile(args.AppName) : null))
             {
                 Exclusive = true,
                 UsesLogin = true,
-                LowPriority = (args.Resources ?? ResourceProfile.Default).LowPriority,
+                LowPriority = resources.LowPriority,
+                Resources = resources,
+                DownloadWorkers = args.MaxWorkers > 0 ? args.MaxWorkers : null,
+                OnProgress = monitor.OnProgress,
+                ControlFile = _options.Fork ? ControlFile(args.AppName) : null,
                 StallTimeout = _options.StallTimeout,
                 Timeout = Timeout.InfiniteTimeSpan,
                 // A failed SDL download makes Legendary fall back to a stale hardcoded tag table (core.py:449-453): a fresh
                 // install would miss most files and an update would *delete* them as "untagged". Stop before it starts.
-                AbortWhen = f => f.SdlDownloadFailed,
+                // Slow for minutes on a CDN the probe liked: stop too, and rerun on the next one (resume keeps finished files).
+                AbortWhen = f => f.SdlDownloadFailed || monitor.WantsSwitch(f) && !wasSwitched && plan is not null,
             };
             var run = await RunAsync(command, progress, ct);
             var f = run.Facts;
 
+            if (!switched && plan is not null && current is not null && plan.Next(current.Host) is { } next &&
+                ((run.AbortedEarly && monitor.Cdn.ShouldSwitch) || (run.Stalled && !monitor.Disk.IsDiskBound)))
+            {
+                _log.Warn("cdn", $"{current.Host} {(run.Stalled ? "stalled" : "has been slow for 3 minutes")}; restarting on {next.Host} (finished files are kept).");
+                switched = true;
+                current = next;
+                args = WithCdn(args, next);
+                continue;
+            }
+
             if (attempt == 0 && f.SharedMemorySuggestedMiB is { } need)
             {
-                var next = (int)Math.Ceiling((need + 128) / 256.0) * 256;
-                var current = sharedMemory > 0 ? sharedMemory : 2048;
-                if (next > current && next <= ceiling)
+                var nextSize = (int)Math.Ceiling((need + 128) / 256.0) * 256;
+                var currentSize = sharedMemory > 0 ? sharedMemory : 2048;
+                if (nextSize > currentSize && nextSize <= ceiling)
                 {
-                    _log.Info("legendary", $"Download cache too small ({current} MiB); retrying with {next} MiB.");
-                    sharedMemory = next;
+                    _log.Info("legendary", $"Download cache too small ({currentSize} MiB); retrying with {nextSize} MiB.");
+                    sharedMemory = nextSize;
+                    attempt++;
                     continue;
                 }
             }
@@ -326,6 +383,7 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
             {
                 _log.Info("legendary", "Installed manifest missing; repairing against the latest manifest.");
                 repairAndUpdate = true;
+                attempt++;
                 continue;
             }
 
@@ -349,6 +407,45 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
         }
     }
 
+    /// <summary>Legendary reorders its CDN list for <c>--preferred-cdn</c>; a probed extra host isn't in it and needs <c>--base-url</c> (which replaces the list).</summary>
+    private static InstallArgs WithCdn(InstallArgs args, CdnHostResult host) =>
+        host.InEpicList ? args with { PreferredCdn = host.Host, BaseUrl = null } : args with { PreferredCdn = null, BaseUrl = host.BaseUrl };
+
+    private static string? SafeHost(string url) => Uri.TryCreate(url, UriKind.Absolute, out var u) ? u.Host : null;
+
+    /// <summary>Where the fork polls for live changes (<c>{"max_active": n, "base_url": url}</c>), written atomically.</summary>
+    internal string ControlFile(string appName) => Path.Combine(Config, "tmp", appName + ".control");
+
+    /// <summary>Job-start CDN probe from the cached manifest; null when there is nothing to choose from or anything goes wrong (never blocks an install).</summary>
+    private async Task<CdnPlan?> ProbeCdnAsync(string appName, CancellationToken ct)
+    {
+        try
+        {
+            var urls = CdnProbe.ReadBaseUrls(Config, appName);
+            var manifest = CdnProbe.FindManifest(Config, appName);
+            if (urls.Count == 0 || manifest is null)
+            {
+                _log.Debug("cdn", $"cdn probe skipped for {appName}: {(urls.Count == 0 ? "no CDN list yet" : "no cached manifest yet")}.");
+                return null;
+            }
+
+            var table = await Task.Run(() => ManifestReader.TryReadChunks(File.ReadAllBytes(manifest)), ct);
+            if (table is null)
+            {
+                _log.Debug("cdn", "cdn probe skipped: the cached manifest has no plain chunk list.");
+                return null;
+            }
+
+            var chunks = table.PickProbeChunks(8, Environment.TickCount);
+            return await new CdnProbe(_log, _options.CdnProbeHandler).ProbeAsync(urls, chunks, ct);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            _log.Warn("cdn", "cdn probe failed; using Legendary's default CDN.", e);
+            return null;
+        }
+    }
+
     public async Task<LegendarySizes?> GetUpdateSizesAsync(string appName, CancellationToken ct)
     {
         // No -y: Legendary prints its analysis (cli.py:1043-1050) and then asks "Do you wish to install?". stdin is closed so
@@ -366,12 +463,17 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
         return f.SummaryComplete && f.DownloadSizeBytes is { } download ? new LegendarySizes(download, f.InstallSizeBytes ?? 0) : null;
     }
 
-    public async Task<LegendaryOutcome> VerifyAsync(string appName, IProgress<LegendaryProgress> progress, CancellationToken ct)
+    public Task<LegendaryOutcome> VerifyAsync(string appName, IProgress<LegendaryProgress> progress, CancellationToken ct) =>
+        VerifyAsync(appName, progress, null, ct);
+
+    public async Task<LegendaryOutcome> VerifyAsync(string appName, IProgress<LegendaryProgress> progress, ResourceProfile? resources, CancellationToken ct)
     {
+        resources ??= ResourceProfile.Default;
         var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Verify, ["verify", appName])
         {
             Exclusive = true,
-            LowPriority = true,
+            LowPriority = resources.LowPriority,
+            Resources = resources,
             StallTimeout = _options.StallTimeout,
             Timeout = Timeout.InfiniteTimeSpan,
         }, progress, ct);
@@ -634,7 +736,7 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
     }
 
     // ------------------------------------------------------------------ helpers
-    internal static IReadOnlyList<string> InstallArguments(InstallArgs args, bool installed, int sharedMemoryMb, bool repairAndUpdate)
+    internal static IReadOnlyList<string> InstallArguments(InstallArgs args, bool installed, int sharedMemoryMb, bool repairAndUpdate, string? controlFile = null)
     {
         var verb = args.Mode switch
         {
@@ -691,6 +793,18 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
         {
             a.Add("--preferred-cdn");
             a.Add(args.PreferredCdn.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(args.BaseUrl) && Uri.TryCreate(args.BaseUrl, UriKind.Absolute, out var baseUrl) && baseUrl.Scheme is "https" or "http")
+        {
+            a.Add("--base-url");
+            a.Add(baseUrl.ToString().TrimEnd('/'));
+        }
+
+        if (controlFile is not null)
+        {
+            a.Add("--control-file");
+            a.Add(controlFile);
         }
 
         return a;

@@ -19,7 +19,20 @@ internal interface ILegendaryProgressSink : IProgress<LegendaryProgress>
     void OnPhase(JobPhase phase);
 
     void OnSizes(LegendaryRunSizes sizes);
+
+    /// <summary>What the run was started with: CDN host, connections (= download workers), cache size, the probe's MB/s for that host.</summary>
+    void OnRunInfo(RunInfo info)
+    {
+    }
+
+    /// <summary>The download monitor's verdicts changed: the install drive can't keep up, or the CDN has been slow for a while.</summary>
+    void OnHealth(bool diskBound, bool cdnSlow)
+    {
+    }
 }
+
+/// <summary>Facts about one download run that the progress lines don't carry.</summary>
+internal readonly record struct RunInfo(string? Cdn = null, int? Connections = null, int? CacheMiB = null, double? ProbeMegabytesPerSecond = null);
 
 internal sealed record LegendaryCommand(LegendaryCommandKind Kind, IReadOnlyList<string> Arguments)
 {
@@ -42,6 +55,21 @@ internal sealed record LegendaryCommand(LegendaryCommandKind Kind, IReadOnlyList
 
     /// <summary>Run below normal priority (long downloads/hashing must not starve the foreground).</summary>
     public bool LowPriority { get; init; }
+
+    /// <summary>
+    /// The download mode of this run (priorities per process, applied live). When it carries a <see cref="ResourceProfile.Control"/>
+    /// the job object no longer pins a priority class: <see cref="LowPriority"/> is ignored.
+    /// </summary>
+    public ResourceProfile? Resources { get; init; }
+
+    /// <summary>Number of download workers Legendary will start (<c>--max-workers</c>); lets the tuner tell the writer from the workers.</summary>
+    public int? DownloadWorkers { get; init; }
+
+    /// <summary>Called for every published progress block (from the pump thread, under the run's lock: keep it tiny).</summary>
+    public Action<LegendaryProgress>? OnProgress { get; init; }
+
+    /// <summary>Control file of the Glider fork (<c>--control-file</c>); null on stock Legendary.</summary>
+    public string? ControlFile { get; init; }
 
     /// <summary>Kill the run early when the facts so far show it is doomed (e.g. SDL data failed on a fresh install).</summary>
     public Func<LegendaryOutputFacts, bool>? AbortWhen { get; init; }
@@ -282,12 +310,14 @@ internal sealed class LegendaryProcessRunner : IDisposable
         _log.Info("legendary", $"> legendary {display}");
 
         WindowsJobObject? job = null;
+        RunTuner? tuner = null;
         using var process = new Process { StartInfo = psi };
         try
         {
+            var tuned = command.Resources?.Control is not null && OperatingSystem.IsWindows();
             if (OperatingSystem.IsWindows())
             {
-                job = WindowsJobObject.TryCreate(command.LowPriority, _log);
+                job = WindowsJobObject.TryCreate(command.LowPriority && !tuned, _log);
             }
 
             try
@@ -299,13 +329,18 @@ internal sealed class LegendaryProcessRunner : IDisposable
                 throw new GliderException(Errors.LegendaryMissing($"{_paths.LegendaryExe}: {e.Message}"), e);
             }
 
-            AttachToJob(process, job, command.LowPriority);
+            AttachToJob(process, job, command.LowPriority && !tuned);
             try
             {
                 process.StandardInput.Close(); // any stray input() gets EOF instead of hanging forever
             }
             catch (IOException)
             {
+            }
+
+            if (tuned && job is not null && OperatingSystem.IsWindows())
+            {
+                tuner = StartTuner(job, command, state);
             }
 
             using var pumpCts = new CancellationTokenSource();
@@ -376,6 +411,11 @@ internal sealed class LegendaryProcessRunner : IDisposable
         }
         finally
         {
+            if (OperatingSystem.IsWindows())
+            {
+                tuner?.Dispose();
+            }
+
             state.CompleteEvents(); // no-op after FinishAsync; releases the dispatcher if we got here by an exception
             if (!process.HasExitedSafe())
             {
@@ -437,6 +477,16 @@ internal sealed class LegendaryProcessRunner : IDisposable
                 return StopReason.Stalled;
             }
         }
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private RunTuner StartTuner(WindowsJobObject job, LegendaryCommand command, RunState state)
+    {
+        var tuner = new RunTuner(job, command.Resources!.Control!, command.Resources.WholeTree, command.DownloadWorkers, _log, controlFile: command.ControlFile);
+        state.OnDownloadManager = tuner.SetDownloadManager;
+        state.OnWriterStarting = tuner.WriterStarting;
+        tuner.Kick(); // the job now has its first process
+        return tuner;
     }
 
     private void AttachToJob(Process process, WindowsJobObject? job, bool lowPriority)
@@ -520,6 +570,13 @@ internal sealed class LegendaryProcessRunner : IDisposable
         private long _lastLiveness;
         private readonly AuthGate.Lease? _lease;
         private bool _sawLogin;
+        private int _reportedDownloadManager;
+        private bool _reportedWriter;
+
+        /// <summary>Set by the runner once the tuner exists (before the DLManager prints anything).</summary>
+        public Action<int>? OnDownloadManager { get; set; }
+
+        public Action? OnWriterStarting { get; set; }
 
         public RunState(LegendaryCommand command, ILegendaryProgressSink? sink, IProgress<LegendaryProgress>? progress, ILog log, int tailLines, TimeProvider time, AuthGate.Lease? lease = null)
         {
@@ -580,6 +637,10 @@ internal sealed class LegendaryProcessRunner : IDisposable
                     if (published)
                     {
                         Publish();
+                        if (_command.AbortWhen?.Invoke(Facts) == true)
+                        {
+                            _abort.TrySetResult(); // e.g. the CDN has been slow for minutes: stop now, the caller restarts on the next one
+                        }
                     }
 
                     return;
@@ -613,6 +674,18 @@ internal sealed class LegendaryProcessRunner : IDisposable
                 }
 
                 SetPhase(Facts.Phase);
+                if (Facts.DownloadManagerPid != _reportedDownloadManager)
+                {
+                    _reportedDownloadManager = Facts.DownloadManagerPid;
+                    OnDownloadManager?.Invoke(_reportedDownloadManager);
+                }
+
+                if (Facts.WriterStarting && !_reportedWriter)
+                {
+                    _reportedWriter = true;
+                    OnWriterStarting?.Invoke();
+                }
+
                 if (!_sizesReported && Facts.SummaryComplete)
                 {
                     _sizesReported = true;
@@ -690,6 +763,8 @@ internal sealed class LegendaryProcessRunner : IDisposable
 
             _havePublished = true;
             _lastPublished = p;
+            _command.OnProgress?.Invoke(p);
+            _command.Resources?.Control?.ReportRawRate(p.DownloadBytesPerSecond);
             if (kind == ProgressKind.Download && Facts.Phase is JobPhase.Preparing or JobPhase.Verifying)
             {
                 Facts.Phase = JobPhase.Downloading;

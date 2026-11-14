@@ -1,0 +1,8 @@
+{
+  "upstream": "https://github.com/legendary-gl/legendary",
+  "tag": "0.21.1",
+  "commit": "42f6bdeadde3a9526dc8eb713763476999ac217b",
+  "patch": "tools/bench/legendary-0.21.1-glider.patch",
+  "patchSha256": "42f86212f4d7505e1e7bc423d70aa6fc2cb755b9a798a969c30e55367366bf14",
+  "forkVersion": "0.21.1-glider.1"
+}

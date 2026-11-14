@@ -51,3 +51,35 @@ public class LegendaryIntegrityTests
         Assert.Equal(LegendaryCli.PinnedSha256, doc.RootElement.GetProperty("sha256").GetString());
     }
 }
+
+/// <summary>The fork's pin files stay consistent with the patch they describe (the exe itself is built by .github/workflows/legendary-fork.yml).</summary>
+public class LegendaryForkPinTests
+{
+    private static DirectoryInfo? Repo()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "Glider.slnx")))
+        {
+            dir = dir.Parent;
+        }
+
+        return dir;
+    }
+
+    [Fact]
+    public void PinJsonMatchesThePatchAndTheCandidateManifest()
+    {
+        var repo = Repo();
+        Assert.SkipWhen(repo is null, "not running from the repository");
+        using var pin = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(repo!.FullName, "tools", "legendary-fork", "PIN.json")));
+        var patch = Path.Combine(repo.FullName, pin.RootElement.GetProperty("patch").GetString()!);
+        var actual = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(patch).AsSpan().ToArray().Where(b => b != '\r').ToArray()));
+        Assert.Equal(pin.RootElement.GetProperty("patchSha256").GetString(), actual); // line endings normalised: git may check the patch out with CRLF
+        Assert.Equal(40, pin.RootElement.GetProperty("commit").GetString()!.Length);
+
+        using var candidate = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(repo.FullName, "build", "legendary-fork.json")));
+        Assert.Equal(pin.RootElement.GetProperty("forkVersion").GetString(), candidate.RootElement.GetProperty("version").GetString());
+        Assert.Contains("-glider.", candidate.RootElement.GetProperty("version").GetString(), StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(repo.FullName, "tools", "legendary-fork", "SOURCE-OFFER.txt")));
+    }
+}

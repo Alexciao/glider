@@ -120,6 +120,7 @@ describe("progress store (keyed by job, with ≈1 Hz history)", () => {
     filesTotal: null,
     mode: "balanced",
     limiter: "network",
+    limiterReason: null,
   });
 
   it("keeps the latest value per job, separately for each job", () => {

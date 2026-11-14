@@ -45,6 +45,7 @@ function progress(over: Partial<JobProgress> = {}): JobProgress {
     filesTotal: 3310,
     mode: "balanced",
     limiter: "network",
+    limiterReason: null,
     ...over,
   };
 }

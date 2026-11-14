@@ -125,7 +125,22 @@ internal sealed class ProgressParser
 
         if (msg.StartsWith(" - Cache usage: ", StringComparison.Ordinal))
         {
-            return true; // recognised (kept out of the log), not needed by the UI
+            // " - Cache usage: 96.00 MiB, active tasks: 16"
+            var rest = msg[16..];
+            if (TakeNumber(ref rest, " MiB, active tasks: ", out var used) && long.TryParse(rest.TrimEnd(), NumberStyles.None, CultureInfo.InvariantCulture, out var active))
+            {
+                _current = _current with { CacheUsedMiB = used, ActiveTasks = (int)Math.Min(active, int.MaxValue) };
+                _blockOpen = true;
+            }
+
+            return true; // recognised either way (kept out of the log)
+        }
+
+        if (msg.StartsWith(" + Glider	- ", StringComparison.Ordinal))
+        {
+            // Glider fork only, after the Disk line: one JSON object per interval. Applies to the next snapshot.
+            ParseGlider(msg[12..]);
+            return true;
         }
 
         if (msg.StartsWith(" + Download\t- ", StringComparison.Ordinal))
@@ -159,6 +174,57 @@ internal sealed class ProgressParser
         }
 
         return false;
+    }
+
+    private string? _cdnName;
+
+    private void ParseGlider(ReadOnlySpan<char> json)
+    {
+        var cdn = JsonString(json, "\"cdn\":");
+        if (cdn.Length > 0 && !cdn.SequenceEqual(_cdnName))
+        {
+            _cdnName = new string(cdn); // allocates only when the CDN changes
+        }
+
+        var total = JsonNumber(json, "\"cache_total_mib\":");
+        _current = _current with { Cdn = _cdnName, CacheTotalMiB = total ?? _current.CacheTotalMiB };
+    }
+
+    private static ReadOnlySpan<char> JsonString(ReadOnlySpan<char> json, string key)
+    {
+        var at = json.IndexOf(key, StringComparison.Ordinal);
+        if (at < 0)
+        {
+            return default;
+        }
+
+        var rest = json[(at + key.Length)..].TrimStart(' ');
+        if (rest.Length == 0 || rest[0] != '"')
+        {
+            return default;
+        }
+
+        rest = rest[1..];
+        var end = rest.IndexOf('"');
+        return end < 0 ? default : rest[..end];
+    }
+
+    private static double? JsonNumber(ReadOnlySpan<char> json, string key)
+    {
+        var at = json.IndexOf(key, StringComparison.Ordinal);
+        if (at < 0)
+        {
+            return null;
+        }
+
+        var rest = json[(at + key.Length)..].TrimStart(' ');
+        var end = 0;
+        while (end < rest.Length && (char.IsAsciiDigit(rest[end]) || rest[end] is '.' or '-'))
+        {
+            end++;
+        }
+
+        return double.TryParse(rest[..end], NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : null;
     }
 
     private static bool ParseHeader(ReadOnlySpan<char> s, ref LegendaryProgress p)

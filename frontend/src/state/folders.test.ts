@@ -25,8 +25,8 @@ describe("library folder patches", () => {
 
   it("finds the drive by letter", () => {
     const drives = [
-      { root: "C:\\", label: null, freeBytes: 1, totalBytes: 2, isSsd: true },
-      { root: "D:\\", label: null, freeBytes: 3, totalBytes: 4, isSsd: false },
+      { root: "C:\\", label: null, freeBytes: 1, totalBytes: 2, isSsd: true, hint: null },
+      { root: "D:\\", label: null, freeBytes: 3, totalBytes: 4, isSsd: false, hint: null },
     ];
     expect(driveFor({ drive: "D:", path: "D:\\Games" }, drives)?.freeBytes).toBe(3);
     expect(driveFor({ drive: "", path: "x:\\Games" }, drives)).toBeUndefined();

@@ -479,7 +479,14 @@ export class MockBackend {
     }));
     return {
       folders,
-      drives: this.drives.map((d) => ({ root: `${d.letter}:\\`, label: d.label, freeBytes: d.freeBytes, totalBytes: d.totalBytes, isSsd: d.isSsd })),
+      drives: this.drives.map((d) => ({
+        root: `${d.letter}:\\`,
+        label: d.label,
+        freeBytes: d.freeBytes,
+        totalBytes: d.totalBytes,
+        isSsd: d.isSsd,
+        hint: driveHint(d.letter, d.isSsd, d.freeBytes, d.totalBytes),
+      })),
     };
   }
 
@@ -1913,4 +1920,12 @@ export class MockBackend {
   progressOf(jobId: string): JobSim | undefined {
     return this.entry(jobId)?.sim;
   }
+}
+
+/** Mirrors Core's DriveHints: hard disks and nearly full drives get a plain-language warning. */
+function driveHint(letter: string, isSsd: boolean, freeBytes: number, totalBytes: number): string | null {
+  if (!isSsd) return `${letter}: is a hard disk drive: installs and updates will be slow. An SSD is much faster.`;
+  const used = totalBytes > 0 ? (100 * (totalBytes - freeBytes)) / totalBytes : 0;
+  if (used >= 85) return `${letter}: is ${Math.round(used)}% full. Drives slow down a lot when nearly full: free up some space first.`;
+  return null;
 }

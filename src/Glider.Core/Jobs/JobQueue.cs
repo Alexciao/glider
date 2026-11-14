@@ -433,6 +433,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
     /// <summary>A game started or closed: stop the running job for a hold, or wake the loop when the hold lifted.</summary>
     public void Reevaluate()
     {
+        ApplyLiveSettings();
         var hold = _options.Policy?.HoldReason;
         Running? stop = null;
         lock (_lock)
@@ -714,7 +715,13 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
 
         using var tracker = new JobProgressTracker(job.Info.Id, job.Request.AppName, JobPlan.Segment(job.Request.Kind, job.Step), job.Baseline, _time,
             _options.ProgressInterval, OnProgress, phase => OnPhase(job, phase), () => _options.Policy?.EffectiveMode ?? _settings.Current.DownloadMode,
-            samples, () => (job.VerifyBad, job.Info.Verify?.FilesFixed ?? 0), _options.InstallSizeFor?.Invoke(job.Request.AppName));
+            samples, () => (job.VerifyBad, job.Info.Verify?.FilesFixed ?? 0), _options.InstallSizeFor?.Invoke(job.Request.AppName),
+            new LimiterContext
+            {
+                SpeedLimit = () => _settings.Current.SpeedLimitBytesPerSecond,
+                ModeReason = () => _options.Policy?.ModeReason,
+                Drive = () => DriveOf(job),
+            });
         lock (_lock)
         {
             running.Tracker = tracker;
@@ -723,6 +730,8 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         _log.Info("jobs", $"Running {job.Info.Kind} {job.Info.AppName} {job.Info.Id} (step {job.Step}).");
         await PersistAsync();
         Changed?.Invoke();
+        using var liveCts = new CancellationTokenSource();
+        var live = LiveModeLoopAsync(liveCts.Token); // idle full speed has no event: look again every few seconds
 
         GliderError? error = null;
         var result = Result.Failed;
@@ -769,9 +778,17 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         finally
         {
             _options.Activity.EndPreDownload();
+            await liveCts.CancelAsync();
+            await live;
         }
 
         tracker.Flush();
+        if (tracker.DiskBoundWriteBytesPerSecond is > 0 and var diskRate && DriveOf(job) is { } drive)
+        {
+            Services.DriveSpeeds.Record(_paths, drive + "\\", diskRate); // the install picker warns about drives that proved slow
+            _log.Info("jobs", $"{job.Info.AppName}: the drive {drive} was the limit; it sustained about {diskRate / 1e6:0.0} MB/s.");
+        }
+
         var baseline = tracker.Snapshot();
         JobInfo final;
         lock (_lock)
@@ -798,8 +815,8 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
                     Progress = progress,
                     Outcome = new JobOutcome(OutcomeKind.Failed, (error ?? Errors.Unknown()).Message),
                 },
-                Result.Paused => info with { Status = JobStatus.Paused, Progress = progress },
-                Result.Held => info with { Status = JobStatus.Waiting, BlockedReason = running.HoldReason, Progress = progress },
+                Result.Paused => info with { Status = JobStatus.Paused, Progress = progress is null ? null : progress with { Limiter = Limiter.Paused, LimiterReason = "Paused." } },
+                Result.Held => info with { Status = JobStatus.Waiting, BlockedReason = running.HoldReason, Progress = progress is null ? null : progress with { Limiter = Limiter.Paused, LimiterReason = running.HoldReason } },
                 Result.Cancelled => info with { Status = JobStatus.Cancelled, FinishedAt = _time.GetUtcNow(), Progress = progress },
                 _ => info with { Progress = progress }, // interrupted by shutdown: keep "running" so the next start resumes it
             };
@@ -954,7 +971,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         if (job.Step == JobStep.Main)
         {
             tracker.SetPhase(JobPhase.Verifying);
-            var first = await _legendary.VerifyAsync(app, tracker, ct);
+            var first = await _legendary.VerifyAsync(app, tracker, ProfileFor(job, JobKind.Verify), ct);
             var checkedFiles = first.Counts?.FilesChecked ?? 0;
             var bad = first.Success ? 0 : first.Counts?.Bad ?? 0;
             lock (_lock)
@@ -997,7 +1014,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
 
         tracker.SetPhase(JobPhase.Verifying);
-        var second = await _legendary.VerifyAsync(app, tracker, ct);
+        var second = await _legendary.VerifyAsync(app, tracker, ProfileFor(job, JobKind.Verify), ct);
         var remaining = second.Success ? 0 : Math.Max(second.Counts?.Bad ?? job.VerifyBad, 1);
         var checkedAfter = second.Counts?.FilesChecked is > 0 and var n ? n : job.VerifyChecked;
         SetVerifyReport(job, new VerifyReport(checkedAfter, job.VerifyBad, Math.Max(0, job.VerifyBad - remaining), second.Success, job.Info.Verify?.BytesToFix ?? 0));
@@ -1065,7 +1082,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         if (job.Step == JobStep.Verify)
         {
             tracker.SetPhase(JobPhase.Verifying);
-            var verified = await _legendary.VerifyAsync(app, tracker, ct);
+            var verified = await _legendary.VerifyAsync(app, tracker, ProfileFor(job, JobKind.Verify), ct);
             if (verified.Success)
             {
                 return null;
@@ -1115,7 +1132,73 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             s.SharedMemoryMb ?? _auto.SharedMemoryMb,
             s.PreferredCdn,
             job.Request.Options?.Components,
-            _options.Resources.For(effective, job.Request.Kind));
+            ProfileFor(job, job.Request.Kind));
+    }
+
+    /// <summary>The resource profile of the next Legendary run of <paramref name="job"/>; its live control is remembered for mode changes.</summary>
+    private ResourceProfile ProfileFor(PersistedJob job, JobKind kind)
+    {
+        var effective = _options.Policy?.EffectiveMode ?? _settings.Current.DownloadMode;
+        var profile = _options.Resources.For(effective, kind);
+        lock (_lock)
+        {
+            if (_running is { } r && r.Job == job)
+            {
+                r.Control = profile.Control;
+            }
+        }
+
+        return profile;
+    }
+
+    /// <summary>Pushes the current effective mode and speed limit into the running Legendary run (priorities change live; no restart).</summary>
+    internal void ApplyLiveSettings()
+    {
+        RunControl? control;
+        lock (_lock)
+        {
+            control = _running?.Control;
+        }
+
+        if (control is null)
+        {
+            return;
+        }
+
+        var mode = _options.Policy?.EffectiveMode ?? _settings.Current.DownloadMode;
+        if (control.Update(mode, _settings.Current.SpeedLimitBytesPerSecond))
+        {
+            _log.Info("jobs", $"Download mode now {mode}{(_settings.Current.SpeedLimitBytesPerSecond is { } l ? $", limit {l / 1_000_000.0:0.#} MB/s" : "")}.");
+        }
+    }
+
+    private async Task LiveModeLoopAsync(CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), _time, ct);
+                ApplyLiveSettings();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private static string? DriveOf(PersistedJob job)
+    {
+        var path = job.GameFolder ?? job.Request.TargetPath;
+        try
+        {
+            var root = path is null ? null : Path.GetPathRoot(Path.GetFullPath(path));
+            return string.IsNullOrEmpty(root) ? null : root.TrimEnd('\\', '/');
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
     }
 
     // ------------------------------------------------------------------ state helpers
@@ -1367,6 +1450,9 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         public string? HoldReason { get; set; }
 
         public JobProgressTracker? Tracker { get; set; }
+
+        /// <summary>Live knobs of the Legendary run in progress (null between steps); updated when the effective mode or speed limit changes.</summary>
+        public RunControl? Control { get; set; }
 
         public TaskCompletionSource Done { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }

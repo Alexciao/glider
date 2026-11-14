@@ -5,12 +5,14 @@
 .PARAMETER Configuration  MSBuild configuration for publish (default Release).
 .PARAMETER Version        Package/assembly version, SemVer2 (default 0.1.0).
 .PARAMETER Pack           Also run `vpk pack` -> artifacts/releases.
+.PARAMETER Fork           Bundle the Glider fork of Legendary (build/legendary-fork.json) with its patch and source offer instead of the stock exe.
 #>
 [CmdletBinding()]
 param(
     [string] $Configuration = 'Release',
     [string] $Version = '0.1.0',
-    [switch] $Pack
+    [switch] $Pack,
+    [switch] $Fork
 )
 
 $ErrorActionPreference = 'Stop'
@@ -58,7 +60,8 @@ New-Item $wwwroot -ItemType Directory | Out-Null
 Copy-Item (Join-Path $dist '*') $wwwroot -Recurse -Force
 
 Step 'Fetch Legendary (hash-verified)'
-Exec dotnet @('run', 'build/FetchLegendary.cs', '--', "$root")
+$fetch = @('run', 'build/FetchLegendary.cs', '--') + $(if ($Fork) { @('--fork') } else { @() }) + @("$root")
+Exec dotnet $fetch
 
 Step "Publish (win-x64, self-contained, ReadyToRun, v$Version)"
 if (Test-Path $publish) { Remove-Item $publish -Recurse -Force }
