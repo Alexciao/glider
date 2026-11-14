@@ -437,7 +437,7 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
             }
 
             var chunks = table.PickProbeChunks(8, Environment.TickCount);
-            return await new CdnProbe(_log, _options.CdnProbeHandler).ProbeAsync(urls, chunks, ct);
+            return await new CdnProbe(_log, _options.CdnProbeHandler, _time).ProbeAsync(urls, chunks, ct);
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {

@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -61,10 +60,13 @@ internal sealed partial class CdnProbe
 
     private readonly Func<HttpMessageHandler> _handlers;
     private readonly ILog _log;
+    private readonly TimeProvider _time;
 
-    public CdnProbe(ILog log, Func<HttpMessageHandler>? handlerFactory = null)
+    /// <param name="time">The clock for every measurement and timeout (the system's in production; tests drive a virtual one so a loaded machine can't flip a verdict).</param>
+    public CdnProbe(ILog log, Func<HttpMessageHandler>? handlerFactory = null, TimeProvider? time = null)
     {
         _log = log;
+        _time = time ?? TimeProvider.System;
         _handlers = handlerFactory ?? (() => new SocketsHttpHandler { MaxConnectionsPerServer = 8, UseCookies = false, AutomaticDecompression = System.Net.DecompressionMethods.None });
     }
 
@@ -125,19 +127,19 @@ internal sealed partial class CdnProbe
 
         using var client = new HttpClient(_handlers(), disposeHandler: true) { Timeout = Timeout.InfiniteTimeSpan };
         client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
-        var started = Stopwatch.GetTimestamp();
+        var started = _time.GetTimestamp();
         var raw = new List<RawResult>();
         foreach (var (baseUrl, epic) in candidates)
         {
             // Out of time, or three hosts measured and one of them already passes: the rest is "skipped" (usable as failover, never preferred).
-            if (Stopwatch.GetElapsedTime(started) > TotalBudget || (raw.Count(r => r.Probed) >= 3 && Verdicts(raw, BadTtfbMs).Contains("ok")))
+            if (_time.GetElapsedTime(started) > TotalBudget || (raw.Count(r => r.Probed) >= 3 && Verdicts(raw, BadTtfbMs).Contains("ok")))
             {
                 raw.Add(new RawResult(baseUrl, epic, false, false, 0, 0));
                 continue;
             }
 
-            using var hostCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            hostCts.CancelAfter(HostTimeout);
+            using var hostTimeout = new CancellationTokenSource(HostTimeout, _time);
+            using var hostCts = CancellationTokenSource.CreateLinkedTokenSource(ct, hostTimeout.Token);
             var result = await ProbeHostAsync(client, baseUrl, warm, timed, WarmTimeout, hostCts.Token).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
             raw.Add(new RawResult(baseUrl, epic, true, result.Failed, result.TtfbMs, result.Mbps));
@@ -152,7 +154,7 @@ internal sealed partial class CdnProbe
             _log.Info("cdn", $"cdn probe: host={r.Host} ttfb={r.TtfbMs.ToString("0", CultureInfo.InvariantCulture)} ms mbps={r.MegabytesPerSecond.ToString("0.0", CultureInfo.InvariantCulture)} verdict={r.Verdict}{(r.InEpicList ? "" : " (extra host)")}");
         }
 
-        _log.Info("cdn", $"cdn probe: pick={plan.Pick?.Host ?? "none"} ({Stopwatch.GetElapsedTime(started).TotalMilliseconds:0} ms)");
+        _log.Info("cdn", $"cdn probe: pick={plan.Pick?.Host ?? "none"} ({_time.GetElapsedTime(started).TotalMilliseconds:0} ms)");
         return plan;
     }
 
@@ -167,27 +169,27 @@ internal sealed partial class CdnProbe
             : "ok")];
     }
 
-    private static async Task<(bool Failed, double TtfbMs, double Mbps)> ProbeHostAsync(HttpClient client, string baseUrl, string[] warm, string[] timed, TimeSpan warmTimeout, CancellationToken ct)
+    private async Task<(bool Failed, double TtfbMs, double Mbps)> ProbeHostAsync(HttpClient client, string baseUrl, string[] warm, string[] timed, TimeSpan warmTimeout, CancellationToken ct)
     {
         try
         {
             // Untimed: opens the connections (TCP + TLS) the timed requests will reuse, like a Legendary worker's keep-alive session.
             // A host that can't even deliver the warm-up quickly is bad whatever the timed part would say: don't spend the budget on it.
-            var warmStart = Stopwatch.GetTimestamp();
-            using var warmCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            warmCts.CancelAfter(warmTimeout);
+            var warmStart = _time.GetTimestamp();
+            using var warmTimer = new CancellationTokenSource(warmTimeout, _time);
+            using var warmCts = CancellationTokenSource.CreateLinkedTokenSource(ct, warmTimer.Token);
             try
             {
                 await Task.WhenAll(warm.Select(p => FetchAsync(client, $"{baseUrl}/{p}", warmCts.Token))).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
-                return (false, Stopwatch.GetElapsedTime(warmStart).TotalMilliseconds, 0);
+                return (false, _time.GetElapsedTime(warmStart).TotalMilliseconds, 0);
             }
 
-            var wall = Stopwatch.GetTimestamp();
+            var wall = _time.GetTimestamp();
             var fetched = await Task.WhenAll(timed.Select(p => FetchAsync(client, $"{baseUrl}/{p}", ct))).ConfigureAwait(false);
-            var seconds = Math.Max(1e-3, Stopwatch.GetElapsedTime(wall).TotalSeconds);
+            var seconds = Math.Max(1e-3, _time.GetElapsedTime(wall).TotalSeconds);
             var bytes = fetched.Sum(f => f.Bytes);
             return (false, fetched.Average(f => f.TtfbMs), bytes / seconds / 1_000_000.0);
         }
@@ -197,12 +199,12 @@ internal sealed partial class CdnProbe
         }
     }
 
-    private static async Task<(long Bytes, double TtfbMs)> FetchAsync(HttpClient client, string url, CancellationToken ct)
+    private async Task<(long Bytes, double TtfbMs)> FetchAsync(HttpClient client, string url, CancellationToken ct)
     {
-        var t0 = Stopwatch.GetTimestamp();
+        var t0 = _time.GetTimestamp();
         using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
-        var ttfb = Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
+        var ttfb = _time.GetElapsedTime(t0).TotalMilliseconds;
         var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
         await using (stream.ConfigureAwait(false))
         {
