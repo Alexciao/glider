@@ -452,6 +452,9 @@ export function runFix(fix: FixAction, ctx: FixContext = {}): void {
     case "playOffline":
       if (ctx.appName) void actions.launch(ctx.appName, { mode: "offline" });
       return;
+    case "update":
+      if (ctx.appName) void actions.update(ctx.appName);
+      return;
   }
 }
 

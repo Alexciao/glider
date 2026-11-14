@@ -443,6 +443,15 @@ internal sealed class LibraryService : IArtSource, IDisposable
         }
     }
 
+    /// <summary>The UI is looking at this game: measure its pending update's download size now (once; a no-op when known or busy).</summary>
+    public void RequestUpdateSize(string app)
+    {
+        if (Summary(app) is { UpdateAvailable: true, DownloadSizeBytes: null })
+        {
+            MeasureUpdateSizes(Games, app);
+        }
+    }
+
     public GameDetail Detail(string app, SaveState? saves)
     {
         var summary = Summary(app) ?? throw new GliderException(Errors.NotFound(app));
@@ -585,7 +594,7 @@ internal sealed class LibraryService : IArtSource, IDisposable
     /// Update download sizes, lazily: one dry run per installed game with a pending update (metadata lane), never while the
     /// writer lane runs (the dry run needs Legendary's install lock and would be refused).
     /// </summary>
-    private void MeasureUpdateSizes(ImmutableDictionary<string, GameSummary> map)
+    private void MeasureUpdateSizes(ImmutableDictionary<string, GameSummary> map, string? onlyApp = null)
     {
         if (_c.Hub.State.Auth.Status != AuthStatus.SignedIn || _c.Jobs.IsBusy)
         {
@@ -602,7 +611,7 @@ internal sealed class LibraryService : IArtSource, IDisposable
 
             foreach (var g in map.Values)
             {
-                if (g.UpdateAvailable && g.DownloadSizeBytes is null && g.InstalledVersion is { } i && g.LatestVersion is { } l && _sizeTried.Add((g.AppName, i, l)))
+                if ((onlyApp is null || g.AppName == onlyApp) && g.UpdateAvailable && g.DownloadSizeBytes is null && g.InstalledVersion is { } i && g.LatestVersion is { } l && _sizeTried.Add((g.AppName, i, l)))
                 {
                     todo.Add((g.AppName, i, l));
                 }

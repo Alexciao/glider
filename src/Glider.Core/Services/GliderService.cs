@@ -215,6 +215,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
         {
         }
 
+        _updates.Dispose();
         _c.Library.Dispose();
         _c.Art.Dispose();
         _ownedFetcher?.Dispose();
@@ -443,6 +444,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
     {
         var app = App(request);
         await _c.Library.FlushAsync();
+        _c.Library.RequestUpdateSize(app); // lazy: a pending update's download size is measured when somebody looks
         return _c.Library.Detail(app, _c.Library.Summary(app) is null ? null : _saves.Get(app));
     });
 

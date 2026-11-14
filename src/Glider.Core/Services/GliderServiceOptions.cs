@@ -88,6 +88,9 @@ public sealed class GliderServiceOptions
     /// <summary>"User idle" threshold for AutoUpdateOnlyWhenIdle when an <see cref="IIdleSignal"/> is present.</summary>
     public TimeSpan IdleThreshold { get; init; } = TimeSpan.FromMinutes(10);
 
+    /// <summary>An auto-update that had to wait (user active, game running, not signed in) is tried again this often.</summary>
+    public TimeSpan AutoUpdateRetryInterval { get; init; } = TimeSpan.FromSeconds(60);
+
     private static string DefaultAppVersion()
     {
         var v = typeof(GliderServiceOptions).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0";

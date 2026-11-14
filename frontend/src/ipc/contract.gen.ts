@@ -164,7 +164,7 @@ export interface EglState {
 
 export type ErrorCode = "unknown" | "invalidRequest" | "notSignedIn" | "authExpired" | "authFailed" | "authCancelled" | "insufficientSpace" | "network" | "offline" | "cdnUnavailable" | "filesLocked" | "permissionDenied" | "eglBusy" | "gameRunning" | "gameBusy" | "notFound" | "notOwned" | "notInstalled" | "alreadyInstalled" | "invalidFolder" | "corrupted" | "busy" | "legendaryMissing" | "legendaryFailed" | "legendaryLocked" | "eacSetupFailed" | "prerequisiteFailed" | "launchFailed" | "thirdPartyRequired" | "activationRequired" | "saveConflict" | "saveSyncFailed" | "overlayFailed" | "cancelled" | "timeout";
 
-export type FixAction = "signIn" | "freeSpace" | "repair" | "retry" | "chooseFolder" | "openLogs" | "closeGame" | "waitForEgl" | "activate" | "resolveSaves" | "installPrerequisites" | "playOffline";
+export type FixAction = "signIn" | "freeSpace" | "repair" | "retry" | "chooseFolder" | "openLogs" | "closeGame" | "waitForEgl" | "activate" | "resolveSaves" | "installPrerequisites" | "playOffline" | "update";
 
 export interface FolderValidation {
   valid: boolean;
