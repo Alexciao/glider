@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { GameSummary } from "../../ipc/contract.gen";
 import type { LibraryView } from "../../state/libraryPrefs";
 import { goGame } from "../../state/router";
@@ -42,7 +42,7 @@ export interface LibraryGridProps {
  * visible rows plus two of overscan exist in the DOM, so 600 games cost the same as 30. Arrow keys, Home/End and
  * Page Up/Down move focus through the tiles (roving tabindex: one tab stop for the whole library).
  */
-export function LibraryGrid({ games, view, resetKey, onScrolled }: LibraryGridProps) {
+export const LibraryGrid = memo(function LibraryGrid({ games, view, resetKey, onScrolled }: LibraryGridProps) {
   const list = useRef<HTMLUListElement>(null);
   const [vp, attachViewport] = useScrollViewport();
   // The page owns the element (it scrolls it imperatively); the viewport hook is attached through the same ref.
@@ -202,4 +202,4 @@ export function LibraryGrid({ games, view, resetKey, onScrolled }: LibraryGridPr
     </div>
     </LibraryContextMenu>
   );
-}
+});
