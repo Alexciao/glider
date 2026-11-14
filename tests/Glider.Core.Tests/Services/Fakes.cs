@@ -124,6 +124,7 @@ public sealed class FakeHost(CallLog log) : IHostPlatform
     public int RestoreCount { get; private set; }
     public string? Clipboard { get; private set; }
     public List<string> Opened { get; } = [];
+    public List<string> ThirdPartyUris { get; } = [];
 
     public Task<string?> AcquireEpicExchangeCodeAsync(CancellationToken ct)
     {
@@ -139,6 +140,7 @@ public sealed class FakeHost(CallLog log) : IHostPlatform
 
     public Task<string?> PickFolderAsync(string? initialPath, string? title) => Task.FromResult<string?>(null);
     public void OpenUrl(string url) => Opened.Add(url);
+    public void OpenThirdPartyUri(string uri) => ThirdPartyUris.Add(uri);
     public void OpenPath(string path) => Opened.Add(path);
     public void SetClipboardText(string text) => Clipboard = text;
     public void ShowToast(string title, string message) => Toasts.Add((title, message));
@@ -252,6 +254,16 @@ public sealed class FakeLegendary(CallLog log, string config) : ILegendary
                 ["install_tags"] = tags,
                 ["platform"] = "Windows",
             };
+            if (g.Prerequisites is { } prereq)
+            {
+                var ids = new JsonArray();
+                foreach (var id in prereq.Ids)
+                {
+                    ids.Add(id);
+                }
+
+                o[app]!["prereq_info"] = new JsonObject { ["ids"] = ids, ["name"] = prereq.Name, ["path"] = prereq.Path, ["args"] = prereq.Args };
+            }
         }
 
         Directory.CreateDirectory(config);
@@ -381,6 +393,79 @@ public sealed class FakeLegendary(CallLog log, string config) : ILegendary
         }
 
         return Task.FromResult(new LegendaryOutcome(SyncError is null, SyncError, null, null));
+    }
+
+    /// <summary>Outcome of the next `eos-overlay install/update` (null = success, registering <see cref="OverlayVersion"/>).</summary>
+    public GliderError? OverlayError { get; set; }
+    public string OverlayVersion { get; set; } = "1.0.0";
+    public string? LastOverlayPath { get; private set; }
+    public TaskCompletionSource? OverlayGate { get; set; }
+
+    public async Task<LegendaryOutcome> InstallOverlayAsync(string? path, IProgress<LegendaryProgress> progress, CancellationToken ct)
+    {
+        log.Add("legendary.overlayInstall");
+        LastOverlayPath = path;
+        if (OverlayGate is { } gate)
+        {
+            await gate.Task.WaitAsync(ct);
+        }
+
+        if (OverlayError is { } e)
+        {
+            return new LegendaryOutcome(false, e, null, null);
+        }
+
+        var install = Path.Combine(config, "overlay_install.json");
+        var folder = File.Exists(install) ? System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(install))!["install_path"]!.GetValue<string>() : path!;
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "EOSOVH-Win64-Shipping.dll"), "");
+        File.WriteAllText(install, new JsonObject { ["version"] = OverlayVersion, ["install_path"] = folder }.ToJsonString());
+        return new LegendaryOutcome(true, null, null, null);
+    }
+
+    public GliderError? OverlayRemoveError { get; set; }
+
+    public Task<LegendaryOutcome> RemoveOverlayAsync(CancellationToken ct)
+    {
+        log.Add("legendary.overlayRemove");
+        if (OverlayRemoveError is { } e)
+        {
+            return Task.FromResult(new LegendaryOutcome(false, e, null, null));
+        }
+
+        var install = Path.Combine(config, "overlay_install.json");
+        if (File.Exists(install))
+        {
+            var folder = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(install))!["install_path"]!.GetValue<string>();
+            if (Directory.Exists(folder))
+            {
+                Directory.Delete(folder, recursive: true);
+            }
+
+            File.Delete(install);
+        }
+
+        return Task.FromResult(new LegendaryOutcome(true, null, null, null));
+    }
+
+    /// <summary>Outcome of `activate --uplay` (null = success).</summary>
+    public GliderError? ActivateError { get; set; }
+
+    public Task<LegendaryOutcome> ActivateUplayAsync(CancellationToken ct)
+    {
+        log.Add("legendary.activateUplay");
+        return Task.FromResult(new LegendaryOutcome(ActivateError is null, ActivateError, null, null));
+    }
+
+    public string ThirdPartyUri { get; set; } = "uplay://launch/abc?AUTH_PASSWORD=secret";
+    public GliderError? ThirdPartyUriError { get; set; }
+    public bool? LastThirdPartyOffline { get; private set; }
+
+    public Task<string> GetThirdPartyUriAsync(string appName, ThirdPartyStore store, bool offline, CancellationToken ct)
+    {
+        log.Add($"legendary.thirdPartyUri:{appName}:{store}");
+        LastThirdPartyOffline = offline;
+        return ThirdPartyUriError is { } e ? Task.FromException<string>(new GliderException(e)) : Task.FromResult(ThirdPartyUri);
     }
 
     public Task<LegendaryOutcome> CheckUpdatesAsync(CancellationToken ct)
