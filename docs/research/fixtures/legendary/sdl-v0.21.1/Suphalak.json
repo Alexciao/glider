@@ -1,0 +1,93 @@
+{
+  "cr": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) \u010de\u0161tina",
+    "tags": [
+      "language_czech"
+    ]
+  },
+  "de": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) Deutsch",
+    "tags": [
+      "language_german"
+    ]
+  },
+  "en": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) English",
+    "tags": [
+      "language_english"
+    ]
+  },
+  "es_es": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) espa\u00f1ol (Espa\u00f1a)",
+    "tags": [
+      "language_spanish"
+    ]
+  },
+  "fr": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) fran\u00e7ais",
+    "tags": [
+      "language_french"
+    ]
+  },
+  "it": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) italiano",
+    "tags": [
+      "language_italian"
+    ]
+  },
+  "ko": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) \ud55c\uad6d\uc5b4",
+    "tags": [
+      "language_korean"
+    ]
+  },
+  "pl": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) polski",
+    "tags": [
+      "language_polish"
+    ]
+  },
+  "pt_br": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) portugu\u00eas",
+    "tags": [
+      "language_brazilian"
+    ]
+  },
+  "ru": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) \u0440\u0443\u0441\u0441\u043a\u0438\u0439",
+    "tags": [
+      "language_russian"
+    ]
+  },
+  "tr": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) T\u00fcrk\u00e7e",
+    "tags": [
+      "language_turkish"
+    ]
+  },
+  "zh_cn": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) \u4e2d\u6587 (\u7b80\u4f53\u4e2d\u6587\uff09",
+    "tags": [
+      "language_chinese_simplified"
+    ]
+  },
+  "zh_hant": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) \u4e2d\u6587\uff08\u7e41\u9ad4\u5b57\uff09",
+    "tags": [
+      "language_chinese_traditional"
+    ]
+  }
+}

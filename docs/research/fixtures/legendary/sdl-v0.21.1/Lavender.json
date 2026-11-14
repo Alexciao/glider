@@ -1,0 +1,58 @@
+{
+  "de": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) Deutsch",
+    "tags": [
+      "loc_ger"
+    ]
+  },
+  "es_es": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) espa\u00f1ol (Espa\u00f1a)",
+    "tags": [
+      "loc_spa"
+    ]
+  },
+  "es_mx": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) espa\u00f1ol (M\u00e9xico)",
+    "tags": [
+      "loc_mex"
+    ]
+  },
+  "fr": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) fran\u00e7ais",
+    "tags": [
+      "loc_fre"
+    ]
+  },
+  "it": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) italiano",
+    "tags": [
+      "loc_ita"
+    ]
+  },
+  "pl": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) polski",
+    "tags": [
+      "loc_pol"
+    ]
+  },
+  "pt_br": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) portugu\u00eas",
+    "tags": [
+      "loc_bra"
+    ]
+  },
+  "ru": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) \u0440\u0443\u0441\u0441\u043a\u0438\u0439",
+    "tags": [
+      "loc_rus"
+    ]
+  }
+}

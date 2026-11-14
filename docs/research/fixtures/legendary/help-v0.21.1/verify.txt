@@ -1,0 +1,7 @@
+usage: legendary.exe verify [-h] <App Name>
+
+positional arguments:
+  <App Name>  Name of the app
+
+options:
+  -h, --help  show this help message and exit

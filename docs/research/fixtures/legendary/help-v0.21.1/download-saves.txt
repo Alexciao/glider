@@ -1,0 +1,7 @@
+usage: legendary.exe download-saves [-h] [<App Name>]
+
+positional arguments:
+  <App Name>  Name of the app (optional)
+
+options:
+  -h, --help  show this help message and exit

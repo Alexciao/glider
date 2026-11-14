@@ -1,0 +1,12 @@
+usage: legendary.exe eos-overlay [-h] [--path PATH]
+                                 <install|update|remove|enable|disable|info>
+
+positional arguments:
+  <install|update|remove|enable|disable|info>
+                        Action: install, remove, enable, disable, or print
+                        info about the overlay
+
+options:
+  -h, --help            show this help message and exit
+  --path PATH           Path to the EOS overlay folder to be enabled/installed
+                        to.

@@ -1,0 +1,10 @@
+usage: legendary.exe list-installed [-h] [--check-updates] [--csv] [--tsv]
+                                    [--json] [--show-dirs]
+
+options:
+  -h, --help       show this help message and exit
+  --check-updates  Check for updates for installed games
+  --csv            List games in CSV format
+  --tsv            List games in TSV format
+  --json           List games in JSON format
+  --show-dirs      Print installation directory in output

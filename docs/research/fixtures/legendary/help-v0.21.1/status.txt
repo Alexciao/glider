@@ -1,0 +1,6 @@
+usage: legendary.exe status [-h] [--offline] [--json]
+
+options:
+  -h, --help  show this help message and exit
+  --offline   Only print offline status information, do not login
+  --json      Show status in JSON format

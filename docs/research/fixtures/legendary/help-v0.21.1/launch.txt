@@ -1,0 +1,30 @@
+usage: legendary.exe launch <App Name> [options]
+
+Note: additional arguments are passed to the game
+
+positional arguments:
+  <App Name>            Name of the app
+
+options:
+  -h, --help            show this help message and exit
+  --offline             Skip login and launch game without online
+                        authentication
+  --skip-version-check  Skip version check when launching game in online mode
+  --override-username <username>
+                        Override username used when launching the game (only
+                        works with some titles)
+  --dry-run             Print the command line that would have been used to
+                        launch the game and exit
+  --language <two letter language code>
+                        Override language for game launch (defaults to system
+                        locale)
+  --wrapper <wrapper command>
+                        Wrapper command to launch game with
+  --set-defaults        Save parameters used to launch to config (does not
+                        include env vars)
+  --reset-defaults      Reset config settings for app and exit
+  --override-exe <exe path>
+                        Override executable to launch (relative path)
+  --origin              Launch Origin to activate or run the game.
+  --ubisoft             Launch Ubisoft to install and run the game.
+  --json                Print launch information as JSON and exit

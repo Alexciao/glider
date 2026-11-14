@@ -1,0 +1,52 @@
+{
+  "__required": {
+    "description": "Common files required to play Fortnite plus the entirety of Battle Royale.",
+    "name": "Fortnite Core",
+    "tags": [
+      "chunk0",
+      "chunk10"
+    ]
+  },
+  "stw": {
+    "description": "Files required to play Fortnite Save the World, if owned.",
+    "name": "Fortnite Save the World",
+    "tags": [
+      "chunk11"
+    ]
+  },
+  "lang_cn": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) \u4e2d\u6587\uff08\u4e2d\u56fd\uff09",
+    "tags": [
+      "chunk9"
+    ]
+  },
+  "lang_de": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) Deutsch",
+    "tags": [
+      "chunk2"
+    ]
+  },
+  "lang_fr": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) fran\u00e7ais",
+    "tags": [
+      "chunk5"
+    ]
+  },
+  "lang_pl": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) polski",
+    "tags": [
+      "chunk7"
+    ]
+  },
+  "lang_ru": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Language Pack) \u0440\u0443\u0441\u0441\u043a\u0438\u0439",
+    "tags": [
+      "chunk8"
+    ]
+  }
+}

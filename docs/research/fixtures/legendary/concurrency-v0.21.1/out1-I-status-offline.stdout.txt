@@ -1,0 +1,1 @@
+{"account": "<not logged in>", "games_available": 0, "games_installed": 2, "egl_sync_enabled": false, "config_directory": "<LK>\\cfg"}

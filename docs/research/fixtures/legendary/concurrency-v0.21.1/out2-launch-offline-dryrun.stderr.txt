@@ -1,0 +1,3 @@
+[cli] INFO: Not Launching FakeA (dry run)
+[cli] INFO: Launch parameters: '<LK>\games\FakeA\game.exe' -meta_arg -AUTH_LOGIN=unused -AUTH_PASSWORD= -AUTH_TYPE=exchangecode -epicapp=FakeA -epicenv=Prod -EpicPortal -epicusername=FakeUser -epicuserid=0123456789abcdef0123456789abcdef -epiclocale=it -epicsandboxid=fakens
+[cli] INFO: Working directory: <LK>\games\FakeA

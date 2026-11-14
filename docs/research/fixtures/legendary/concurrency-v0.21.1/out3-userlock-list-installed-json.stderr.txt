@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "cli.py", line 3262, in <module>
+  File "cli.py", line 3173, in main
+  File "cli.py", line 307, in list_installed
+  File "legendary\core.py", line 492, in get_asset
+TypeError: argument of type 'NoneType' is not a container or iterable
+[PYI-17160:ERROR] Failed to execute script 'cli' due to unhandled exception!

@@ -1,0 +1,30 @@
+{
+  "de": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Additional Languages) Deutsch",
+    "tags": [
+      "German"
+    ]
+  },
+  "es": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Additional Languages) espa\u00f1ol",
+    "tags": [
+      "Spanish"
+    ]
+  },
+  "fr": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Additional Languages) fran\u00e7ais",
+    "tags": [
+      "French"
+    ]
+  },
+  "it": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Additional Languages) italiano",
+    "tags": [
+      "Italian"
+    ]
+  }
+}

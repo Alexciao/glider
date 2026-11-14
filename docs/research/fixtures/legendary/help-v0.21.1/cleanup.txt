@@ -1,0 +1,5 @@
+usage: legendary.exe cleanup [-h] [--keep-manifests]
+
+options:
+  -h, --help        show this help message and exit
+  --keep-manifests  Do not delete old manifests

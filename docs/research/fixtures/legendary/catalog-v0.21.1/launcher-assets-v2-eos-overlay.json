@@ -1,0 +1,23 @@
+{
+  "elements": [
+    {
+      "appName": "98bc04bc842e4906993fd6d6644ffb8d",
+      "buildVersion": "1.3.8++EOSSDK+Release-Overlay-CL-59787405-Windows",
+      "hash": "483f7a92863006136765bcbcd7ad5c6c17e375f8",
+      "isPreloaded": false,
+      "labelName": "Live-Windows",
+      "manifests": [
+        {
+          "uri": "https://egdownload.fastly-edge.com/Builds/EOS/OverlayCloudDir/ZwGTtea3b6rfd8RvjUWce5B2Jx2Dsw.manifest"
+        },
+        {
+          "uri": "https://egs-cloudfront-chunks.epicgamescdn.com/Builds/EOS/OverlayCloudDir/ZwGTtea3b6rfd8RvjUWce5B2Jx2Dsw.manifest"
+        },
+        {
+          "uri": "https://epicgames-download1.akamaized.net/Builds/EOS/OverlayCloudDir/ZwGTtea3b6rfd8RvjUWce5B2Jx2Dsw.manifest"
+        }
+      ],
+      "useSignedUrl": false
+    }
+  ]
+}
