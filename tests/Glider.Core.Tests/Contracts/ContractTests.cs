@@ -49,34 +49,36 @@ public class ContractTests
     [Fact]
     public async Task DispatchesRequestWithParamsAndReturnsResult()
     {
-        var fake = new FakeRpc();
         var transport = new CaptureTransport();
-        var d = new RpcDispatcher(fake, transport);
-        await d.HandleAsync("""{"type":"request","id":7,"method":"game.validateFolder","params":{"path":"D:\\Games\\Fortnite"}}""");
+        var d = new RpcDispatcher(FakeRpc.Create(), transport);
+        await d.HandleAsync("""{"type":"request","id":7,"method":"egl.validateFolder","params":{"path":"D:\\Games\\Fortnite"}}""");
         Assert.True(transport.Sent.TryDequeue(out var msg));
         using var doc = JsonDocument.Parse(msg!);
         Assert.Equal("response", doc.RootElement.GetProperty("type").GetString());
         Assert.Equal(7, doc.RootElement.GetProperty("id").GetInt32());
         Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("error").ValueKind);
         Assert.Equal(@"D:\Games\Fortnite", doc.RootElement.GetProperty("result").GetProperty("gamePath").GetString());
+        Assert.Equal("Fortnite", doc.RootElement.GetProperty("result").GetProperty("appName").GetString());
     }
 
     [Fact]
     public async Task GliderExceptionBecomesStructuredError()
     {
         var transport = new CaptureTransport();
-        var d = new RpcDispatcher(new FakeRpc(), transport);
-        await d.HandleAsync("""{"type":"request","id":1,"method":"game.update","params":null}""");
+        var d = new RpcDispatcher(FakeRpc.Create(), transport);
+        await d.HandleAsync("""{"type":"request","id":1,"method":"game.update","params":{"appName":"Fortnite"}}""");
         Assert.True(transport.Sent.TryDequeue(out var msg));
         using var doc = JsonDocument.Parse(msg!);
-        Assert.Equal("notInstalled", doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        var error = doc.RootElement.GetProperty("error");
+        Assert.Equal("notInstalled", error.GetProperty("code").GetString());
+        Assert.Equal("Fortnite", error.GetProperty("appName").GetString());
     }
 
     [Fact]
     public async Task UnknownMethodAndBadJsonNeverThrow()
     {
         var transport = new CaptureTransport();
-        var d = new RpcDispatcher(new FakeRpc(), transport);
+        var d = new RpcDispatcher(FakeRpc.Create(), transport);
         await d.HandleAsync("""{"type":"request","id":2,"method":"nope"}""");
         await d.HandleAsync("{not json");
         Assert.Single(transport.Sent);
@@ -87,53 +89,35 @@ public class ContractTests
     public void PublishWritesEventEnvelope()
     {
         var transport = new CaptureTransport();
-        var d = new RpcDispatcher(new FakeRpc(), transport);
-        d.Publish(RpcEvents.Window, new WindowInfo(true, false));
-        Assert.Equal("""{"type":"event","event":"window","data":{"maximized":true,"focused":false}}""", transport.Sent.Single());
+        var d = new RpcDispatcher(FakeRpc.Create(), transport);
+        d.Publish(RpcEvents.Window, new WindowInfo(true, false, true));
+        Assert.Equal("""{"type":"event","event":"window","data":{"maximized":true,"focused":false,"visible":true}}""", transport.Sent.Single());
     }
 
-    /// <summary>Minimal implementation; unimplemented members throw.</summary>
-    private sealed class FakeRpc : IGliderRpc
+    [Fact]
+    public void LibraryDeltaSerializesForTheWire()
     {
-        public Task<FolderValidation> ValidateFolder(ValidateFolderRequest request) =>
-            Task.FromResult(new FolderValidation(true, request.Path, "1.0", null));
+        var art = new GameArt("https://cdn/t.jpg", "https://cdn/t.jpg", "https://cdn/w.jpg", null, "#334455");
+        var g = new GameSummary("Fortnite", "Fortnite", GameKind.Game, null, "fn", "4fe7", "Epic Games", InstallStatus.Installed, "v1", "v2", true,
+            @"D:\Games\Fortnite", 10, null, null, false, SaveSyncStatus.NotSupported, true, ThirdPartyStore.None, null, 12, false, false, null, null, 0,
+            art, RunState.Idle, null, null, false, false);
+        var json = JsonSerializer.Serialize(new LibraryDelta(3, false, [g], ["gone"]), GliderJsonContext.Default.LibraryDelta);
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(3, doc.RootElement.GetProperty("revision").GetInt64());
+        Assert.Equal("installed", doc.RootElement.GetProperty("upserts")[0].GetProperty("installStatus").GetString());
+        Assert.Equal("gone", doc.RootElement.GetProperty("removes")[0].GetString());
+    }
 
-        public Task<JobInfo> Update() => throw new GliderException(Errors.NotInstalled());
+    /// <summary>A proxy IGliderRpc: two methods answer, every other one throws NotImplemented.</summary>
+    public class FakeRpc : System.Reflection.DispatchProxy
+    {
+        public static IGliderRpc Create() => Create<IGliderRpc, FakeRpc>();
 
-        public Task<AppSnapshot> GetSnapshot() => throw new NotImplementedException();
-        public Task OpenExternal(UrlRequest request) => throw new NotImplementedException();
-        public Task OpenPath(PathRequest request) => throw new NotImplementedException();
-        public Task<PickFolderResult> PickFolder(PickFolderRequest request) => throw new NotImplementedException();
-        public Task<LogsResult> GetLogs(LogsRequest request) => throw new NotImplementedException();
-        public Task CopyLogs() => throw new NotImplementedException();
-        public Task<LicensesResult> GetLicenses() => throw new NotImplementedException();
-        public Task CompleteOnboarding() => throw new NotImplementedException();
-        public Task Ready() => throw new NotImplementedException();
-        public Task Quit() => throw new NotImplementedException();
-        public Task Minimize() => throw new NotImplementedException();
-        public Task ToggleMaximize() => throw new NotImplementedException();
-        public Task Close() => throw new NotImplementedException();
-        public Task<WindowInfo> GetWindowInfo() => throw new NotImplementedException();
-        public Task<AuthState> SignIn() => throw new NotImplementedException();
-        public Task<AuthState> SignOut() => throw new NotImplementedException();
-        public Task<InstallPlan> PlanInstall(InstallPlanRequest request) => throw new NotImplementedException();
-        public Task<JobInfo> Install(InstallRequest request) => throw new NotImplementedException();
-        public Task<AdoptResult> Adopt(AdoptRequest request) => throw new NotImplementedException();
-        public Task<UpdateCheckResult> CheckForUpdates() => throw new NotImplementedException();
-        public Task<JobInfo> Verify() => throw new NotImplementedException();
-        public Task<JobInfo> Move(MoveRequest request) => throw new NotImplementedException();
-        public Task<JobInfo> Uninstall(UninstallRequest request) => throw new NotImplementedException();
-        public Task<LaunchResult> Launch() => throw new NotImplementedException();
-        public Task PrepareLaunch() => throw new NotImplementedException();
-        public Task CloseGame() => throw new NotImplementedException();
-        public Task OpenInstallFolder() => throw new NotImplementedException();
-        public Task<JobInfo> PauseJob(JobRef request) => throw new NotImplementedException();
-        public Task<JobInfo> ResumeJob(JobRef request) => throw new NotImplementedException();
-        public Task<JobInfo> CancelJob(JobRef request) => throw new NotImplementedException();
-        public Task DismissJob(JobRef request) => throw new NotImplementedException();
-        public Task<EglState> RescanEgl() => throw new NotImplementedException();
-        public Task<EglState> QuickScanEgl() => throw new NotImplementedException();
-        public Task<Settings> UpdateSettings(Settings settings) => throw new NotImplementedException();
-        public Task<Settings> ResetSettings() => throw new NotImplementedException();
+        protected override object? Invoke(System.Reflection.MethodInfo? targetMethod, object?[]? args) => targetMethod?.Name switch
+        {
+            nameof(IGliderRpc.ValidateFolder) => Task.FromResult(new FolderValidation(true, "Fortnite", "Fortnite", ((ValidateFolderRequest)args![0]!).Path, "1.0", null)),
+            nameof(IGliderRpc.Update) => Task.FromException<JobInfo>(new GliderException(Errors.NotInstalled("Fortnite", ((AppRef)args![0]!).AppName))),
+            _ => throw new NotImplementedException(targetMethod?.Name),
+        };
     }
 }

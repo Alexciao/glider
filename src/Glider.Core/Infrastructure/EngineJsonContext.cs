@@ -10,6 +10,11 @@ namespace Glider.Core.Infrastructure;
     DefaultIgnoreCondition = JsonIgnoreCondition.Never,
     AllowTrailingCommas = true,
     ReadCommentHandling = JsonCommentHandling.Skip)]
-[JsonSerializable(typeof(GameRecord))]
+[JsonSerializable(typeof(GamesFile))]
+[JsonSerializable(typeof(CollectionsFile))]
+[JsonSerializable(typeof(OnboardingFile))]
 [JsonSerializable(typeof(PersistedJobFile))]
+[JsonSerializable(typeof(Library.LibraryCacheFile))]
+[JsonSerializable(typeof(Migrations.SchemaFile))]
+[JsonSerializable(typeof(System.Text.Json.Nodes.JsonObject))]
 internal sealed partial class EngineJsonContext : JsonSerializerContext;

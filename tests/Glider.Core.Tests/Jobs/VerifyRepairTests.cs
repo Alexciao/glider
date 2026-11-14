@@ -94,7 +94,7 @@ public class VerifyRepairTests
         configure?.Invoke(legendary);
         var h = new QueueHarness(legendary: legendary);
         var q = await h.StartAsync();
-        var job = q.Enqueue(new JobRequest(JobKind.Verify, null, null, null, null));
+        var job = q.Enqueue(new JobRequest("Fortnite", JobKind.Verify, null, null, null, null));
         var done = await QueueHarness.WaitForStatus(q, job.Id, expected);
         holder.Dispose();
         return (done, h, legendary);
@@ -130,7 +130,7 @@ public class VerifyRepairTests
         await using (h)
         {
             Assert.Equal(["verify", "repair", "verify"], legendary.Calls);
-            Assert.Equal(new VerifyReport(FilesChecked: 10, FilesBad: 3, FilesFixed: 3, Verified: true), job.Verify);
+            Assert.Equal(new VerifyReport(FilesChecked: 10, FilesBad: 3, FilesFixed: 3, Verified: true, BytesToFix: 0), job.Verify);
             Assert.Null(job.Error);
             Assert.Contains("ok:Verify", h.Hooks.Calls);
         }
@@ -143,7 +143,7 @@ public class VerifyRepairTests
         await using (h)
         {
             Assert.Equal(["verify"], legendary.Calls);
-            Assert.Equal(new VerifyReport(10, 0, 0, true), job.Verify);
+            Assert.Equal(new VerifyReport(10, 0, 0, true, 0), job.Verify);
         }
     }
 
@@ -162,7 +162,7 @@ public class VerifyRepairTests
         {
             Assert.Equal(["verify", "repair", "verify"], legendary.Calls);
             Assert.Equal(ErrorCode.Corrupted, job.Error?.Code);
-            Assert.Equal(new VerifyReport(10, 2, 1, false), job.Verify);
+            Assert.Equal(new VerifyReport(10, 2, 1, false, 0), job.Verify);
             Assert.Contains("failed:Verify:Corrupted", h.Hooks.Calls);
         }
     }
@@ -198,8 +198,8 @@ public class VerifyRepairTests
     [Fact]
     public void Notices_SayWhatWasCheckedAndFixed()
     {
-        Assert.Equal(("Verification complete", "Checked 4,996 files. All game files are OK."), JobHooks.VerifyNotice(new VerifyReport(4996, 0, 0, true)));
-        var (title, message) = JobHooks.VerifyNotice(new VerifyReport(4996, 3, 3, true));
+        Assert.Equal(("Verification complete", "Checked 4,996 files. All game files are OK."), JobHooks.VerifyNotice(new VerifyReport(4996, 0, 0, true, 0)));
+        var (title, message) = JobHooks.VerifyNotice(new VerifyReport(4996, 3, 3, true, 0));
         Assert.Equal("Repair complete", title);
         Assert.Equal("Checked 4,996 files: 3 damaged or missing, 3 fixed. All game files are OK now.", message);
     }

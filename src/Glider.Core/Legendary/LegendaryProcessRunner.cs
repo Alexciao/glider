@@ -46,6 +46,15 @@ internal sealed record LegendaryCommand(LegendaryCommandKind Kind, IReadOnlyList
     /// <summary>Kill the run early when the facts so far show it is doomed (e.g. SDL data failed on a fresh install).</summary>
     public Func<LegendaryOutputFacts, bool>? AbortWhen { get; init; }
 
+    /// <summary>The command calls Legendary's login(): it passes the <see cref="AuthGate"/> before it is spawned.</summary>
+    public bool UsesLogin { get; init; }
+
+    /// <summary>Jumps the auth gate's wait list (launch).</summary>
+    public bool LoginPriority { get; init; }
+
+    /// <summary>stdout is large and uninteresting (e.g. <c>list --json</c>): neither logged nor kept in the tail.</summary>
+    public bool QuietStdout { get; init; }
+
     public string Display()
     {
         var parts = Arguments.Select((a, i) => RedactedArguments.Contains(i) ? "***" : a.Contains(' ', StringComparison.Ordinal) ? $"\"{a}\"" : a);
@@ -76,6 +85,9 @@ public sealed class LegendaryRunnerOptions
 
     /// <summary>SHA-256 (hex) the exe must have; checked before the first run and again whenever the file changes. Null = skip.</summary>
     public string? ExpectedSha256 { get; init; }
+
+    /// <summary>A login that prints nothing releases the auth gate after this long (L§1.8: 45 s).</summary>
+    public TimeSpan? AuthGateMaxHold { get; init; }
 }
 
 /// <summary>
@@ -103,7 +115,11 @@ internal sealed class LegendaryProcessRunner : IDisposable
         _log = log;
         _time = time ?? TimeProvider.System;
         _options = options ?? new LegendaryRunnerOptions();
+        Gate = new AuthGate(_time, _options.AuthGateMaxHold);
     }
+
+    /// <summary>One process inside Legendary's login() at a time (L§1.8).</summary>
+    public AuthGate Gate { get; }
 
     /// <summary>Number of Legendary processes currently alive (config.ini is only written at zero).</summary>
     public int ActiveProcesses => Volatile.Read(ref _active);
@@ -128,8 +144,14 @@ internal sealed class LegendaryProcessRunner : IDisposable
             await _exclusive.WaitAsync(ct).ConfigureAwait(false);
         }
 
+        AuthGate.Lease? lease = null;
         try
         {
+            if (command.UsesLogin)
+            {
+                lease = await Gate.EnterAsync(command.LoginPriority, command.Kind.ToString(), ct).ConfigureAwait(false);
+            }
+
             await _configLock.WaitAsync(ct).ConfigureAwait(false);
             try
             {
@@ -157,7 +179,7 @@ internal sealed class LegendaryProcessRunner : IDisposable
 
             try
             {
-                return await RunProcessAsync(command, progress, ct).ConfigureAwait(false);
+                return await RunProcessAsync(command, progress, lease, ct).ConfigureAwait(false);
             }
             finally
             {
@@ -166,6 +188,7 @@ internal sealed class LegendaryProcessRunner : IDisposable
         }
         finally
         {
+            lease?.Release();
             if (command.Exclusive)
             {
                 _exclusive.Release();
@@ -223,7 +246,7 @@ internal sealed class LegendaryProcessRunner : IDisposable
         }
     }
 
-    private async Task<LegendaryRunResult> RunProcessAsync(LegendaryCommand command, IProgress<LegendaryProgress>? progress, CancellationToken ct)
+    private async Task<LegendaryRunResult> RunProcessAsync(LegendaryCommand command, IProgress<LegendaryProgress>? progress, AuthGate.Lease? lease, CancellationToken ct)
     {
         var psi = new ProcessStartInfo(_paths.LegendaryExe)
         {
@@ -253,7 +276,7 @@ internal sealed class LegendaryProcessRunner : IDisposable
             }
         }
 
-        var state = new RunState(command, progress as ILegendaryProgressSink, progress, _log, _options.TailLines, _time);
+        var state = new RunState(command, progress as ILegendaryProgressSink, progress, _log, _options.TailLines, _time, lease);
         var started = _time.GetTimestamp();
         var display = command.Display();
         _log.Info("legendary", $"> legendary {display}");
@@ -495,10 +518,13 @@ internal sealed class LegendaryProcessRunner : IDisposable
         private int _noiseLogged;
         private long _lastProgressLog;
         private long _lastLiveness;
+        private readonly AuthGate.Lease? _lease;
+        private bool _sawLogin;
 
-        public RunState(LegendaryCommand command, ILegendaryProgressSink? sink, IProgress<LegendaryProgress>? progress, ILog log, int tailLines, TimeProvider time)
+        public RunState(LegendaryCommand command, ILegendaryProgressSink? sink, IProgress<LegendaryProgress>? progress, ILog log, int tailLines, TimeProvider time, AuthGate.Lease? lease = null)
         {
             _command = command;
+            _lease = lease;
             _sink = sink;
             _progress = progress;
             _log = log;
@@ -537,6 +563,18 @@ internal sealed class LegendaryProcessRunner : IDisposable
         {
             lock (_lock)
             {
+                if (_lease is { Released: false } lease && !line.IsWhiteSpace())
+                {
+                    if (AuthGate.IsLoginLine(line))
+                    {
+                        _sawLogin = true;
+                    }
+                    else if (_sawLogin || AuthGate.IsPastLogin(line))
+                    {
+                        lease.Release(); // first line after the login (or download/verify output): the next process may log in now
+                    }
+                }
+
                 if (_parser.TryParse(line, out var published))
                 {
                     if (published)
@@ -553,7 +591,7 @@ internal sealed class LegendaryProcessRunner : IDisposable
                     Touch();
                 }
 
-                var secret = stdout && _command.SensitiveStdout;
+                var secret = stdout && (_command.SensitiveStdout || _command.QuietStdout);
                 if (stdout && _command.CaptureStdout)
                 {
                     _stdout.Append(line).Append('\n');

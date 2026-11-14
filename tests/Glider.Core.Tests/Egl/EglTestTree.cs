@@ -39,12 +39,11 @@ internal sealed class EglTestTree : IDisposable
     public EglEnvironment Environment { get; }
     public AppPaths Paths { get; }
     public FakeProcesses Processes { get; } = new();
-    public FakeRecords Records { get; } = new();
     public FakeSettings Settings { get; } = new();
     public TestLog Log { get; } = new();
 
     public EglService CreateService(EglServiceOptions? options = null) =>
-        new(Environment, Paths, Log, Processes, Settings, Records, options ?? FastOptions());
+        new(Environment, Paths, Log, Processes, options ?? FastOptions());
 
     public static EglServiceOptions FastOptions(Action<string>? beforeCommit = null) => new()
     {
@@ -55,6 +54,29 @@ internal sealed class EglTestTree : IDisposable
 
     /// <summary>A path on a fake drive, e.g. Drive("E", "Games", "Fortnite").</summary>
     public string Drive(string letter, params string[] parts) => Path.Combine([Root, "drive-" + letter, .. parts]);
+
+    /// <summary>Creates a fake game folder for any app: a file plus .egstore with manifest/mancpn declaring <paramref name="app"/>.</summary>
+    public string CreateOtherGame(string path, string app, string guid)
+    {
+        Directory.CreateDirectory(path);
+        File.WriteAllBytes(Path.Combine(path, "Game.exe"), "MZ fake"u8.ToArray());
+        var egstore = Path.Combine(path, ".egstore");
+        Directory.CreateDirectory(egstore);
+        File.WriteAllBytes(Path.Combine(egstore, guid + ".manifest"), Encoding.ASCII.GetBytes("EGL-MANIFEST-" + guid));
+        File.WriteAllText(Path.Combine(egstore, guid + ".mancpn"),
+            "{\r\n\t\"FormatVersion\": 0,\r\n\t\"AppName\": \"" + app + "\",\r\n\t\"CatalogNamespace\": \"ns\",\r\n\t\"CatalogItemId\": \"item\"\r\n}");
+        return path;
+    }
+
+    /// <summary>Writes an EGL .item for any app at a location.</summary>
+    public string WriteOtherItem(string installLocation, string app, string version, string guid, string? displayName = null, string? mainGame = null) =>
+        WriteItem(installLocation, version, guid, n =>
+        {
+            n["AppName"] = app;
+            n["MainGameAppName"] = mainGame ?? app;
+            n["DisplayName"] = displayName ?? app;
+            n["MandatoryAppFolderName"] = EglPath.LeafName(installLocation);
+        });
 
     /// <summary>Creates a fake Fortnite folder: just the shipping exe (and optionally .egstore with manifest/mancpn).</summary>
     public string CreateGame(string path, string? egstoreGuid = null, bool withExe = true)
@@ -231,16 +253,6 @@ internal sealed class FakeProcesses : IProcessProbe
     public bool IsRunning(string processName) => processName == "EpicGamesLauncher" && EglRunning;
 }
 
-internal sealed class FakeRecords : IGameRecordStore
-{
-    public GameRecord? Current { get; set; }
-    public Task SaveAsync(GameRecord? record)
-    {
-        Current = record;
-        return Task.CompletedTask;
-    }
-}
-
 internal sealed class FakeSettings : ISettingsStore
 {
     public Settings Current { get; set; } = Settings.Default;
@@ -282,10 +294,10 @@ internal sealed class TestLog : ILog
 
 internal static class Make
 {
-    public static GameRecord For(string path, string version, string? guid = null) =>
-        new(path, version, 100, DateTimeOffset.UnixEpoch, AdoptedFromEgl: true, guid, NeedsVerification: false);
+    public static InstallRecord For(string path, string version, string? guid = null, string app = FortniteLayout.AppName) =>
+        new(app, path, version, 100, DateTimeOffset.UnixEpoch, AdoptedFromEgl: true, guid, NeedsVerification: false);
 
     public static EglWriteBack WriteBack(string path, string version, string? manifest, string? guid = null, IReadOnlyList<string>? tags = null) =>
         new(FortniteLayout.AppName, path, version, 101234567890, tags ?? [], manifest,
-            "4fe75bbc5a674f4f9b356b5c90567da5", "fn", "FortniteGame/Binaries/Win64/FortniteLauncher.exe", guid);
+            "4fe75bbc5a674f4f9b356b5c90567da5", "fn", "FortniteGame/Binaries/Win64/FortniteLauncher.exe", guid, "Fortnite");
 }

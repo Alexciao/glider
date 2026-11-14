@@ -9,11 +9,20 @@ namespace Glider.Core.Services;
 /// <summary>A running process we care about (game, launcher stub).</summary>
 public sealed record RunningProcess(int Id, string Name, DateTimeOffset? StartTime);
 
+/// <summary>One row of a process snapshot (Toolhelp): enough to follow a process tree.</summary>
+public sealed record ProcessEntry(int Id, int ParentId, string Name, DateTimeOffset? StartTime);
+
 /// <summary>Cheap process lookups (no handles kept open).</summary>
 public interface IProcessMonitor
 {
     /// <summary>Processes whose name (without .exe) equals <paramref name="processName"/>.</summary>
     IReadOnlyList<RunningProcess> Find(string processName);
+
+    /// <summary>Every process with its parent id (one Toolhelp snapshot), for process-tree tracking.</summary>
+    IReadOnlyList<ProcessEntry> Snapshot();
+
+    /// <summary>Start time of a process (null when it exited or can't be opened).</summary>
+    DateTimeOffset? StartTimeOf(int pid) => null;
 
     /// <summary>Asks the process to close, then kills it (and its children) if it has not exited shortly after.</summary>
     void Close(RunningProcess process);
@@ -54,22 +63,6 @@ public interface IIdleSignal
     TimeSpan IdleTime { get; }
 }
 
-/// <summary>Downloads and caches key art; returns app.glider URLs.</summary>
-public interface IArtCache
-{
-    /// <summary>Art cached by a previous session (no network); null if none.</summary>
-    GameArt? LoadCached();
-
-    Task<GameArt?> RefreshAsync(IReadOnlyList<KeyImage> images, CancellationToken ct);
-}
-
-/// <summary>Persists the onboarding "completed" flag (state/onboarding.json).</summary>
-public interface IOnboardingStore
-{
-    bool Completed { get; }
-    Task SetCompletedAsync(bool completed);
-}
-
 // ===================================== Default implementations =====================================
 
 public sealed class SystemProcessMonitor : IProcessMonitor
@@ -98,12 +91,16 @@ public sealed class SystemProcessMonitor : IProcessMonitor
         return result;
     }
 
+    public IReadOnlyList<ProcessEntry> Snapshot() => Game.ProcessSnapshot.Take();
+
+    public DateTimeOffset? StartTimeOf(int pid) => Game.ProcessSnapshot.StartTime(pid);
+
     public void Close(RunningProcess process)
     {
         try
         {
             using var p = Process.GetProcessById(process.Id);
-            if (p.ProcessName != process.Name)
+            if (!string.Equals(p.ProcessName, process.Name, StringComparison.OrdinalIgnoreCase))
             {
                 return; // pid reused by something else
             }
@@ -225,6 +222,7 @@ public sealed class DeferredJobHooks : IJobHooks
     public Task BeforeRunAsync(JobInfo job, Action<string?> setBlockedReason, CancellationToken ct) => Hooks.BeforeRunAsync(job, setBlockedReason, ct);
 
     public Task OnSucceededAsync(JobInfo job, CancellationToken ct) => Hooks.OnSucceededAsync(job, ct);
+
 
     public Task OnFailedAsync(JobInfo job, CancellationToken ct) => Hooks.OnFailedAsync(job, ct);
 }

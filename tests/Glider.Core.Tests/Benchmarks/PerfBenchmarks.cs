@@ -131,7 +131,7 @@ public sealed class PerfBenchmarks
         const int legendaryStartMs = 1400;
         await using var h = await EndToEndHarness.StartAsync(EglTestTreeVersions.V1);
         var (game, _) = h.EglInstall(EglTestTreeVersions.V1);
-        await h.Rpc.Adopt(new AdoptRequest(null, game, VerifyMode.Auto));
+        await h.ImportAsync(game);
         var dir = game.Replace(Path.DirectorySeparatorChar, '/');
         h.Legendary.Script("launch", $$"""
             sleep {{legendaryStartMs}}
@@ -156,19 +156,19 @@ public sealed class PerfBenchmarks
     {
         if (prepare)
         {
-            await h.Rpc.PrepareLaunch();
+            await h.Rpc.PrepareLaunch(new AppRef(FortniteLayout.AppName));
             await h.Runtime.Service.LaunchServiceForTests.Preparing;
         }
 
         var before = h.GameProcesses.Started.Count;
         var sw = Stopwatch.StartNew();
-        await h.Rpc.Launch();
+        await h.Rpc.Launch(new LaunchRequest(FortniteLayout.AppName, null, false));
         var ms = sw.Elapsed.TotalMilliseconds;
         Assert.Equal(before + 1, h.GameProcesses.Started.Count);
 
-        // Pretend the game exited at once (the watcher's own timeouts are tens of seconds).
-        h.Runtime.Service.LaunchServiceForTests.Watcher.Reset();
-        h.Runtime.Service.Hub.Mutate(s => s with { RunState = RunState.Idle, RunningSince = null });
+        // Pretend the game exited at once (the session tracker's own timeouts are seconds).
+        h.Runtime.Service.LaunchServiceForTests.Sessions.Abort(FortniteLayout.AppName);
+        h.Runtime.Service.Hub.Mutate(s => s with { Sessions = s.Sessions.Remove(FortniteLayout.AppName) });
         return ms;
     }
 

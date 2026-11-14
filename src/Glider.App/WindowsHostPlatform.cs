@@ -161,7 +161,7 @@ internal sealed class WindowsHostPlatform : IHostPlatform
 
     public void RevealWindow() => Ui.BeginInvoke(() => _window?.Reveal());
 
-    public WindowInfo GetWindowInfo() => _window?.Info ?? new WindowInfo(false, false);
+    public WindowInfo GetWindowInfo() => _window?.Info ?? new WindowInfo(false, false, false);
 
     public void Quit()
     {

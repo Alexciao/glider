@@ -1,0 +1,18 @@
+{
+  "downloadWorkers": 12,
+  "sharedMemoryMb": null,
+  "preferredCdn": "fastly-download.epicgames.com",
+  "autoUpdate": false,
+  "autoUpdateOnlyWhenIdle": true,
+  "updateCheckIntervalMinutes": 60,
+  "startWithWindows": true,
+  "startMinimized": false,
+  "closeToTray": true,
+  "minimizeToTrayWhilePlaying": false,
+  "launchArgs": "-NOTEXTURESTREAMING -USEALLAVAILABLECORES",
+  "logLevel": "debug",
+  "theme": "dark",
+  "eglSync": false,
+  "notifications": true,
+  "defaultInstallBase": "E:\\Games"
+}

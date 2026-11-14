@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "jobs": [
+    {
+      "info": {
+        "id": "c987321d1b474215ba80fe35900e1201",
+        "kind": "verify",
+        "status": "completed",
+        "progress": {
+          "jobId": "c987321d1b474215ba80fe35900e1201",
+          "phase": "verifying",
+          "percent": 100,
+          "downloadedBytes": 0,
+          "totalDownloadBytes": 0,
+          "writtenBytes": 0,
+          "totalWriteBytes": 0,
+          "downloadBytesPerSecond": 0,
+          "diskBytesPerSecond": 0,
+          "rawDownloadBytesPerSecond": 0,
+          "etaSeconds": null,
+          "elapsedSeconds": 5448
+        },
+        "error": null,
+        "createdAt": "2026-11-13T21:17:59.4702426+00:00",
+        "finishedAt": "2026-11-13T22:48:47.9219303+00:00",
+        "targetPath": null,
+        "fromVersion": "\u002B\u002BFortnite\u002BRelease-43.10-CL-60118918-Windows",
+        "toVersion": "\u002B\u002BFortnite\u002BRelease-43.10-CL-60118918-Windows",
+        "blockedReason": null,
+        "verify": {
+          "filesChecked": 757,
+          "filesBad": 437,
+          "filesFixed": 437,
+          "verified": true
+        }
+      },
+      "request": {
+        "kind": "verify",
+        "targetPath": null,
+        "uninstallMode": null,
+        "fromVersion": "\u002B\u002BFortnite\u002BRelease-43.10-CL-60118918-Windows",
+        "toVersion": "\u002B\u002BFortnite\u002BRelease-43.10-CL-60118918-Windows"
+      },
+      "step": "Repair",
+      "createdGameFolder": false,
+      "gameFolder": null,
+      "autoRepairAttempted": false,
+      "verifyChecked": 1011,
+      "verifyBad": 437,
+      "baseline": {
+        "totalDownloadBytes": 37206821437,
+        "totalWriteBytes": -80478375772,
+        "percent": 100,
+        "elapsedSeconds": 5448.4438286,
+        "phase": "verifying"
+      }
+    }
+  ]
+}

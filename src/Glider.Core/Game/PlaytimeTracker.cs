@@ -25,6 +25,6 @@ internal sealed class PlaytimeTracker
         return seconds;
     }
 
-    public static GameRecord Apply(GameRecord record, long seconds, DateTimeOffset now) =>
-        record with { PlaytimeSeconds = record.PlaytimeSeconds + seconds, LastPlayedAt = now };
+    public static GameEntry Apply(GameEntry entry, long seconds, DateTimeOffset now) =>
+        entry with { PlaytimeSeconds = entry.PlaytimeSeconds + seconds, LastPlayedAt = now };
 }

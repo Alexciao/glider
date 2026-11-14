@@ -1,39 +1,68 @@
+using System.Collections.Immutable;
 using Glider.Core.Contracts;
 
 namespace Glider.Core.Services;
 
-/// <summary>Service-layer state that isn't owned by a store (auth, EGL scan, run state, update info…).</summary>
-public sealed record HubState(
-    AuthState Auth,
-    EglState? Egl,
-    string LegendaryVersion,
-    bool Warm,
-    string? LatestVersion,
-    long? DownloadSizeBytes,
-    long? InstallSizeBytes,
-    bool CheckingForUpdates,
-    DateTimeOffset? LastUpdateCheck,
-    RunState RunState,
-    DateTimeOffset? RunningSince,
-    GameArt? Art,
-    /// <summary>Recorded install whose folder no longer holds the game.</summary>
-    bool InstallBroken,
-    /// <summary>Stores loaded (before that the install status is Unknown).</summary>
-    bool Loaded,
-    /// <summary>Last measured size of the install folder (see <see cref="InstalledSizeMeter"/>).</summary>
-    SizeMeasure? InstalledSize = null)
-{
-    public static HubState Initial { get; } = new(
-        new AuthState(AuthStatus.Unknown, null), null, "", false, null, null, null, false, null, RunState.Idle, null, null, false, false);
-}
-
 /// <summary>Bytes measured in <paramref name="Path"/> while it held <paramref name="Version"/>; stale as soon as either changes.</summary>
 public sealed record SizeMeasure(string Path, string Version, long Bytes, DateTimeOffset MeasuredAt);
 
+/// <summary>Legendary's dry-run download size for updating <paramref name="Installed"/> to <paramref name="Latest"/>.</summary>
+public sealed record UpdateSize(string Installed, string Latest, long DownloadBytes);
+
 /// <summary>
-/// Builds <see cref="AppSnapshot"/> from every source and publishes it as a coalesced `state` event
-/// (trailing edge, at most one per <see cref="GliderServiceOptions.StateCoalesceInterval"/>). Forwards job progress.
-/// Building a snapshot only reads cached values — it never spawns processes or touches the network.
+/// Service-layer state that isn't owned by a store: auth, connectivity, the EGL scan, library sync status and the per-game
+/// runtime maps (sessions, measured sizes, update sizes, broken installs). Immutable; replaced atomically by <see cref="StateHub.Mutate"/>.
+/// </summary>
+public sealed record HubState(
+    AuthState Auth,
+    Connectivity Connectivity,
+    string LegendaryVersion,
+    bool Warm,
+    /// <summary>Stores loaded and the cached library is up (before that, nothing is known).</summary>
+    bool Loaded,
+    string? MigratedFrom,
+    EglScanResult? Egl,
+    bool EglScanning,
+    /// <summary>Installs found by the drive quick scan that EGL doesn't list.</summary>
+    ImmutableList<EglFoundInstall> EglExtras,
+    /// <summary>Drift per imported EGL-shared app, from the last scan.</summary>
+    ImmutableDictionary<string, EglDrift> EglDrift,
+    bool Syncing,
+    DateTimeOffset? LastSyncedAt,
+    GliderError? SyncError,
+    DateTimeOffset? LastUpdateCheck,
+    ImmutableDictionary<string, RunningGame> Sessions,
+    ImmutableDictionary<string, SizeMeasure> Sizes,
+    ImmutableDictionary<string, UpdateSize> UpdateSizes,
+    ImmutableHashSet<string> Broken)
+{
+    public static HubState Initial { get; } = new(
+        new AuthState(AuthStatus.Unknown, null), Connectivity.Unknown, "", false, false, null, null, false,
+        ImmutableList<EglFoundInstall>.Empty, ImmutableDictionary<string, EglDrift>.Empty, false, null, null, null,
+        ImmutableDictionary<string, RunningGame>.Empty, ImmutableDictionary<string, SizeMeasure>.Empty,
+        ImmutableDictionary<string, UpdateSize>.Empty, ImmutableHashSet<string>.Empty);
+
+    public RunState RunStateOf(string app) => Sessions.TryGetValue(app, out var s) ? s.State : RunState.Idle;
+
+    public bool AnySessionActive => Sessions.Values.Any(s => s.State != RunState.Idle);
+}
+
+/// <summary>The parts of the snapshot other services own; wired by <see cref="GliderService"/>.</summary>
+public sealed class SnapshotSources
+{
+    public Func<LibraryStatus> Library { get; set; } = () => new LibraryStatus(0, 0, false, null, null, 0);
+    public Func<QueueState> Queue { get; set; } = () => new QueueState([], false, DownloadMode.Balanced, null);
+    public Func<StorageState> Storage { get; set; } = () => new StorageState([], []);
+    public Func<EglState> Egl { get; set; } = () => new EglState(false, false, false, [], [], true, null);
+    public Func<OverlayState> Overlay { get; set; } = () => new OverlayState(false, false, null, null, false, null, false);
+    public Func<IReadOnlyList<Collection>> Collections { get; set; } = () => [];
+    public Func<OnboardingState> Onboarding { get; set; } = () => new OnboardingState(false, OnboardingStep.Welcome, []);
+}
+
+/// <summary>
+/// Builds the small app-wide <see cref="AppSnapshot"/> and publishes it as a coalesced `state` event (trailing edge, at most
+/// one per <see cref="GliderServiceOptions.StateCoalesceInterval"/>); forwards job progress. Per-game data never goes in here
+/// (that's the library delta). Building a snapshot only reads cached values — it never spawns processes or touches the network.
 /// </summary>
 public sealed class StateHub : IDisposable
 {
@@ -43,9 +72,7 @@ public sealed class StateHub : IDisposable
     private readonly IHostPlatform _host;
     private readonly IJobQueue _jobs;
     private readonly ISettingsStore _settings;
-    private readonly IGameRecordStore _records;
     private readonly IEventSink _sink;
-    private readonly IOnboardingStore _onboarding;
     private readonly GliderServiceOptions _options;
     private readonly ITimer _timer;
     private readonly Lock _gate = new();
@@ -60,22 +87,20 @@ public sealed class StateHub : IDisposable
         IHostPlatform host,
         IJobQueue jobs,
         ISettingsStore settings,
-        IGameRecordStore records,
         IEventSink sink,
         TimeProvider time,
-        IOnboardingStore onboarding,
         GliderServiceOptions options)
     {
         _paths = paths;
         _host = host;
         _jobs = jobs;
         _settings = settings;
-        _records = records;
         _sink = sink;
-        _onboarding = onboarding;
         _options = options;
         _timer = time.CreateTimer(_ => Flush(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
     }
+
+    public SnapshotSources Sources { get; } = new();
 
     public HubState State
     {
@@ -93,6 +118,8 @@ public sealed class StateHub : IDisposable
 
     /// <summary>Number of `state` events published (diagnostics/tests).</summary>
     public int PublishCount { get; private set; }
+
+    public IEventSink Sink => _sink;
 
     public void Attach()
     {
@@ -115,7 +142,7 @@ public sealed class StateHub : IDisposable
         lock (_gate)
         {
             next = change(_state);
-            changed = !Equals(next, _state);
+            changed = !ReferenceEquals(next, _state) && !Equals(next, _state);
             _state = next;
         }
 
@@ -193,14 +220,13 @@ public sealed class StateHub : IDisposable
 
     public IReadOnlyList<JobInfo> ActiveJobs() => _jobs.Snapshot().Where(IsActive).ToList();
 
-    public JobInfo? FirstActiveJob() => ActiveJobs() is { Count: > 0 } a ? a[0] : null;
+    /// <summary>Unfinished writer-lane jobs of one app.</summary>
+    public IReadOnlyList<JobInfo> ActiveJobs(string appName) => _jobs.Snapshot().Where(j => IsActive(j) && j.AppName == appName).ToList();
 
     public AppSnapshot BuildSnapshot()
     {
         var s = State;
         var settings = _settings.Current;
-        var jobs = _jobs.Snapshot();
-        var game = BuildGame(s, jobs);
         return new AppSnapshot(
             new AppInfo(
                 _options.AppVersion,
@@ -213,81 +239,32 @@ public sealed class StateHub : IDisposable
                 TotalMemory(),
                 _options.AutoWorkers,
                 _options.AutoSharedMemoryMb,
-                s.Warm),
+                s.Warm,
+                s.MigratedFrom),
             s.Auth,
-            game,
-            jobs,
-            BuildEgl(s, settings),
+            s.Connectivity,
+            Safe(Sources.Library, new LibraryStatus(0, 0, s.Syncing, s.LastSyncedAt, s.SyncError, 0)),
+            Safe(Sources.Queue, new QueueState([], false, settings.DownloadMode, null)),
+            s.Sessions.Values.Where(r => r.State != RunState.Idle).OrderBy(r => r.Since ?? DateTimeOffset.MaxValue).ThenBy(r => r.AppName, StringComparer.Ordinal).ToList(),
+            Safe(Sources.Storage, new StorageState([], [])),
+            Safe(Sources.Egl, new EglState(false, false, false, [], [], settings.EglSync, null)),
+            Safe(Sources.Overlay, new OverlayState(false, false, null, null, false, null, false)),
+            Safe(Sources.Collections, []),
             settings,
-            BuildOnboarding(s, game));
+            Safe(Sources.Onboarding, new OnboardingState(false, OnboardingStep.Welcome, [])));
     }
 
-    public GameState BuildGame() => BuildGame(State, _jobs.Snapshot());
-
-    private GameState BuildGame(HubState s, IReadOnlyList<JobInfo> jobs)
+    /// <summary>A failing source must never stop the snapshot (it is the UI's only view of the app).</summary>
+    private static T Safe<T>(Func<T> source, T fallback)
     {
-        var record = _records.Current;
-        var installing = jobs.Any(j => j.Kind == JobKind.Install && IsActive(j));
-        var status = !s.Loaded ? InstallStatus.Unknown
-            : installing && record is null ? InstallStatus.Installing
-            : record is null ? InstallStatus.NotInstalled
-            : s.InstallBroken ? InstallStatus.Broken
-            : InstallStatus.Installed;
-
-        InstalledGame? installed = record is null ? null : new InstalledGame(
-            record.InstallPath,
-            record.Version,
-            record.InstallSizeBytes,
-            record.EglInstallationGuid is not null,
-            record.NeedsVerification,
-            record.InstalledAt);
-
-        var updateAvailable = record is not null && s.LatestVersion is not null
-            && !string.Equals(s.LatestVersion, record.Version, StringComparison.Ordinal);
-
-        return new GameState(
-            FortniteLayout.AppName,
-            FortniteLayout.Title,
-            status,
-            installed,
-            s.LatestVersion,
-            updateAvailable,
-            s.CheckingForUpdates,
-            s.LastUpdateCheck,
-            s.RunState,
-            s.RunningSince,
-            s.Art,
-            s.DownloadSizeBytes,
-            s.InstallSizeBytes,
-            record is not null && s.InstalledSize is { } m
-                && string.Equals(m.Path, record.InstallPath, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(m.Version, record.Version, StringComparison.Ordinal)
-                ? m.Bytes
-                : null,
-            record?.PlaytimeSeconds ?? 0,
-            record?.LastPlayedAt);
-    }
-
-    private EglState BuildEgl(HubState s, Settings settings)
-    {
-        var record = _records.Current;
-        var syncAvailable = record?.EglInstallationGuid is not null;
-        var e = s.Egl;
-        return e is null
-            ? new EglState(false, false, false, [], settings.EglSync, syncAvailable, null, null)
-            : e with { SyncEnabled = settings.EglSync, SyncAvailable = syncAvailable && e.LauncherInstalled };
-    }
-
-    private OnboardingState BuildOnboarding(HubState s, GameState game)
-    {
-        // Existing installs (EGL adoption or an earlier Glider) count as onboarded.
-        if (_onboarding.Completed || game.Installed is not null)
+        try
         {
-            return new OnboardingState(true, OnboardingStep.Done);
+            return source();
         }
-
-        var step = s.Auth.Status == AuthStatus.SignedIn ? OnboardingStep.ChooseInstall : OnboardingStep.Welcome;
-        return new OnboardingState(false, step);
+        catch (Exception)
+        {
+            return fallback;
+        }
     }
 
     private static long TotalMemory() => GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;

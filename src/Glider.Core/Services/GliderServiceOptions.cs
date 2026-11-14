@@ -16,11 +16,14 @@ public sealed class GliderServiceOptions
     /// <summary>Null = treat the user as idle (auto-update then only waits for the game to close).</summary>
     public IIdleSignal? IdleSignal { get; init; }
 
-    /// <summary>Null = an <see cref="HttpArtCache"/> over a shared HttpClient.</summary>
-    public IArtCache? ArtCache { get; init; }
+    /// <summary>Null = <see cref="Infrastructure.FileOnboardingStore"/> in state/ (loaded by the runtime).</summary>
+    public Infrastructure.IOnboardingStore? OnboardingStore { get; init; }
 
-    /// <summary>Null = <see cref="FileOnboardingStore"/> in state/.</summary>
-    public IOnboardingStore? OnboardingStore { get; init; }
+    /// <summary>Null = collections.json in state/ (loaded by the runtime); tests pass an in-memory store.</summary>
+    public Infrastructure.CollectionsStore? Collections { get; init; }
+
+    /// <summary>Shared with the writer lane (metadata commands wait for its pre-download phase).</summary>
+    public Jobs.WriterActivity? WriterActivity { get; init; }
 
     /// <summary>Null = sum of file lengths under the folder. Runs on a background thread; must honour the token.</summary>
     public Func<string, CancellationToken, long>? MeasureDirectory { get; init; }
@@ -46,11 +49,32 @@ public sealed class GliderServiceOptions
     /// <summary>Process-watch poll period.</summary>
     public TimeSpan ProcessPollInterval { get; init; } = TimeSpan.FromSeconds(1.5);
 
-    /// <summary>How long the launcher stub may run before the Shipping process appears.</summary>
+    /// <summary>How long a launch may take before the game's own process appears.</summary>
     public TimeSpan LaunchTimeout { get; init; } = TimeSpan.FromSeconds(120);
 
-    /// <summary>A launch skips Legendary's version check if we checked this recently and saw no update.</summary>
-    public TimeSpan RecentUpdateCheck { get; init; } = TimeSpan.FromMinutes(15);
+    /// <summary>A session ends when nothing tracked has run for this long (design §2.2: 5 s).</summary>
+    public TimeSpan SessionEndGrace { get; init; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>Library deltas are coalesced over this window (design §1: 50 ms). Zero = rebuild at once (tests).</summary>
+    public TimeSpan LibraryCoalesceInterval { get; init; } = TimeSpan.FromMilliseconds(50);
+
+    /// <summary>cache/library.json is rewritten at most this often after changes. Zero = at once (tests).</summary>
+    public TimeSpan LibraryCacheDelay { get; init; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>Delay between parse retries of a Legendary file being rewritten (L§1.8: 3× / 100 ms).</summary>
+    public TimeSpan LibraryRetryDelay { get; init; } = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>A full `list -T --json` sync at most this often in the background (design §2: every 30 min).</summary>
+    public TimeSpan LibrarySyncInterval { get; init; } = TimeSpan.FromMinutes(30);
+
+    /// <summary>Library folders / drives in the snapshot are re-queried at most this often.</summary>
+    public TimeSpan StorageRefreshInterval { get; init; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>No input for this long (and no game running) = idle: Settings.IdleFullSpeed goes Full (design §4).</summary>
+    public TimeSpan IdleFullSpeedAfter { get; init; } = TimeSpan.FromMinutes(3);
+
+    /// <summary>Per-mode process priorities for writer-lane runs (Phase 2 fills in the per-mode plumbing).</summary>
+    public Jobs.IResourcePolicy ResourcePolicy { get; init; } = Jobs.DefaultResourcePolicy.Instance;
 
     /// <summary>"User idle" threshold for AutoUpdateOnlyWhenIdle when an <see cref="IIdleSignal"/> is present.</summary>
     public TimeSpan IdleThreshold { get; init; } = TimeSpan.FromMinutes(10);

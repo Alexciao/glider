@@ -1,12 +1,15 @@
 using Glider.Core.Auth;
 using Glider.Core.Contracts;
 using Glider.Core.Game;
+using Glider.Core.Infrastructure;
+using Glider.Core.Jobs;
+using Glider.Core.Library;
 
 namespace Glider.Core.Services;
 
 /// <summary>
-/// The facade the host's RPC dispatcher calls. Every method validates input, never blocks a thread,
-/// turns long work into jobs, and fails only with <see cref="GliderException"/> (structured errors).
+/// The facade the host's RPC dispatcher calls (contract v2). Every method validates input, never blocks a thread, turns
+/// long work into writer-lane jobs, and fails only with <see cref="GliderException"/> (structured errors).
 /// Host wiring: construct, set <see cref="DeferredJobHooks.Target"/> = <see cref="Hooks"/>, then <see cref="StartAsync"/>.
 /// </summary>
 public sealed class GliderService : IGliderRpc, IDisposable
@@ -17,11 +20,22 @@ public sealed class GliderService : IGliderRpc, IDisposable
     private readonly CancellationTokenSource _shutdown = new();
     private readonly ServiceContext _c;
     private readonly AuthService _auth;
-    private readonly UpdateChecker _updates;
+    private readonly UpdateService _updates;
     private readonly InstallService _install;
     private readonly LaunchService _launch;
+    private readonly EglCoordinator _egl;
+    private readonly StorageService _storage;
+    private readonly QueuePolicy _policy;
     private readonly Prewarm _prewarm;
     private readonly JobHooks _hooks;
+    private readonly CollectionsStore _collections;
+    private readonly Saves.SaveService _saves;
+    private readonly Overlay.OverlayService _overlay = new();
+    private readonly Store.StoreService _store = new();
+    private readonly Store.FreeGamesService _freeGames = new();
+    private readonly ShortcutService _shortcuts = new();
+    private readonly ActivationService _activation = new();
+    private readonly PrerequisiteService _prereqs = new();
     private Task _periodic = Task.CompletedTask;
     private int _started;
 
@@ -32,15 +46,15 @@ public sealed class GliderService : IGliderRpc, IDisposable
         IJobQueue jobs,
         IEglService egl,
         ISettingsStore settings,
-        IGameRecordStore records,
+        IGamesStore games,
         ILog log,
         TimeProvider time,
         IEventSink events,
         GliderServiceOptions? options = null)
     {
         options ??= new GliderServiceOptions();
-        var onboarding = options.OnboardingStore ?? new FileOnboardingStore(paths);
-        var hub = new StateHub(paths, host, jobs, settings, records, events, time, onboarding, options);
+        var hub = new StateHub(paths, host, jobs, settings, events, time, options);
+        var writer = options.WriterActivity ?? (jobs as JobQueue)?.Activity ?? new WriterActivity();
         _c = new ServiceContext
         {
             Paths = paths,
@@ -49,41 +63,69 @@ public sealed class GliderService : IGliderRpc, IDisposable
             Jobs = jobs,
             Egl = egl,
             SettingsStore = settings,
-            Records = records,
+            Games = games,
             Log = log,
             Time = time,
             Hub = hub,
             Options = options,
-            Art = options.ArtCache ?? new HttpArtCache(paths, SharedHttp.Client),
-            Onboarding = onboarding,
+            Onboarding = options.OnboardingStore ?? FileOnboardingStore.Empty(paths, log),
+            Metadata = new MetadataLane(writer),
             Shutdown = _shutdown.Token,
         };
+        _collections = options.Collections ?? CollectionsStore.Empty(paths, log);
+        _c.Library = new LibraryService(_c);
         _c.Sizes = new InstalledSizeMeter(_c);
+        _policy = new QueuePolicy(_c);
         _auth = new AuthService(_c);
-        _updates = new UpdateChecker(_c);
-        _install = new InstallService(_c, _updates);
-        _launch = new LaunchService(_c, new EacService(_c), _updates);
-        _prewarm = new Prewarm(_c, _auth, _updates);
-        _hooks = new JobHooks(_c);
+        _updates = new UpdateService(_c);
+        _install = new InstallService(_c);
+        _launch = new LaunchService(_c, new EacService(_c), OnSessionEnded);
+        _egl = new EglCoordinator(_c);
+        _storage = new StorageService(_c);
+        _saves = new Saves.SaveService(_c);
+        _prewarm = new Prewarm(_c, _auth, _egl, _updates, _install, _launch);
+        _hooks = new JobHooks(_c) { EnqueueVerify = _install.EnqueueVerify };
+        if (jobs is JobQueue q)
+        {
+            _hooks.SetOutcome = q.SetOutcome;
+        }
+
+        hub.Sources.Library = _c.Library.Status;
+        hub.Sources.Queue = () => _policy.State(_c.Jobs);
+        hub.Sources.Storage = _storage.State;
+        hub.Sources.Egl = _egl.Build;
+        hub.Sources.Overlay = _overlay.State;
+        hub.Sources.Collections = () => _collections.Current;
+        hub.Sources.Onboarding = () => _c.Onboarding.Current;
     }
 
     /// <summary>Give this to the job queue (directly or through <see cref="DeferredJobHooks"/>).</summary>
     public IJobHooks Hooks => _hooks;
 
+    /// <summary>Give this to the job queue (<see cref="JobQueueOptions.Policy"/>): holds while a game runs, effective mode.</summary>
+    public IQueuePolicy QueuePolicy => _policy;
+
     public StateHub Hub => _c.Hub;
+
+    /// <summary>The current library (read-only; for the host's tray menu).</summary>
+    public IReadOnlyCollection<GameSummary> Library => _c.Library.Games.Values.ToList();
 
     /// <summary>Completes when background pre-warm has finished (AppInfo.Warm).</summary>
     public Task WarmupTask { get; private set; } = Task.CompletedTask;
 
     internal LaunchService LaunchServiceForTests => _launch;
 
-    internal Task UpdateSizeTaskForTests => _updates.UpdateSizeTask;
+    internal LibraryService LibraryForTests => _c.Library;
 
     internal InstalledSizeMeter SizesForTests => _c.Sizes;
 
+    internal Prewarm PrewarmForTests => _prewarm;
+
+    internal UpdateService UpdatesForTests => _updates;
+
     /// <summary>
-    /// Publishes the first snapshot from cached state immediately, then pre-warms in the background and starts
-    /// periodic update checks. Returns without waiting for any process or network call.
+    /// Publishes the first snapshot and the cached library immediately (no Legendary process, no parse of its files), then
+    /// pre-warms in the background and starts periodic checks. Returns without waiting for any process or network call.
     /// </summary>
     public Task StartAsync()
     {
@@ -92,7 +134,6 @@ public sealed class GliderService : IGliderRpc, IDisposable
             return Task.CompletedTask;
         }
 
-        var rec = _c.Records.Current;
         try
         {
             _c.Log.MinimumLevel = _c.Settings.LogLevel;
@@ -102,32 +143,24 @@ public sealed class GliderService : IGliderRpc, IDisposable
             _c.Log.Warn("startup", "applying log level failed", e);
         }
 
-        GameArt? art = null;
         try
         {
-            art = _c.Art.LoadCached();
+            _c.Library.LoadCache();
+            _c.Sizes.LoadCached();
         }
         catch (Exception e)
         {
-            _c.Log.Warn("startup", "cached art unreadable", e);
+            _c.Log.Warn("startup", "library cache unreadable", e);
         }
 
         _c.Hub.Attach();
-        _c.Hub.Mutate(s => s with
-        {
-            Loaded = true,
-            Art = art ?? s.Art,
-            InstallBroken = rec is not null && !FortniteLayout.LooksLikeInstall(rec.InstallPath),
-        });
-        try
-        {
-            _launch.DetectExisting();
-        }
-        catch (Exception e)
-        {
-            _c.Log.Warn("startup", "running-game detection failed", e);
-        }
-
+        _c.Hub.StateChanged += _ => _c.Library.Invalidate();
+        _c.Jobs.Changed += () => _c.Library.Invalidate();
+        _c.Games.Changed += () => _c.Library.Invalidate();
+        _c.SettingsStore.Changed += _ => _c.Library.Invalidate();
+        _collections.Changed += _c.Hub.Invalidate;
+        _c.Library.UpdatesChanged += _updates.Evaluate;
+        _c.Hub.Mutate(s => s with { Loaded = true });
         _c.Hub.PublishNow();
 
         var ct = _shutdown.Token;
@@ -141,7 +174,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
         try
         {
             await WarmupTask;
-            await _updates.RunPeriodicAsync(ct);
+            await _updates.RunPeriodicAsync(t => _egl.RescanAsync(t), ct);
         }
         catch (OperationCanceledException)
         {
@@ -152,11 +185,29 @@ public sealed class GliderService : IGliderRpc, IDisposable
         }
     }
 
+    private void OnSessionEnded(string app)
+    {
+        _updates.TryAutoUpdate(app);
+    }
+
+    /// <summary>Marks this run as having migrated older data (AppInfo.MigratedFrom).</summary>
+    public void SetMigratedFrom(string? version) => _c.Hub.Mutate(s => s with { MigratedFrom = version });
+
     public void Dispose()
     {
         _shutdown.Cancel();
+        try
+        {
+            _c.Library.SaveCacheAsync().Wait(TimeSpan.FromSeconds(2));
+        }
+        catch (Exception e) when (e is AggregateException or ObjectDisposedException)
+        {
+        }
+
+        _c.Library.Dispose();
         _c.Sizes.Dispose();
         _c.Hub.Dispose();
+        _c.Metadata.Dispose();
         _shutdown.Dispose();
     }
 
@@ -183,7 +234,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
         catch (Exception e)
         {
             _c.Log.Error(Category, $"{method} failed", e);
-            throw new GliderException(Errors.Unknown(Infrastructure.SecretRedactor.Redact(e.Message)), e);
+            throw new GliderException(Errors.Unknown(SecretRedactor.Redact(e.Message)), e);
         }
     }
 
@@ -201,6 +252,11 @@ public sealed class GliderService : IGliderRpc, IDisposable
 
     private static T Require<T>(T? value, string name)
         where T : class => value ?? throw new GliderException(Errors.InvalidRequest($"{name} is required"));
+
+    private static string App(AppRef? r) => AppName(Require(r, "request").AppName);
+
+    private static string AppName(string? app) =>
+        string.IsNullOrWhiteSpace(app) ? throw new GliderException(Errors.InvalidRequest("appName is required")) : app;
 
     // ================================================================== app
 
@@ -255,19 +311,50 @@ public sealed class GliderService : IGliderRpc, IDisposable
     public Task CopyLogs() => Rpc(nameof(CopyLogs), () => _c.Host.SetClipboardText(LogText(2000)));
 
     private string LogText(int lines) =>
-        Diagnostics.Header(_c.Hub.BuildSnapshot(), _c.Records.Current) + Diagnostics.Redact(_c.Log.Tail(lines) + Diagnostics.HostLogTail(_c.Paths.Logs, Math.Min(lines, 300)));
+        Diagnostics.Header(_c.Hub.BuildSnapshot(), _c.Library.Games, _c.Games.Current)
+        + Diagnostics.Redact(_c.Log.Tail(lines) + Diagnostics.HostLogTail(_c.Paths.Logs, Math.Min(lines, 300)));
 
     public Task<LicensesResult> GetLicenses() => Rpc(nameof(GetLicenses), _ => Task.FromResult(Licenses.Load(_c.Options.LicensesDirectory)));
-
-    public Task CompleteOnboarding() => Rpc(nameof(CompleteOnboarding), async _ =>
-    {
-        await _c.Onboarding.SetCompletedAsync(true);
-        _c.Hub.Invalidate();
-    });
 
     public Task Ready() => Rpc(nameof(Ready), _c.Host.RevealWindow);
 
     public Task Quit() => Rpc(nameof(Quit), _c.Host.Quit);
+
+    // ================================================================== onboarding
+
+    public Task<OnboardingState> SetOnboardingStep(OnboardingStepRequest request) => Rpc(nameof(SetOnboardingStep), async _ =>
+    {
+        var r = Require(request, "request");
+        if (!Enum.IsDefined(r.Step))
+        {
+            throw new GliderException(Errors.InvalidRequest("Unknown onboarding step"));
+        }
+
+        var current = _c.Onboarding.Current;
+        var skipped = current.Skipped.ToList();
+        if (r.Skipped && current.Step != r.Step && !skipped.Contains(current.Step))
+        {
+            skipped.Add(current.Step);
+        }
+
+        var next = await _c.Onboarding.SetAsync(new OnboardingState(r.Step == OnboardingStep.Done || current.Completed, r.Step, skipped));
+        _c.Hub.Invalidate();
+        return next;
+    });
+
+    public Task<OnboardingState> CompleteOnboarding() => Rpc(nameof(CompleteOnboarding), async _ =>
+    {
+        var next = await _c.Onboarding.SetAsync(new OnboardingState(true, OnboardingStep.Done, _c.Onboarding.Current.Skipped));
+        _c.Hub.Invalidate();
+        return next;
+    });
+
+    public Task<OnboardingState> RestartOnboarding() => Rpc(nameof(RestartOnboarding), async _ =>
+    {
+        var next = await _c.Onboarding.SetAsync(new OnboardingState(false, OnboardingStep.Welcome, []));
+        _c.Hub.Invalidate();
+        return next;
+    });
 
     // ================================================================== window
 
@@ -284,8 +371,8 @@ public sealed class GliderService : IGliderRpc, IDisposable
     public Task<AuthState> SignIn() => Rpc(nameof(SignIn), async ct =>
     {
         var state = await _auth.SignInAsync(ct);
-        // Fresh session: fetch latest version/sizes/art in the background (the install screen wants them).
-        _ = Task.Run(() => _updates.CheckAsync(userInitiated: false, ct), ct);
+        // Fresh session: sync the library in the background (the library and install screens want it).
+        _ = _c.Library.RefreshInBackground(userInitiated: false);
         return state;
     });
 
@@ -295,7 +382,71 @@ public sealed class GliderService : IGliderRpc, IDisposable
         return _auth.SignOutAsync(ct);
     });
 
+    // ================================================================== library
+
+    public Task<LibraryDelta> GetLibrary() => Rpc(nameof(GetLibrary), _ => _c.Library.GetAsync());
+
+    public Task RefreshLibrary() => Rpc(nameof(RefreshLibrary), () => { _ = _c.Library.RefreshInBackground(userInitiated: true); });
+
+    public Task CheckForUpdates() => Rpc(nameof(CheckForUpdates), () => { _ = _c.Library.CheckUpdatesInBackground(userInitiated: true); });
+
+    public Task<UpdateAllResult> UpdateAll() => Rpc(nameof(UpdateAll), _updates.UpdateAllAsync);
+
+    public Task SetFavorite(GameFlagRequest request) => Rpc(nameof(SetFavorite), async _ =>
+    {
+        var r = Require(request, "request");
+        await _c.Games.UpdateAsync(AppName(r.AppName), e => e with { Favorite = r.Value });
+    });
+
+    public Task SetHidden(GameFlagRequest request) => Rpc(nameof(SetHidden), async _ =>
+    {
+        var r = Require(request, "request");
+        await _c.Games.UpdateAsync(AppName(r.AppName), e => e with { Hidden = r.Value });
+    });
+
+    // ================================================================== collections
+
+    public Task<Collection> CreateCollection(CollectionCreateRequest request) =>
+        Rpc(nameof(CreateCollection), _ => _collections.CreateAsync(Require(request, "request").Name));
+
+    public Task<Collection> RenameCollection(CollectionRenameRequest request) => Rpc(nameof(RenameCollection), _ =>
+    {
+        var r = Require(request, "request");
+        return _collections.RenameAsync(Require(r.Id, "id"), r.Name);
+    });
+
+    public Task DeleteCollection(CollectionRef request) =>
+        Rpc(nameof(DeleteCollection), _ => _collections.DeleteAsync(Require(Require(request, "request").Id, "id")));
+
+    public Task<Collection> SetCollectionMembership(CollectionMembershipRequest request) => Rpc(nameof(SetCollectionMembership), _ =>
+    {
+        var r = Require(request, "request");
+        return _collections.SetMembershipAsync(Require(r.Id, "id"), AppName(r.AppName), r.Member);
+    });
+
     // ================================================================== game
+
+    public Task<GameDetail> GetGameDetail(AppRef request) => Rpc(nameof(GetGameDetail), async _ =>
+    {
+        var app = App(request);
+        await _c.Library.FlushAsync();
+        return _c.Library.Detail(app, _c.Library.Summary(app) is null ? null : _saves.Get(app));
+    });
+
+    public Task<GameSettings> UpdateGameSettings(GameSettingsRequest request) => Rpc(nameof(UpdateGameSettings), async _ =>
+    {
+        var r = Require(request, "request");
+        var app = AppName(r.AppName);
+        var settings = GameSettingsValidator.Validate(r.Settings);
+        var entry = await _c.Games.UpdateAsync(app, e => e with { Settings = settings });
+        _launch.InvalidatePrepared();
+        if (entry.Settings.AutoUpdate == AutoUpdatePolicy.Always)
+        {
+            _updates.TryAutoUpdate(app);
+        }
+
+        return entry.Settings;
+    });
 
     public Task<InstallPlan> PlanInstall(InstallPlanRequest request) =>
         Rpc(nameof(PlanInstall), ct => _install.PlanAsync(Require(request, "request"), ct));
@@ -303,18 +454,12 @@ public sealed class GliderService : IGliderRpc, IDisposable
     public Task<JobInfo> Install(InstallRequest request) =>
         Rpc(nameof(Install), ct => _install.InstallAsync(Require(request, "request"), ct));
 
-    public Task<FolderValidation> ValidateFolder(ValidateFolderRequest request) =>
-        Rpc(nameof(ValidateFolder), _ => Task.FromResult(_install.Validate(Require(request, "request"))));
+    public Task<JobInfo> Modify(ModifyRequest request) =>
+        Rpc(nameof(Modify), ct => _install.ModifyAsync(Require(request, "request"), ct));
 
-    public Task<AdoptResult> Adopt(AdoptRequest request) =>
-        Rpc(nameof(Adopt), ct => _install.AdoptAsync(Require(request, "request"), ct));
+    public Task<JobInfo> Update(AppRef request) => Rpc(nameof(Update), ct => _install.UpdateAsync(App(request), ct));
 
-    public Task<UpdateCheckResult> CheckForUpdates() =>
-        Rpc(nameof(CheckForUpdates), ct => _updates.CheckAsync(userInitiated: true, ct));
-
-    public Task<JobInfo> Update() => Rpc(nameof(Update), _install.UpdateAsync);
-
-    public Task<JobInfo> Verify() => Rpc(nameof(Verify), _ => Task.FromResult(_install.Verify()));
+    public Task<JobInfo> Verify(AppRef request) => Rpc(nameof(Verify), _ => Task.FromResult(_install.Verify(App(request))));
 
     public Task<JobInfo> Move(MoveRequest request) =>
         Rpc(nameof(Move), _ => Task.FromResult(_install.Move(Require(request, "request"))));
@@ -322,13 +467,23 @@ public sealed class GliderService : IGliderRpc, IDisposable
     public Task<JobInfo> Uninstall(UninstallRequest request) =>
         Rpc(nameof(Uninstall), _ => Task.FromResult(_install.Uninstall(Require(request, "request"))));
 
-    public Task<LaunchResult> Launch() => Rpc(nameof(Launch), _launch.LaunchAsync);
+    public Task<LaunchResult> Launch(LaunchRequest request) => Rpc(nameof(Launch), ct =>
+    {
+        var r = Require(request, "request");
+        AppName(r.AppName);
+        if (r.Mode is { } m && !Enum.IsDefined(m))
+        {
+            throw new GliderException(Errors.InvalidRequest("Unknown launch mode"));
+        }
 
-    public Task PrepareLaunch() => Rpc(nameof(PrepareLaunch), () =>
+        return _launch.LaunchAsync(r, ct);
+    });
+
+    public Task PrepareLaunch(AppRef request) => Rpc(nameof(PrepareLaunch), () =>
     {
         try
         {
-            _launch.Prepare();
+            _launch.Prepare(App(request));
         }
         catch (Exception e)
         {
@@ -336,20 +491,38 @@ public sealed class GliderService : IGliderRpc, IDisposable
         }
     });
 
-    public Task CloseGame() => Rpc(nameof(CloseGame), _ => _launch.CloseGameAsync());
+    public Task CloseGame(AppRef request) => Rpc(nameof(CloseGame), _ => _launch.CloseGameAsync(App(request)));
 
-    public Task OpenInstallFolder() => Rpc(nameof(OpenInstallFolder), () =>
+    public Task OpenInstallFolder(AppRef request) => Rpc(nameof(OpenInstallFolder), () =>
     {
-        var rec = _c.Records.Current ?? throw new GliderException(Errors.NotInstalled());
-        if (!Directory.Exists(rec.InstallPath))
+        var app = App(request);
+        var path = _c.Library.Summary(app)?.InstallPath ?? _c.Games.Get(app).Install?.InstallPath
+                   ?? throw new GliderException(Errors.NotInstalled(_c.TitleOf(app), app));
+        if (!Directory.Exists(path))
         {
             throw new GliderException(Errors.InvalidFolder("The install folder no longer exists."));
         }
 
-        _c.Host.OpenPath(rec.InstallPath);
+        _c.Host.OpenPath(path);
     });
 
-    // ================================================================== jobs
+    public Task ActivateGame(AppRef request) => Rpc(nameof(ActivateGame), _ => _activation.ActivateAsync(App(request)));
+
+    public Task InstallPrerequisites(AppRef request) => Rpc(nameof(InstallPrerequisites), _ => _prereqs.InstallAsync(App(request)));
+
+    public Task<ShortcutState> SetShortcut(ShortcutRequest request) => Rpc(nameof(SetShortcut), _ => _shortcuts.SetAsync(Require(request, "request")));
+
+    // ================================================================== cloud saves (Phase 2)
+
+    public Task<SaveState> GetSaves(AppRef request) => Rpc(nameof(GetSaves), _ => Task.FromResult(_saves.Get(App(request))));
+
+    public Task<SaveState> SyncSaves(SaveSyncRequest request) => Rpc(nameof(SyncSaves), _ => _saves.SyncAsync(Require(request, "request")));
+
+    public Task<LaunchResult?> ResolveSaves(SaveResolveRequest request) => Rpc(nameof(ResolveSaves), _ => _saves.ResolveAsync(Require(request, "request")));
+
+    public Task OpenSaveBackups(AppRef request) => Rpc(nameof(OpenSaveBackups), _ => _saves.OpenBackupsAsync(App(request)));
+
+    // ================================================================== jobs / queue
 
     private static string JobId(JobRef? r)
     {
@@ -393,32 +566,90 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _c.Jobs.Dismiss(id);
     });
 
+    public Task<QueueState> ReorderJob(JobReorderRequest request) => Rpc(nameof(ReorderJob), async _ =>
+    {
+        var r = Require(request, "request");
+        var id = JobId(new JobRef(r.JobId));
+        RequireKnownJob(id);
+        await _c.Jobs.ReorderAsync(id, r.ToIndex);
+        return _policy.State(_c.Jobs);
+    });
+
+    public Task<QueueState> MoveJobToTop(JobRef request) => Rpc(nameof(MoveJobToTop), async _ =>
+    {
+        var id = JobId(request);
+        RequireKnownJob(id);
+        await _c.Jobs.MoveToTopAsync(id);
+        return _policy.State(_c.Jobs);
+    });
+
+    public Task<JobHistory> GetJobHistory(JobRef request) => Rpc(nameof(GetJobHistory), _ =>
+    {
+        var id = JobId(request);
+        RequireKnownJob(id);
+        return Task.FromResult(_c.Jobs.History(id));
+    });
+
+    public Task<QueueState> PauseQueue() => Rpc(nameof(PauseQueue), async _ =>
+    {
+        await _c.Jobs.PauseAllAsync();
+        return _policy.State(_c.Jobs);
+    });
+
+    public Task<QueueState> ResumeQueue() => Rpc(nameof(ResumeQueue), async _ =>
+    {
+        await _c.Jobs.ResumeAllAsync();
+        return _policy.State(_c.Jobs);
+    });
+
+    public Task<QueueState> ClearFinishedJobs() => Rpc(nameof(ClearFinishedJobs), _ =>
+    {
+        _c.Jobs.ClearFinished();
+        return Task.FromResult(_policy.State(_c.Jobs));
+    });
+
     // ================================================================== egl
 
-    public Task<EglState> RescanEgl() => Rpc(nameof(RescanEgl), async ct =>
+    public Task<EglState> RescanEgl() => Rpc(nameof(RescanEgl), ct => _egl.RescanAsync(ct));
+
+    public Task<EglState> QuickScanEgl() => Rpc(nameof(QuickScanEgl), ct => _egl.QuickScanAsync(ct));
+
+    public Task<FolderValidation> ValidateFolder(ValidateFolderRequest request) =>
+        Rpc(nameof(ValidateFolder), _ => Task.FromResult(_install.Validate(Require(request, "request"))));
+
+    public Task<EglImportResult> ImportEgl(EglImportRequest request) =>
+        Rpc(nameof(ImportEgl), ct => _install.ImportEglAsync(Require(request, "request"), _egl.RescanAsync, ct));
+
+    public Task<JobInfo> ImportFolder(LocateRequest request) =>
+        Rpc(nameof(ImportFolder), ct => _install.ImportFolderAsync(Require(request, "request"), ct));
+
+    public Task<EglReadiness> CheckEglReadiness() => Rpc(nameof(CheckEglReadiness), async ct =>
     {
-        var egl = await _c.Egl.ScanAsync(ct);
-        _c.Hub.Mutate(s => s with { Egl = egl });
-        return _c.Hub.BuildSnapshot().Egl;
+        await _egl.RescanAsync(ct);
+        return _egl.Readiness();
     });
 
-    public Task<EglState> QuickScanEgl() => Rpc(nameof(QuickScanEgl), async ct =>
-    {
-        var egl = await _c.Egl.ScanAsync(ct);
-        var roots = _c.Options.DiskInfo.FixedDrives().Select(d => d.RootPath).ToList();
-        var folders = await Task.Run(() => Egl.InstallLocator.QuickScan(roots, ct), ct);
-        var extra = folders
-            .Where(f => !egl.Candidates.Any(c => Egl.EglPath.Same(c.InstallPath, f)))
-            .Select(f => Egl.EglService.MakeCandidate(f, null, null, CandidateSource.Manual))
-            .ToList();
-        if (extra.Count > 0)
-        {
-            egl = egl with { Candidates = [.. egl.Candidates, .. extra] };
-        }
+    // ================================================================== EOS overlay (Phase 2)
 
-        _c.Hub.Mutate(s => s with { Egl = egl });
-        return _c.Hub.BuildSnapshot().Egl;
-    });
+    public Task<JobInfo> InstallOverlay() => Rpc(nameof(InstallOverlay), _ => _overlay.InstallAsync());
+
+    public Task<OverlayState> SetOverlayEnabled(GameFlagRequest request) => Rpc(nameof(SetOverlayEnabled), _ => _overlay.SetEnabledAsync(Require(request, "request")));
+
+    public Task<OverlayState> RemoveOverlay() => Rpc(nameof(RemoveOverlay), _ => _overlay.RemoveAsync());
+
+    // ================================================================== store / free games (Phase 2)
+
+    public Task<StoreState> ShowStore(StoreShowRequest request) => Rpc(nameof(ShowStore), _ => Task.FromResult(_store.Show(Require(request, "request"))));
+
+    public Task SetStoreBounds(StoreBounds request) => Rpc(nameof(SetStoreBounds), () => _store.SetBounds(Require(request, "request")));
+
+    public Task<StoreState> HideStore() => Rpc(nameof(HideStore), _ => Task.FromResult(_store.Hide()));
+
+    public Task<StoreState> StoreBack() => Rpc(nameof(StoreBack), _ => Task.FromResult(_store.Back()));
+
+    public Task<StoreState> StoreReload() => Rpc(nameof(StoreReload), _ => Task.FromResult(_store.Reload()));
+
+    public Task<FreeGamesResult> GetFreeGames() => Rpc(nameof(GetFreeGames), _ => Task.FromResult(_freeGames.Get()));
 
     // ================================================================== settings
 
@@ -437,9 +668,14 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _c.Log.MinimumLevel = next.LogLevel;
         var saved = await _c.SettingsStore.UpdateAsync(next);
         _c.Hub.Invalidate();
-        if (!prev.AutoUpdate && saved.AutoUpdate)
+        if (prev.WhilePlaying != saved.WhilePlaying || prev.DownloadMode != saved.DownloadMode || prev.IdleFullSpeed != saved.IdleFullSpeed)
         {
-            _updates.TryAutoUpdate();
+            _c.Jobs.Reevaluate();
+        }
+
+        if (prev.AutoUpdate != AutoUpdatePolicy.Always && saved.AutoUpdate == AutoUpdatePolicy.Always)
+        {
+            _updates.Evaluate();
         }
 
         return saved;
@@ -471,12 +707,49 @@ internal static class SettingsValidator
         Check(s.DownloadWorkers is null or >= 1 and <= 64, "downloadWorkers must be 1–64 or null");
         Check(s.SharedMemoryMb is null or >= 256 and <= 16384, "sharedMemoryMb must be 256–16384 or null");
         Check(s.UpdateCheckIntervalMinutes is >= 5 and <= 1440, "updateCheckIntervalMinutes must be 5–1440");
-        Check(s.LaunchArgs is not null && s.LaunchArgs.Length <= 2048 && !s.LaunchArgs.Contains('\n') && !s.LaunchArgs.Contains('\r'), "launchArgs must be one line (≤2048 chars)");
+        Check(s.SpeedLimitBytesPerSecond is null or >= 0, "speedLimitBytesPerSecond must be ≥ 0 or null");
         Check(s.PreferredCdn is null || (s.PreferredCdn.Length is > 0 and <= 253 && char.IsAsciiLetterOrDigit(s.PreferredCdn[0]) &&
                                          s.PreferredCdn.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-')), "preferredCdn must be a host name");
         Check(s.DefaultInstallBase is null || Path.IsPathFullyQualified(s.DefaultInstallBase), "defaultInstallBase must be a full path");
-        Check(Enum.IsDefined(s.LogLevel) && Enum.IsDefined(s.Theme), "unknown enum value");
-        return s;
+        Check(s.LibraryFolders is null || s.LibraryFolders.All(f => !string.IsNullOrWhiteSpace(f) && Path.IsPathFullyQualified(f)), "libraryFolders must be full paths");
+        Check(Enum.IsDefined(s.LogLevel) && Enum.IsDefined(s.Theme) && Enum.IsDefined(s.DownloadMode) && Enum.IsDefined(s.WhilePlaying), "unknown enum value");
+        Check(s.AutoUpdate is AutoUpdatePolicy.Always or AutoUpdatePolicy.Ask or AutoUpdatePolicy.Never, "autoUpdate must be always, ask or never");
+        return s with { LibraryFolders = s.LibraryFolders ?? [] };
+    }
+}
+
+internal static class GameSettingsValidator
+{
+    public static GameSettings Validate(GameSettings? s)
+    {
+        if (s is null)
+        {
+            throw new GliderException(Errors.InvalidRequest("settings are required"));
+        }
+
+        static void Check(bool ok, string what)
+        {
+            if (!ok)
+            {
+                throw new GliderException(Errors.InvalidRequest(what));
+            }
+        }
+
+        var args = s.LaunchArgs ?? "";
+        Check(args.Length <= SettingsStore.MaxLaunchArgsLength && !args.Contains('\n') && !args.Contains('\r') && !args.Contains('\0'),
+            $"launchArgs must be one line (≤{SettingsStore.MaxLaunchArgsLength} chars)");
+        Check(s.ExecutableOverride is null || (!Path.IsPathRooted(s.ExecutableOverride) && !s.ExecutableOverride.Split('/', '\\').Contains("..")
+                                               && s.ExecutableOverride.IndexOfAny(Path.GetInvalidPathChars()) < 0),
+            "executableOverride must be a path inside the install folder");
+        Check(s.WorkingDirectory is null || Path.IsPathFullyQualified(s.WorkingDirectory), "workingDirectory must be a full path");
+        Check(Enum.IsDefined(s.AutoUpdate) && Enum.IsDefined(s.LaunchMode), "unknown enum value");
+        Check(s.LaunchOption is null || s.LaunchOption.Length <= 256, "launchOption is too long");
+        return s with
+        {
+            LaunchArgs = SettingsStore.CleanLaunchArgs(args),
+            ExecutableOverride = string.IsNullOrWhiteSpace(s.ExecutableOverride) ? null : s.ExecutableOverride.Trim(),
+            WorkingDirectory = string.IsNullOrWhiteSpace(s.WorkingDirectory) ? null : s.WorkingDirectory.Trim(),
+        };
     }
 }
 

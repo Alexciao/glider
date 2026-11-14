@@ -62,16 +62,16 @@ internal sealed class AuthService
         }
 
         var state = AuthMapping.From(account);
-        _c.Hub.Mutate(s => s with { Auth = state });
+        _c.Hub.Mutate(s => s with { Auth = state, Connectivity = Connectivity.Online });
         _c.Log.Info("auth", "signed in");
         return state;
     }
 
     public async Task<AuthState> SignOutAsync(CancellationToken ct)
     {
-        if (_c.ActiveJob(JobKind.Install, JobKind.Update, JobKind.Repair, JobKind.Import) is { } job && job.Status == JobStatus.Running)
+        if (_c.Hub.ActiveJobs().FirstOrDefault(j => j.Status == JobStatus.Running && ServiceContext.IsNetworkJob(j.Kind)) is { } job)
         {
-            throw new GliderException(Errors.Busy($"the {job.Kind.ToString().ToLowerInvariant()}"));
+            throw new GliderException(Errors.Busy($"the {job.Kind.ToString().ToLowerInvariant()} of {job.Title}"));
         }
 
         await _c.Legendary.SignOutAsync(ct);
@@ -98,7 +98,25 @@ internal sealed class AuthService
         _c.Hub.Mutate(s => s with { Auth = AuthMapping.From(account) });
     }
 
-    /// <summary>Pre-warm: online token refresh. Network failures keep the offline answer; auth failures mark Expired.</summary>
+    /// <summary>
+    /// Pre-warm: warm user.json/version.json/assets.json with one `list-installed --check-updates --json` through the auth gate
+    /// (L§1.6). Network failures keep the offline answer (connectivity Offline); auth failures mark Expired.
+    /// </summary>
+    public async Task WarmUpAsync(CancellationToken ct)
+    {
+        if (_c.Hub.State.Auth.Status != AuthStatus.SignedIn)
+        {
+            return;
+        }
+
+        var error = await _c.Library.SyncAsync(userInitiated: false, full: false, ct);
+        if (error is not null)
+        {
+            _c.Log.Warn("auth", $"session warm-up: {error.Code}");
+        }
+    }
+
+    /// <summary>Online token refresh (`status --json`). Network failures keep the offline answer; auth failures mark Expired.</summary>
     public async Task RefreshAsync(CancellationToken ct)
     {
         if (_c.Hub.State.Auth.Status != AuthStatus.SignedIn)
@@ -109,7 +127,7 @@ internal sealed class AuthService
         try
         {
             var account = await _c.Legendary.RefreshSessionAsync(ct);
-            _c.Hub.Mutate(s => s with { Auth = AuthMapping.From(account) });
+            _c.Hub.Mutate(s => s with { Auth = AuthMapping.From(account), Connectivity = Connectivity.Online });
         }
         catch (GliderException e) when (e.Error.Code is ErrorCode.AuthExpired or ErrorCode.AuthFailed or ErrorCode.NotSignedIn)
         {
@@ -119,6 +137,7 @@ internal sealed class AuthService
         catch (Exception e) when (e is not OperationCanceledException)
         {
             _c.Log.Warn("auth", "session refresh failed (offline?); keeping the offline sign-in state", e);
+            _c.Hub.Mutate(s => s with { Connectivity = Connectivity.Offline });
         }
     }
 }

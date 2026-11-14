@@ -35,6 +35,7 @@ internal sealed partial class MainWindow : Window
     private bool? _lastDark;
     private bool? _lastTranslucent;
     private bool _minimized;
+    private volatile bool _visible; // shown and uncloaked (read from Core threads, so never WPF's IsVisible)
     private WindowInfo? _lastPublished;
     private DateTime _lastRecreate = DateTime.MinValue;
 
@@ -83,7 +84,7 @@ internal sealed partial class MainWindow : Window
 
     public bool IsMicaActive { get; private set; }
 
-    public WindowInfo Info => new(_maximized, _focused);
+    public WindowInfo Info => new(_maximized, _focused, _visible && !_minimized);
 
     public CoreWebView2? Web => _web;
 
@@ -161,6 +162,7 @@ internal sealed partial class MainWindow : Window
 
         BeforeReveal?.Invoke(); // test hook: grab the frame DWM is about to show
         SetCloak(false);
+        _visible = true;
         StartupTimeline.Mark("revealed");
         Win32.SetForegroundWindow(_hwnd);
         FocusWeb();
@@ -190,6 +192,7 @@ internal sealed partial class MainWindow : Window
 
         SetCloak(false);
         _revealed = true;
+        _visible = true;
         if (Win32.IsIconic(_hwnd))
         {
             Win32.ShowWindow(_hwnd, Win32.SW_RESTORE);
@@ -212,7 +215,9 @@ internal sealed partial class MainWindow : Window
         SavePlacement();
         _safetyTimer.Stop();
         _revealed = true;
+        _visible = false;
         Hide();
+        PublishWindowInfo();
         EnterLowMemory();
         _idleTimer.Stop();
         _idleTimer.Start();

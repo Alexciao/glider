@@ -98,16 +98,16 @@ internal static class LauncherInstalledDat
     }
 
     /// <summary>
-    /// Returns new file bytes with the Fortnite entry at <paramref name="matchLocation"/> updated, or null when no entry
+    /// Returns new file bytes with the <paramref name="appName"/> entry at <paramref name="matchLocation"/> updated, or null when no entry
     /// matches or nothing would change. Unreal's JSON escaping is used for the new values, with non-ASCII as \uXXXX so
     /// the result is valid whatever encoding EGL assumes.
     /// </summary>
-    public static byte[]? Patch(byte[] fileBytes, string matchLocation, string? newLocation, string? newVersion)
+    public static byte[]? Patch(byte[] fileBytes, string appName, string matchLocation, string? newLocation, string? newVersion)
     {
         var utf8 = EglJson.ToUtf8(fileBytes, out var flavor);
         var entries = Parse(utf8.Span);
         var entry = entries.FirstOrDefault(e =>
-            string.Equals(e.AppName, FortniteLayout.AppName, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(e.AppName, appName, StringComparison.OrdinalIgnoreCase) &&
             EglPath.Same(e.InstallLocation, matchLocation));
         if (entry is null)
         {

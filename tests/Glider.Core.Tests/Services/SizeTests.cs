@@ -7,49 +7,49 @@ namespace Glider.Core.Tests.Services;
 public class DownloadSizeTests
 {
     [Fact]
-    public async Task FreshInstall_UsesTheManifestDownloadSize_NotTheInstallSize()
+    public async Task FreshInstall_PlanUsesTheManifestDownloadSize_TheSummaryStaysUnknown()
     {
         using var rig = new Rig();
         rig.Legendary.Info = FakeLegendary.MakeInfo("v2"); // download 50 GB, install 100 GB
         await rig.StartWarmAsync();
 
-        var game = (await rig.Service.GetSnapshot()).Game;
-        Assert.Equal(50_000_000_000, game.DownloadSizeBytes);
-        Assert.Equal(100_000_000_000, game.InstallSizeBytes);
+        Assert.Null((await rig.SummaryAsync())!.DownloadSizeBytes); // not installed: no manifest fetched just to fill a grid tile
+        var plan = await rig.Service.PlanInstall(new InstallPlanRequest(FortniteLayout.AppName, rig.Root, null, null));
+        Assert.Equal(50_000_000_000, plan.DownloadSizeBytes);
+        Assert.Equal(100_000_000_000, plan.InstallSizeBytes);
     }
 
     [Fact]
     public async Task PendingUpdate_ReportsLegendarysDryRunDelta_NotTheWholeManifest()
     {
         using var rig = new Rig();
-        rig.Settings.Set(Settings.Default with { AutoUpdate = false });
+        rig.Settings.Set(Settings.Default with { AutoUpdate = AutoUpdatePolicy.Never });
         rig.Install("v1");
-        rig.Legendary.Info = FakeLegendary.MakeInfo("v2");
         rig.Legendary.UpdateSizes = new LegendarySizes(1_200_000_000, 100_000_000_000);
         await rig.StartWarmAsync();
-        await rig.Service.UpdateSizeTaskForTests;
+        await rig.Service.LibraryForTests.SizesTask;
 
-        var game = (await rig.Service.GetSnapshot()).Game;
+        var game = (await rig.SummaryAsync())!;
         Assert.True(game.UpdateAvailable);
         Assert.Equal(1_200_000_000, game.DownloadSizeBytes);
 
         await rig.Service.CheckForUpdates(); // the next check keeps the measured delta and doesn't re-run the dry run
-        Assert.Equal(1_200_000_000, (await rig.Service.GetSnapshot()).Game.DownloadSizeBytes);
-        Assert.Equal(1, rig.Calls.All.Count(c => c == "legendary.updateSizes"));
+        await rig.Service.LibraryForTests.SyncTask;
+        Assert.Equal(1_200_000_000, (await rig.SummaryAsync())!.DownloadSizeBytes);
+        Assert.Equal(1, rig.Calls.Count("legendary.updateSizes:Fortnite"));
     }
 
     [Fact]
     public async Task PendingUpdate_WithoutADryRunResult_IsUnknownRatherThanTheFullGameSize()
     {
         using var rig = new Rig();
-        rig.Settings.Set(Settings.Default with { AutoUpdate = false });
+        rig.Settings.Set(Settings.Default with { AutoUpdate = AutoUpdatePolicy.Never });
         rig.Install("v1");
-        rig.Legendary.Info = FakeLegendary.MakeInfo("v2");
         rig.Legendary.UpdateSizes = null;
         await rig.StartWarmAsync();
-        await rig.Service.UpdateSizeTaskForTests;
+        await rig.Service.LibraryForTests.SizesTask;
 
-        Assert.Null((await rig.Service.GetSnapshot()).Game.DownloadSizeBytes);
+        Assert.Null((await rig.SummaryAsync())!.DownloadSizeBytes);
     }
 }
 
@@ -74,7 +74,7 @@ public class UpdateDryRunTests
 
 public class InstalledSizeTests
 {
-    private static async Task<GameState> GameAsync(Rig rig) => (await rig.Service.GetSnapshot()).Game;
+    private static async Task<GameSummary> GameAsync(Rig rig) => (await rig.SummaryAsync())!;
 
     [Fact]
     public async Task IsMeasuredInTheBackground_AndPersistedWithTheFolderAndVersion()
@@ -108,13 +108,12 @@ public class InstalledSizeTests
         Directory.CreateDirectory(rig.Paths.Cache);
         await File.WriteAllTextAsync(
             Path.Combine(rig.Paths.Cache, "installed-size.json"),
-            $$"""{"path":{{JsonSerializer.Serialize(rec.InstallPath)}},"version":"v2","bytes":777,"measuredAt":"{{rig.Time.GetUtcNow():o}}"}""",
+            new System.Text.Json.Nodes.JsonObject { ["schemaVersion"] = 2, ["games"] = new System.Text.Json.Nodes.JsonObject { ["Fortnite"] = new System.Text.Json.Nodes.JsonObject { ["path"] = rec.InstallPath, ["version"] = "v2", ["bytes"] = 777, ["measuredAt"] = rig.Time.GetUtcNow() } } }.ToJsonString(),
             TestContext.Current.CancellationToken);
         var walks = 0;
         rig.Measure = (_, _) => Interlocked.Increment(ref walks);
 
         await rig.Service.StartAsync();
-        Assert.Null((await GameAsync(rig)).InstalledSizeBytes); // before pre-warm: nothing measured, nothing blocks
         await rig.Service.WarmupTask;
         await rig.Service.SizesForTests.IdleAsync();
 
@@ -126,7 +125,7 @@ public class InstalledSizeTests
     public async Task IsRecalculatedAfterAnUpdateCompletes()
     {
         using var rig = new Rig();
-        rig.Settings.Set(Settings.Default with { AutoUpdate = false });
+        rig.Settings.Set(Settings.Default with { AutoUpdate = AutoUpdatePolicy.Never });
         long size = 100;
         rig.Measure = (_, _) => size;
         rig.Install("v1");
@@ -135,8 +134,8 @@ public class InstalledSizeTests
         Assert.Equal(100, (await GameAsync(rig)).InstalledSizeBytes);
 
         size = 250; // the update grew the game; Legendary now reports v2
-        rig.Legendary.Installed = FakeLegendary.MakeInstalled(rig.Records.Current!.InstallPath, "v2");
-        var job = rig.Jobs.Enqueue(new JobRequest(JobKind.Update, null, null, "v1", "v2"));
+        rig.Legendary.Installed = FakeLegendary.MakeInstalled(rig.Games.Record()!.InstallPath, "v2");
+        var job = rig.Jobs.Enqueue(new JobRequest(FortniteLayout.AppName, JobKind.Update, null, null, "v1", "v2"));
         await rig.Jobs.RunAsync(job.Id, rig.Service.Hooks);
         await rig.Service.SizesForTests.IdleAsync();
 
@@ -154,7 +153,7 @@ public class InstalledSizeTests
         await rig.Service.SizesForTests.IdleAsync();
         Assert.Equal(1, walks);
 
-        rig.Service.SizesForTests.Request(filesChanged: true);
+        rig.Service.SizesForTests.Request(FortniteLayout.AppName, filesChanged: true);
         await Task.Delay(100, TestContext.Current.CancellationToken);
         Assert.Equal(1, walks); // too soon: waiting out the interval
 

@@ -108,12 +108,12 @@ public sealed class EglOtherDriveTests
         t.CreateGame(t.Drive("E", "Stuff", "Deep", "Fortnite")); // not a known place: a drive is never walked
         t.CreateGame(t.Drive("E", "Games", "Not Fortnite"), withExe: false);
 
-        var found = InstallLocator.QuickScan([t.Drive("D"), t.Drive("E"), t.Drive("Z")], Ct);
+        var found = InstallLocator.QuickScan([t.Drive("D"), t.Drive("E"), t.Drive("Z")], _ => null, Ct);
 
         Assert.Equal(4, found.Count);
         foreach (var expected in new[] { d1, d2, e1, e2 })
         {
-            Assert.Contains(found, f => EglPath.Same(f, expected));
+            Assert.Contains(found, f => EglPath.Same(f.Folder, expected) && f.AppName == "Fortnite");
         }
     }
 
@@ -125,8 +125,8 @@ public sealed class EglOtherDriveTests
         using var cts = new CancellationTokenSource();
         cts.Cancel();
 
-        Assert.Throws<OperationCanceledException>(() => InstallLocator.QuickScan([t.Drive("D")], cts.Token));
-        Assert.Empty(InstallLocator.QuickScan([t.Drive("Q"), ""], Ct));
+        Assert.Throws<OperationCanceledException>(() => InstallLocator.QuickScan([t.Drive("D")], _ => null, cts.Token));
+        Assert.Empty(InstallLocator.QuickScan([t.Drive("Q"), ""], _ => null, Ct));
     }
 
     // ------------------------------------------------------------------ locate by folder
