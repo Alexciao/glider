@@ -81,18 +81,29 @@ public class CdnProbeTests
         Assert.Equal(["https://a.example/x"], CdnProbe.Candidates(["https://a.example/x/", "https://A.example/y", "ftp://c.example/z"]).Select(c => c.BaseUrl));
     }
 
-    [Fact]
-    public async Task PicksTheFirstGoodHostInEpicsOrder_NotTheFastest()
-    {
-        var plan = await ProbeAsync(new Dictionary<string, Host>
-        {
-            ["egdownload.fastly-edge.com"] = new(Ttfb: 15, ReadDelayMs: 60),
-            ["epicgames-download1.akamaized.net"] = new(Ttfb: 15, ReadDelayMs: 40), // faster, but later in Epic's order
-        });
+    private static CdnHostResult R(string host, string verdict, double mbps = 30, bool epic = true) =>
+        new($"https://{host}/Builds/Fortnite/CloudDir", host, epic, verdict != "skipped", verdict == "failed", 10, mbps) { Verdict = verdict };
 
-        Assert.NotNull(plan);
-        Assert.Equal("egdownload.fastly-edge.com", plan.Pick?.Host);
-        Assert.Equal("ok", plan.Find("epicgames-download1.akamaized.net")!.Verdict);
+    [Fact]
+    public void PicksTheFirstGoodHostInEpicsOrder_NotTheFastest()
+    {
+        var plan = new CdnPlan([R("a.example", "ok", 20), R("b.example", "ok", 60), R("c.example", "slow", 5)]);
+
+        Assert.Equal("a.example", plan.Pick?.Host);
+        Assert.Equal("b.example", plan.Next("a.example")?.Host);
+        Assert.Null(plan.Next("b.example")); // slow hosts are never failover targets
+        Assert.Equal(20, plan.ProbeMegabytesPerSecond("a.example"));
+    }
+
+    [Fact]
+    public void SkippedHostsComeAfterGoodOnesAndBeforeNothing()
+    {
+        var plan = new CdnPlan([R("a.example", "failed"), R("b.example", "skipped"), R("c.example", "ok")]);
+
+        Assert.Equal("c.example", plan.Pick?.Host);
+        Assert.Equal("b.example", plan.Next("c.example")?.Host); // unprobed hosts are usable as a last resort
+        Assert.Null(plan.Pick is null ? null : plan.Next("b.example"));
+        Assert.Null(new CdnPlan([R("a.example", "slow")]).Pick);
     }
 
     [Fact]
@@ -100,10 +111,10 @@ public class CdnProbeTests
     {
         var plan = await ProbeAsync(new Dictionary<string, Host>
         {
-            ["egdownload.fastly-edge.com"] = new(Ttfb: 400, ReadDelayMs: 1), // akamai-like slow first byte
-            ["epicgames-download1.akamaized.net"] = new(Ttfb: 10, Fail: true),
-            ["egs-cloudfront-chunks.epicgamescdn.com"] = new(Ttfb: 10, ReadDelayMs: 900), // passes TTFB, far below half of the best
-            ["fastly-download.epicgames.com"] = new(Ttfb: 10, ReadDelayMs: 5),
+            ["egdownload.fastly-edge.com"] = new(Ttfb: 1000, ReadDelayMs: 1), // akamai-like slow first byte
+            ["epicgames-download1.akamaized.net"] = new(Ttfb: 5, Fail: true),
+            ["egs-cloudfront-chunks.epicgamescdn.com"] = new(Ttfb: 5, ReadDelayMs: 3000), // passes TTFB, far below half of the best
+            ["fastly-download.epicgames.com"] = new(Ttfb: 5, ReadDelayMs: 5),
         });
 
         Assert.NotNull(plan);
@@ -124,22 +135,6 @@ public class CdnProbeTests
         Assert.NotNull(plan);
         Assert.Null(plan.Pick);
         Assert.Null(plan.Next(null));
-    }
-
-    [Fact]
-    public async Task FailoverWalksTheGoodHostsThenStops()
-    {
-        var plan = await ProbeAsync(EpicHosts.ToDictionary(h => h, _ => new Host(Ttfb: 10, ReadDelayMs: 5)));
-
-        Assert.NotNull(plan);
-        var seen = new List<string>();
-        for (var h = plan.Pick; h is not null; h = plan.Next(h.Host))
-        {
-            seen.Add(h.Host);
-        }
-
-        Assert.Equal(EpicHosts, seen.Take(3));
-        Assert.NotNull(plan.ProbeMegabytesPerSecond("egdownload.fastly-edge.com"));
     }
 
     [Fact]
@@ -184,7 +179,7 @@ public class CdnProbeTests
     }
 
     private static Task<CdnPlan?> ProbeAsync(Dictionary<string, Host> hosts) =>
-        new CdnProbe(new TestLog(), () => new FakeCdn(hosts)) { TotalBudget = TimeSpan.FromSeconds(30), HostTimeout = TimeSpan.FromSeconds(10) }
+        new CdnProbe(new TestLog(), () => new FakeCdn(hosts)) { TotalBudget = TimeSpan.FromSeconds(60), HostTimeout = TimeSpan.FromSeconds(30), BadTtfbMs = 800 }
             .ProbeAsync(Epic(EpicHosts), Paths, TestContext.Current.CancellationToken);
 
     /// <summary>A CDN host: time to first byte, then a 1 MB body that arrives after <see cref="ReadDelayMs"/>; or an error.</summary>

@@ -57,7 +57,6 @@ internal sealed partial class CdnProbe
 
     internal const string UserAgent = "EpicGamesLauncher/11.0.1-14907503+++Portal+Release-Live Windows/10.0.19041.1.256.64bit";
 
-    private const double BadTtfbMs = 250;
     private const double BadShareOfBest = 0.5;
 
     private readonly Func<HttpMessageHandler> _handlers;
@@ -68,6 +67,9 @@ internal sealed partial class CdnProbe
         _log = log;
         _handlers = handlerFactory ?? (() => new SocketsHttpHandler { MaxConnectionsPerServer = 8, UseCookies = false, AutomaticDecompression = System.Net.DecompressionMethods.None });
     }
+
+    /// <summary>Time to first byte above which a host is bad (250 ms; tests raise it so a loaded CI machine doesn't flip good hosts).</summary>
+    public double BadTtfbMs { get; init; } = 250;
 
     public TimeSpan HostTimeout { get; init; } = TimeSpan.FromSeconds(3);
 
@@ -125,7 +127,7 @@ internal sealed partial class CdnProbe
         foreach (var (baseUrl, epic) in candidates)
         {
             // Out of time, or three hosts measured and one of them already passes: the rest is "skipped" (usable as failover, never preferred).
-            if (Stopwatch.GetElapsedTime(started) > TotalBudget || (raw.Count(r => r.Probed) >= 3 && Verdicts(raw).Contains("ok")))
+            if (Stopwatch.GetElapsedTime(started) > TotalBudget || (raw.Count(r => r.Probed) >= 3 && Verdicts(raw, BadTtfbMs).Contains("ok")))
             {
                 raw.Add(new RawResult(baseUrl, epic, false, false, 0, 0));
                 continue;
@@ -138,7 +140,7 @@ internal sealed partial class CdnProbe
             raw.Add(new RawResult(baseUrl, epic, true, result.Failed, result.TtfbMs, result.Mbps));
         }
 
-        var verdicts = Verdicts(raw);
+        var verdicts = Verdicts(raw, BadTtfbMs);
         var results = raw.Select((r, i) => new CdnHostResult(r.BaseUrl, new Uri(r.BaseUrl).Host, r.Epic, r.Probed, r.Failed, r.Ttfb, r.Mbps) { Verdict = verdicts[i] }).ToList();
 
         var plan = new CdnPlan(results);
@@ -153,12 +155,12 @@ internal sealed partial class CdnProbe
 
     private readonly record struct RawResult(string BaseUrl, bool Epic, bool Probed, bool Failed, double Ttfb, double Mbps);
 
-    private static List<string> Verdicts(List<RawResult> raw)
+    private static List<string> Verdicts(List<RawResult> raw, double badTtfbMs)
     {
         var best = raw.Where(r => r is { Probed: true, Failed: false }).Select(r => r.Mbps).DefaultIfEmpty(0).Max();
         return [.. raw.Select(r => !r.Probed ? "skipped"
             : r.Failed ? "failed"
-            : r.Ttfb > BadTtfbMs || r.Mbps < BadShareOfBest * best ? "slow"
+            : r.Ttfb > badTtfbMs || r.Mbps < BadShareOfBest * best ? "slow"
             : "ok")];
     }
 
