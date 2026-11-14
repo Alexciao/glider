@@ -149,8 +149,8 @@ public sealed class GliderRuntime : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        await _jobs.DisposeAsync(); // first: a finishing hook must not run against a disposed service
         _service.Dispose();
-        await _jobs.DisposeAsync();
         _egl.Dispose();
         _legendary.Dispose();
         foreach (var s in _stores)
