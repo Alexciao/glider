@@ -59,8 +59,9 @@ and it drives the bundled **Legendary** CLI (v0.21.1) as the Epic protocol engin
 | `Services/EglCoordinator.cs` | Contract `EglState` from the scan + library (status, drift, title, art) and startup drift reconciliation per EGL-shared game; `egl.checkReadiness`. |
 | `Overlay/` | `OverlayService` (state from files + `IOverlayRegistry`, install/update as an `Overlay` writer job, HKCU on/off, inline remove, periodic check), `OverlayFiles`, `OverlayRegistry` (HKCU seam + Windows impl). |
 | `Game/PrerequisiteService.cs`, `ThirdPartyService.cs`, `GameStateFiles.cs` | Elevated once-only prerequisites (`state/prereqs.json`); Ubisoft/EA activation and launcher hand-off (`state/thirdparty.json`); tiny lazy JSON state. |
-| `Services/UpdateService.cs` | Per-game auto-update policy (Default → Settings), notices once per version, `library.updateAll`, periodic checks; `QueuePolicy` (WhilePlaying, idle full speed, effective mode + reason). |
 | `Links/`, `Shortcuts/`, `Tray/` | Strict `glider://` / Epic link parsers, link routing, per-user protocol registration (Epic handler backed up and restored), per-game `.lnk` shortcuts, tray view-model. Registry and shell links are host-implemented interfaces. Details: `docs/shell-integration.md`. |
+| `Services/UpdateService.cs` | Per-game auto-update policy (Default → Settings): Always queues (game closed, idle when asked, retried by a timer that only exists while something waits), Ask = one notice per version with `FixAction.Update` + toast (ledger in `cache/update-notices.json`), Never = badge only; `library.updateAll`; periodic checks on the configured interval; `QueuePolicy` (WhilePlaying, idle full speed, effective mode + reason). |
+| `Art/` | `ArtCache` behind `https://art.glider/{app}/{tall, tall-thumb, wide or logo}?v={hash}`: lazy download of Epic's picture resized by the CDN, `cache/art/<app>/<variant>-<hash>.jpg`, de-duplicated, 6 parallel, LRU cap, offline = 404, v0.1 files adopted, cover colour via the host's `IImageProcessor` (WPF). The host side is `Glider.App/ArtHandler.cs` (`WebResourceRequested`). |
 | `Infrastructure/Migrations` | Versioned migrations (v0.1 → 2), run by `GliderRuntime` before any store loads; `state/schema.json` written last. |
 
 ## IPC
@@ -94,7 +95,7 @@ Saves (S lane): `Saves/SaveService` — one sync at a time, exclusive per game w
 | `backups\saves\<app>\<ts>\` | local save copies taken before every overwrite and after uploads |
 | `state\schema.json` | `{schemaVersion: 2, migratedFrom, migratedAt}` (migration commit marker) |
 | `state\settings.json`, `games.json`, `collections.json`, `jobs.json`, `onboarding.json` | schema 2 stores (`games.json` = per-app install record, favorite, hidden, playtime, settings, shortcuts) |
-| `cache\library.json`, `cache\installed-size.json`, `cache\art\` | caches (safe to delete) |
+| `cache\library.json`, `cache\installed-size.json`, `cache\update-notices.json`, `cache\art\<app>\`, `cache\art\placeholders.json` | caches (safe to delete) |
 | `backups\migration\v0.1-<ts>\` | byte copies of the v0.1 files before migrating |
 | `backups\egl\<ts>\` | copies of every EGL file before Glider writes it |
 | `logs\`, `webview2\` | rolling logs, WebView2 user data |

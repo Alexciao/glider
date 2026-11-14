@@ -869,7 +869,7 @@ public enum ErrorCode
 }
 
 [JsonConverter(typeof(CamelEnumConverter<FixAction>))]
-public enum FixAction { SignIn, FreeSpace, Repair, Retry, ChooseFolder, OpenLogs, CloseGame, WaitForEgl, Activate, ResolveSaves, InstallPrerequisites, PlayOffline }
+public enum FixAction { SignIn, FreeSpace, Repair, Retry, ChooseFolder, OpenLogs, CloseGame, WaitForEgl, Activate, ResolveSaves, InstallPrerequisites, PlayOffline, Update }
 
 /// <summary>A human-readable failure with an optional one-click fix. Detail is technical (for logs/copy).</summary>
 public sealed record GliderError(ErrorCode Code, string Title, string Message, FixAction? Fix, string? Detail, string? AppName = null);

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json.Nodes;
+using Glider.Core.Art;
 using Glider.Core.Contracts;
 using Glider.Core.Library;
 using Glider.Core.Tests.TestSupport;
@@ -32,7 +33,7 @@ public sealed class GameCatalogTests : IDisposable
             .AddCatalog(Fn, LibraryFixture.FortniteCatalog, "++Fortnite+Release-43.10-CL-1-Windows")
             .AddCatalog(Alien, LibraryFixture.AlienCatalog, "1.0")
             .AddCatalog(Castle, LibraryFixture.CastlevaniaCatalog, "2.0");
-        var (map, _) = await Build(f);
+        var (map, lib) = await Build(f);
 
         var fn = map[Fn];
         Assert.Equal(GameKind.Game, fn.Kind);
@@ -47,8 +48,12 @@ public sealed class GameCatalogTests : IDisposable
         Assert.Equal(SaveSyncStatus.NotSupported, fn.SaveStatus);
         Assert.Equal(ThirdPartyStore.None, fn.ThirdParty);
         Assert.Equal(new DateTimeOffset(2014, 9, 12, 15, 20, 6, 103, TimeSpan.Zero), fn.AddedAt); // creation date without an entitlement
-        Assert.Contains("1200x1600", fn.Art.Tall, StringComparison.Ordinal); // DieselGameBoxTall for the tile
-        Assert.Contains("2560x1440", fn.Art.Wide, StringComparison.Ordinal); // DieselGameBox for the hero
+        // Art is the host's lazy cache (art.glider); the hash names the Epic source: DieselGameBoxTall for the tile, DieselGameBox for the hero.
+        var fnItem = lib.Items[Fn];
+        Assert.Equal(ArtUrls.Build(Fn, ArtKind.Tall, GameCatalog.ArtSourceOf(fnItem, ArtKind.Tall)!.Url), fn.Art.Tall);
+        Assert.Equal(fn.Art.Tall!.Replace("/tall?", "/tall-thumb?", StringComparison.Ordinal), fn.Art.TallThumb);
+        Assert.Contains("1200x1600", GameCatalog.ArtSourceOf(fnItem, ArtKind.Tall)!.Url, StringComparison.Ordinal);
+        Assert.Contains("2560x1440", GameCatalog.ArtSourceOf(fnItem, ArtKind.Wide)!.Url, StringComparison.Ordinal);
         Assert.StartsWith("#", fn.Art.Placeholder, StringComparison.Ordinal);
 
         var alien = map[Alien];
@@ -136,13 +141,33 @@ public sealed class GameCatalogTests : IDisposable
         var f = Fixture().Add("w", wideOnly).Add("t", tallOnly).Add("none", LibraryFixture.Item("No Art"));
         var (map, _) = await Build(f);
 
-        Assert.Equal("https://cdn1.epicgames.com/w.jpg", map["w"].Art.Tall);
-        Assert.Equal("https://cdn1.epicgames.com/w.jpg", map["w"].Art.Wide);
-        Assert.Equal("https://cdn1.epicgames.com/t.jpg", map["t"].Art.Wide);
+        // Every URL is the lazy art cache's; the hash in it names the Epic picture the variant is cut from.
+        Assert.Equal(ArtUrls.Build("w", ArtKind.Tall, "https://cdn1.epicgames.com/w.jpg"), map["w"].Art.Tall);
+        Assert.Equal(ArtUrls.Build("w", ArtKind.TallThumb, "https://cdn1.epicgames.com/w.jpg"), map["w"].Art.TallThumb);
+        Assert.Equal(ArtUrls.Build("w", ArtKind.Wide, "https://cdn1.epicgames.com/w.jpg"), map["w"].Art.Wide);
+        Assert.Equal(ArtUrls.Build("t", ArtKind.Wide, "https://cdn1.epicgames.com/t.jpg"), map["t"].Art.Wide);
+        Assert.Null(map["w"].Art.Logo);
         Assert.Null(map["none"].Art.Tall);
+        Assert.Null(map["none"].Art.TallThumb);
         Assert.Null(map["none"].Art.Wide);
         Assert.Matches("^#[0-9a-f]{6}$", map["none"].Art.Placeholder!);
         Assert.Equal(GameCatalog.Placeholder("none"), map["none"].Art.Placeholder); // stable per app
+    }
+
+    [Fact]
+    public async Task ALearnedCoverColour_ReplacesTheGeneratedPlaceholder_OnlyWhileTheArtIsUnchanged()
+    {
+        var item = LibraryFixture.Item("Coloured");
+        item["keyImages"] = new JsonArray(new JsonObject { ["type"] = "DieselGameBoxTall", ["url"] = "https://cdn1.epicgames.com/c.jpg" });
+        var f = Fixture().Add("c", item);
+        var learned = new Dictionary<string, ArtPlaceholder> { ["c"] = new(ArtUrls.HashOf("https://cdn1.epicgames.com/c.jpg"), "#445566") };
+        var stale = new Dictionary<string, ArtPlaceholder> { ["c"] = new(ArtUrls.HashOf("https://cdn1.epicgames.com/old.jpg"), "#445566") };
+
+        var (withColour, _) = await Build(f, CatalogContext.Empty with { Placeholders = learned });
+        var (staleColour, _) = await Build(f, CatalogContext.Empty with { Placeholders = stale });
+
+        Assert.Equal("#445566", withColour["c"].Art.Placeholder);
+        Assert.Equal(GameCatalog.Placeholder("c"), staleColour["c"].Art.Placeholder); // the cover changed: back to the generated colour
     }
 
     [Fact]

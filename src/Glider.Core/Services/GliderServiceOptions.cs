@@ -108,9 +108,23 @@ public sealed class GliderServiceOptions
 
     /// <summary>Cloud-save commands; null = the bundled Legendary when <c>ILegendary</c> is the real CLI (tests inject a fake).</summary>
     internal Saves.ILegendarySaves? SavesLegendary { get; init; }
+    /// <summary>Null = download art over HTTP (tests inject a fake).</summary>
+    public Art.IArtFetcher? ArtFetcher { get; init; }
+
+    /// <summary>Null = the defaults (6 parallel downloads, 384 MB).</summary>
+    public Art.ArtCacheOptions? ArtCache { get; init; }
+
+    /// <summary>The host's image decoder (cover colours, shrinking); null = none.</summary>
+    public Art.IImageProcessor? ImageProcessor { get; init; }
 
     /// <summary>"User idle" threshold for AutoUpdateOnlyWhenIdle when an <see cref="IIdleSignal"/> is present.</summary>
     public TimeSpan IdleThreshold { get; init; } = TimeSpan.FromMinutes(10);
+
+    /// <summary>An auto-update that had to wait (user active, game running, not signed in) is tried again this often.</summary>
+    public TimeSpan AutoUpdateRetryInterval { get; init; } = TimeSpan.FromSeconds(60);
+
+    /// <summary>Host: serialize a throw-away snapshot + library on the thread pool at start, so the UI's first two requests (which gate the first paint) hit a warm serializer. Off in tests.</summary>
+    public bool WarmSerializers { get; init; }
 
     private static string DefaultAppVersion()
     {

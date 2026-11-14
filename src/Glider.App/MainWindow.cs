@@ -329,6 +329,7 @@ internal sealed partial class MainWindow : Window
             var root = WebViewSetup.ResolveContentRoot(_rt.Paths, out var kind);
             HostLog.Info($"UI content: {kind} ({root})");
             WebViewSetup.MapContent(web, root, _rt.Paths.Cache);
+            ArtHandler.Attach(web, _rt.GetArtCacheAsync);
             WebViewSetup.GuardNavigation(web, WebViewSetup.OpenExternalSafe);
 
             web.WebMessageReceived += (_, e) =>

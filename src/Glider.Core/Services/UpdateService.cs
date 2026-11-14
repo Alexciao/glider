@@ -1,20 +1,60 @@
+using System.Text.Json;
 using Glider.Core.Contracts;
+using Glider.Core.Infrastructure;
 using Glider.Core.Jobs;
 
 namespace Glider.Core.Services;
 
 /// <summary>
-/// Auto-update policy per game (GameSettings.AutoUpdate, Default = Settings.AutoUpdate): Always queues the update when the
-/// game isn't running (and, with AutoUpdateOnlyWhenIdle, the user is idle); Ask notifies once per version; Never only shows
-/// the badge. Update detection itself is the library's (assets.json vs installed.json, L§10).
+/// Updates (docs/v0.2-design.md §2). Detection is the library's (assets.json build vs installed.json version, refreshed by
+/// `list-installed --check-updates` on the metadata lane every <see cref="Settings.UpdateCheckIntervalMinutes"/>). Policy per game
+/// (<see cref="GameSettings.AutoUpdate"/>, Default = <see cref="Settings.AutoUpdate"/>):
+/// Always queues the update (never while the game runs; with AutoUpdateOnlyWhenIdle only when the user is idle, retried every
+/// <see cref="GliderServiceOptions.AutoUpdateRetryInterval"/> and when a session ends); Ask raises one notice per version with an
+/// Update action plus a toast; Never only shows the badge (<see cref="LibraryStatus.UpdatesAvailable"/> counts it).
 /// </summary>
-internal sealed class UpdateService
+internal sealed class UpdateService : IDisposable
 {
+    private const string Category = "update";
+
+    public const int MinIntervalMinutes = 5;
+    public const int MaxIntervalMinutes = 24 * 60;
+
     private readonly ServiceContext _c;
     private readonly Dictionary<string, string> _notified = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _deferred = new(StringComparer.Ordinal);
     private readonly Lock _gate = new();
+    private readonly ITimer _retryTimer;
+    private readonly string _notifiedPath;
+    private bool _notifiedLoaded;
+    private bool _retryArmed;
+    private bool _disposed;
+    private DateTimeOffset _lastCheck;
+    private CancellationTokenSource _intervalChanged = new();
+    private int _lastInterval;
 
-    public UpdateService(ServiceContext context) => _c = context;
+    public UpdateService(ServiceContext context)
+    {
+        _c = context;
+        _notifiedPath = Path.Combine(context.Paths.Cache, "update-notices.json");
+        _retryTimer = context.Time.CreateTimer(_ => RetryDeferred(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        _lastInterval = ClampMinutes(context.Settings.UpdateCheckIntervalMinutes);
+        context.SettingsStore.Changed += OnSettingsChanged;
+    }
+
+    private static int ClampMinutes(int minutes) => Math.Clamp(minutes, MinIntervalMinutes, MaxIntervalMinutes);
+
+    /// <summary>Apps whose auto-update is waiting for idle time, a closed game or a session (tests).</summary>
+    internal IReadOnlyCollection<string> Deferred
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _deferred];
+            }
+        }
+    }
 
     public AutoUpdatePolicy PolicyFor(string app)
     {
@@ -30,6 +70,8 @@ internal sealed class UpdateService
             return;
         }
 
+        LoadNotified();
+        var changed = false;
         foreach (var g in _c.Library.Games.Values.Where(g => g.UpdateAvailable && g.LatestVersion is not null).ToList())
         {
             var policy = PolicyFor(g.AppName);
@@ -40,14 +82,18 @@ internal sealed class UpdateService
                 if (notify)
                 {
                     _notified[g.AppName] = g.LatestVersion!;
+                    changed = true;
                 }
             }
 
-            if (notify && policy != AutoUpdatePolicy.Never)
+            if (notify && policy == AutoUpdatePolicy.Always)
             {
-                _c.Notify(NoticeLevel.Info, $"{g.Title} update available",
-                    policy == AutoUpdatePolicy.Always ? "Glider will update it when you're not playing." : "Update now to keep playing.",
-                    appName: g.AppName);
+                _c.Notify(NoticeLevel.Info, $"{g.Title} update available", "Glider will update it when you're not playing.", appName: g.AppName);
+            }
+            else if (notify && policy == AutoUpdatePolicy.Ask)
+            {
+                // One notice (and one toast, when Glider isn't in front) per version, with the one-click action.
+                _c.Notify(NoticeLevel.Info, $"{g.Title} update available", "Update now to keep playing.", FixAction.Update, appName: g.AppName);
             }
 
             if (policy == AutoUpdatePolicy.Always)
@@ -55,32 +101,161 @@ internal sealed class UpdateService
                 TryAutoUpdate(g.AppName);
             }
         }
+
+        if (changed)
+        {
+            SaveNotified();
+        }
     }
 
-    /// <summary>Enqueue an update if the policy allows. Never while that game runs (the job would wait anyway).</summary>
+    /// <summary>
+    /// Enqueue an update if the policy allows. While the game runs, the user is active (AutoUpdateOnlyWhenIdle) or Epic isn't signed in,
+    /// the app is deferred and retried by a timer (and at once when a session ends).
+    /// </summary>
     public bool TryAutoUpdate(string app)
     {
         var g = _c.Library.Summary(app);
-        if (g is not { UpdateAvailable: true } || PolicyFor(app) != AutoUpdatePolicy.Always || _c.ActiveJob(app) is not null || _c.IsGameRunning(app))
+        if (g is not { UpdateAvailable: true } || PolicyFor(app) != AutoUpdatePolicy.Always || _c.ActiveJob(app) is not null)
         {
+            Settle(app);
             return false;
         }
 
-        if (_c.Settings.AutoUpdateOnlyWhenIdle && _c.Options.IdleSignal is { } idle && idle.IdleTime < _c.Options.IdleThreshold)
+        if (!_c.Hub.State.Warm ||
+            _c.Hub.State.Auth.Status != AuthStatus.SignedIn ||
+            _c.IsGameRunning(app) ||
+            (_c.Settings.AutoUpdateOnlyWhenIdle && _c.Options.IdleSignal is { } idle && idle.IdleTime < _c.Options.IdleThreshold))
         {
+            Defer(app);
             return false;
         }
 
-        if (_c.Hub.State.Auth.Status != AuthStatus.SignedIn)
-        {
-            return false;
-        }
-
+        Settle(app);
         var job = _c.Jobs.Enqueue(new JobRequest(app, JobKind.Update, null, null, g.InstalledVersion, g.LatestVersion, g.Title,
             g.BaseAppName is { } b ? new JobOptions(BaseAppName: b) : null));
-        _c.Log.Info("update", $"auto-update queued for {app}: {g.InstalledVersion} -> {g.LatestVersion} ({job.Id})");
+        _c.Log.Info(Category, $"auto-update queued for {app}: {g.InstalledVersion} -> {g.LatestVersion} ({job.Id})");
         return true;
     }
+
+    // ------------------------------------------------------------------ deferred auto-updates
+
+    private void Defer(string app)
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _deferred.Add(app);
+            if (_retryArmed)
+            {
+                return;
+            }
+
+            _retryArmed = true;
+        }
+
+        _retryTimer.Change(_c.Options.AutoUpdateRetryInterval, Timeout.InfiniteTimeSpan);
+    }
+
+    private void Settle(string app)
+    {
+        lock (_gate)
+        {
+            _deferred.Remove(app);
+        }
+    }
+
+    /// <summary>The user may have gone idle or closed the game: try everything that was waiting. Re-arms itself while any is left.</summary>
+    internal void RetryDeferred()
+    {
+        string[] apps;
+        lock (_gate)
+        {
+            _retryArmed = false;
+            apps = [.. _deferred];
+        }
+
+        foreach (var app in apps)
+        {
+            TryAutoUpdate(app); // settles itself, or defers again (re-arming the timer)
+        }
+    }
+
+    // ------------------------------------------------------------------ "told you once" ledger
+
+    private void LoadNotified()
+    {
+        lock (_gate)
+        {
+            if (_notifiedLoaded)
+            {
+                return;
+            }
+
+            _notifiedLoaded = true;
+        }
+
+        try
+        {
+            if (File.Exists(_notifiedPath))
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllBytes(_notifiedPath));
+                lock (_gate)
+                {
+                    foreach (var p in doc.RootElement.EnumerateObject())
+                    {
+                        if (p.Value.ValueKind == JsonValueKind.String && p.Value.GetString() is { } v)
+                        {
+                            _notified.TryAdd(p.Name, v);
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
+        {
+            _c.Log.Warn(Category, "cache/update-notices.json is unreadable; update notices may repeat once", e);
+        }
+    }
+
+    /// <summary>A restart must not repeat the notice for a version the user already heard about.</summary>
+    private void SaveNotified()
+    {
+        byte[] bytes;
+        lock (_gate)
+        {
+            using var ms = new MemoryStream();
+            using (var w = new Utf8JsonWriter(ms))
+            {
+                w.WriteStartObject();
+                foreach (var (app, version) in _notified.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+                {
+                    w.WriteString(app, version);
+                }
+
+                w.WriteEndObject();
+            }
+
+            bytes = ms.ToArray();
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await AtomicFile.WriteAllBytesAsync(_notifiedPath, bytes).ConfigureAwait(false);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                _c.Log.Warn(Category, "couldn't write cache/update-notices.json", e);
+            }
+        });
+    }
+
+    // ------------------------------------------------------------------ library.updateAll
 
     /// <summary>library.updateAll: every installed game with an update, except those set to Never.</summary>
     public async Task<UpdateAllResult> UpdateAllAsync(CancellationToken ct)
@@ -106,33 +281,112 @@ internal sealed class UpdateService
 
             jobs.Add(_c.Jobs.Enqueue(new JobRequest(g.AppName, JobKind.Update, null, null, g.InstalledVersion, g.LatestVersion, g.Title,
                 g.BaseAppName is { } b ? new JobOptions(BaseAppName: b) : null)));
+            Settle(g.AppName);
         }
 
         return new UpdateAllResult(jobs);
     }
 
+    // ------------------------------------------------------------------ periodic checks
+
     /// <summary>
-    /// Periodic background work until shutdown: every Settings.UpdateCheckIntervalMinutes an EGL rescan and an update check;
-    /// a full library sync when the last one is older than <see cref="GliderServiceOptions.LibrarySyncInterval"/>.
+    /// Background work until shutdown: every <see cref="Settings.UpdateCheckIntervalMinutes"/> (re-read when it changes, 5 min while
+    /// offline) an EGL rescan and an update check (`list-installed --check-updates`, skipped when nothing is installed); a full library
+    /// sync (`list -T --json`) instead when the last one is older than <see cref="GliderServiceOptions.LibrarySyncInterval"/>.
     /// </summary>
     public async Task RunPeriodicAsync(Func<CancellationToken, Task> rescanEgl, CancellationToken ct)
     {
+        _lastCheck = _c.Now; // pre-warm has just checked
         while (!ct.IsCancellationRequested)
         {
-            var minutes = Math.Clamp(_c.Settings.UpdateCheckIntervalMinutes, 5, 24 * 60);
-            await Task.Delay(TimeSpan.FromMinutes(minutes), _c.Time, ct);
+            await WaitUntilDueAsync(ct);
+            _lastCheck = _c.Now; // set before the attempt: a failing check waits a full interval, never a hot loop
             try
             {
+                if (_c.Hub.State.Connectivity == Connectivity.Offline)
+                {
+                    _lastCheck = _c.Now - TimeSpan.FromMinutes(_lastInterval) + TimeSpan.FromMinutes(MinIntervalMinutes);
+                    continue;
+                }
+
                 await rescanEgl(ct);
                 var full = _c.Hub.State.LastSyncedAt is not { } last || _c.Now - last >= _c.Options.LibrarySyncInterval;
-                await _c.Library.SyncAsync(userInitiated: false, full, ct);
+                if (full || _c.Library.Games.Values.Any(g => g.InstallStatus is InstallStatus.Installed or InstallStatus.Broken))
+                {
+                    await _c.Library.SyncAsync(userInitiated: false, full, ct);
+                }
+
                 Evaluate();
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
-                _c.Log.Warn("update", "periodic check failed", e);
+                _c.Log.Warn(Category, "periodic check failed", e);
             }
         }
+    }
+
+    private async Task WaitUntilDueAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            var remaining = _lastCheck + TimeSpan.FromMinutes(ClampMinutes(_c.Settings.UpdateCheckIntervalMinutes)) - _c.Now;
+            if (remaining <= TimeSpan.Zero)
+            {
+                return;
+            }
+
+            CancellationTokenSource changed;
+            lock (_gate)
+            {
+                changed = _intervalChanged;
+            }
+
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, changed.Token);
+            try
+            {
+                await Task.Delay(remaining, _c.Time, linked.Token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // The interval setting changed: work out the remaining time again.
+            }
+        }
+
+        ct.ThrowIfCancellationRequested();
+    }
+
+    private void OnSettingsChanged(Settings s)
+    {
+        CancellationTokenSource old;
+        lock (_gate)
+        {
+            var minutes = ClampMinutes(s.UpdateCheckIntervalMinutes);
+            if (_disposed || minutes == _lastInterval)
+            {
+                return;
+            }
+
+            _lastInterval = minutes;
+            old = _intervalChanged;
+            _intervalChanged = new CancellationTokenSource();
+        }
+
+        old.Cancel();
+        old.Dispose();
+    }
+
+    public void Dispose()
+    {
+        CancellationTokenSource changed;
+        lock (_gate)
+        {
+            _disposed = true;
+            changed = _intervalChanged;
+        }
+
+        _c.SettingsStore.Changed -= OnSettingsChanged;
+        _retryTimer.Dispose();
+        changed.Cancel();
     }
 }
 

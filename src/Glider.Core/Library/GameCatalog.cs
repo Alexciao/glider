@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
+using Glider.Core.Art;
 using Glider.Core.Contracts;
 
 namespace Glider.Core.Library;
@@ -27,8 +28,10 @@ public sealed record CatalogContext(
     ImmutableDictionary<string, GameEntry> Glider,
     ImmutableDictionary<string, GameRuntime> Runtime,
     bool CloudSavesEnabled,
-    /// <summary>Cached art per app (cache.glider URLs from an earlier session); missing apps use Epic's CDN URLs.</summary>
-    ImmutableDictionary<string, GameArt>? CachedArt = null)
+    /// <summary>v0.1's cached art (cache.glider URLs): only for apps the catalog has no pictures for.</summary>
+    ImmutableDictionary<string, GameArt>? CachedArt = null,
+    /// <summary>Cover colours learned by the art cache (valid while their source hash matches), for blur-up.</summary>
+    IReadOnlyDictionary<string, ArtPlaceholder>? Placeholders = null)
 {
     public static CatalogContext Empty { get; } = new(ImmutableDictionary<string, GameEntry>.Empty, ImmutableDictionary<string, GameRuntime>.Empty, true);
 
@@ -341,29 +344,46 @@ public static class GameCatalog
 
     public static GameArt ArtFor(CatalogItem item, CatalogContext ctx)
     {
-        if (ctx.CachedArt?.GetValueOrDefault(item.AppName) is { } cached && (cached.Tall ?? cached.Wide) is not null)
+        var art = Art(item, ctx.Placeholders);
+        if (art.Tall is null && art.Wide is null && ctx.CachedArt?.GetValueOrDefault(item.AppName) is { } cached && (cached.Tall ?? cached.Wide) is not null)
         {
-            return cached with { Placeholder = cached.Placeholder ?? Placeholder(item.AppName) };
+            return cached with { Placeholder = cached.Placeholder ?? art.Placeholder };
         }
 
-        return Art(item);
+        return art;
     }
 
-    /// <summary>Tile = DieselGameBoxTall, hero = DieselGameBox, each falling back to the other; Epic CDN URLs.</summary>
-    public static GameArt Art(CatalogItem item)
+    /// <summary>
+    /// Tile = DieselGameBoxTall, hero = DieselGameBox, each falling back to the other. The URLs are the host's lazy art cache
+    /// (<c>https://art.glider/…</c>, <see cref="ArtUrls"/>); the Epic CDN URL is resolved by <see cref="ArtSourceOf"/> on first use.
+    /// </summary>
+    public static GameArt Art(CatalogItem item, IReadOnlyDictionary<string, ArtPlaceholder>? placeholders = null)
+    {
+        string? Url(ArtKind kind) => ArtSourceOf(item, kind) is { } s ? ArtUrls.Build(item.AppName, kind, s.Url) : null;
+        var thumbSource = ArtSourceOf(item, ArtKind.TallThumb);
+        var learned = thumbSource is not null && placeholders is not null && placeholders.TryGetValue(item.AppName, out var p) && p.Hash == ArtUrls.HashOf(thumbSource.Url)
+            ? p.Color
+            : null;
+        return new GameArt(Url(ArtKind.Tall), Url(ArtKind.TallThumb), Url(ArtKind.Wide), Url(ArtKind.Logo), learned ?? Placeholder(item.AppName));
+    }
+
+    /// <summary>The Epic picture behind a variant: tall ← wide and wide ← tall when one is missing; logo only if present.</summary>
+    public static ArtSource? ArtSourceOf(CatalogItem item, ArtKind kind)
     {
         var tall = Pick(item.KeyImages, TallType);
         var wide = Pick(item.KeyImages, WideType);
-        var logo = Pick(item.KeyImages, LogoType);
-        tall ??= wide;
-        wide ??= tall;
-        return new GameArt(tall, tall, wide, logo, Placeholder(item.AppName));
+        var picked = kind switch
+        {
+            ArtKind.Tall or ArtKind.TallThumb => tall ?? wide,
+            ArtKind.Wide => wide ?? tall,
+            _ => Pick(item.KeyImages, LogoType),
+        };
+        return picked is null ? null : new ArtSource(picked.Url, picked.Width);
     }
 
-    private static string? Pick(IReadOnlyList<KeyImage> images, string type) => images
+    private static KeyImage? Pick(IReadOnlyList<KeyImage> images, string type) => images
         .Where(i => string.Equals(i.Type, type, StringComparison.OrdinalIgnoreCase) && Uri.TryCreate(i.Url, UriKind.Absolute, out var u) && u.Scheme == Uri.UriSchemeHttps)
         .OrderByDescending(i => (long)(i.Width ?? 0) * (i.Height ?? 0))
-        .Select(i => i.Url)
         .FirstOrDefault();
 
     /// <summary>A stable, muted colour per app (CSS hex) for blur-up and art-less tiles.</summary>

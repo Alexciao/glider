@@ -1,3 +1,4 @@
+using Glider.Core.Art;
 using Glider.Core.Auth;
 using Glider.Core.Contracts;
 using Glider.Core.Game;
@@ -39,6 +40,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
     private readonly LinkService _links;
     private readonly ThirdPartyService _thirdParty;
     private readonly PrerequisiteService _prereqs;
+    private readonly HttpArtFetcher? _ownedFetcher;
     private Task _periodic = Task.CompletedTask;
     private int _started;
 
@@ -77,6 +79,11 @@ public sealed class GliderService : IGliderRpc, IDisposable
         };
         _collections = options.Collections ?? CollectionsStore.Empty(paths, log);
         _c.Library = new LibraryService(_c);
+        _ownedFetcher = options.ArtFetcher is null ? new HttpArtFetcher() : null;
+        _c.Art = new ArtCache(
+            paths.Cache, _c.Library, options.ArtFetcher ?? _ownedFetcher!, log, time,
+            (options.ArtCache ?? new ArtCacheOptions()) with { IsOffline = () => hub.State.Connectivity == Connectivity.Offline },
+            options.ImageProcessor);
         _c.Sizes = new InstalledSizeMeter(_c);
         _policy = new QueuePolicy(_c);
         _auth = new AuthService(_c);
@@ -129,6 +136,9 @@ public sealed class GliderService : IGliderRpc, IDisposable
 
     /// <summary>Completes when background pre-warm has finished (AppInfo.Warm).</summary>
     public Task WarmupTask { get; private set; } = Task.CompletedTask;
+
+    /// <summary>The lazy art cache the host serves https://art.glider/ from.</summary>
+    public ArtCache Art => _c.Art;
 
     internal LaunchService LaunchServiceForTests => _launch;
 
@@ -184,15 +194,42 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _c.SettingsStore.Changed += _ => _c.Library.Invalidate();
         _collections.Changed += _c.Hub.Invalidate;
         _c.Library.UpdatesChanged += _updates.Evaluate;
+        _c.Art.PlaceholdersChanged += () => _c.Library.Invalidate();
         _c.Hub.Mutate(s => s with { Loaded = true });
         _c.Hub.PublishNow();
 
         var ct = _shutdown.Token;
+        if (_c.Options.WarmSerializers)
+        {
+            _ = Task.Run(WarmSerializers, ct);
+        }
+
         WarmupTask = Task.Run(() => _prewarm.RunAsync(ct), ct);
         _shortcuts.Attach();
         _ = Task.Run(() => ReconcileShellAsync(ct), ct);
         _periodic = RunPeriodicAfterWarmupAsync(ct);
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// First use of the contract's JSON metadata and of the snapshot's sources (drives, EGL, queue) costs 100–300 ms; the UI's first two
+    /// requests (app.getSnapshot, library.get) gate its first paint. Doing the same work once here, while WebView2 is still starting,
+    /// moves that cost off the critical path (docs/perf.md). Results are discarded; nothing is mutated.
+    /// </summary>
+    internal void WarmSerializers()
+    {
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            _ = System.Text.Json.JsonSerializer.Serialize(_c.Hub.BuildSnapshot(), GliderJsonContext.Default.AppSnapshot);
+            var sample = _c.Library.Games.Values.Take(64).ToList();
+            _ = System.Text.Json.JsonSerializer.Serialize(new LibraryDelta(0, true, sample, []), GliderJsonContext.Default.LibraryDelta);
+            _c.Log.Debug("startup", $"serializers warmed in {sw.ElapsedMilliseconds} ms");
+        }
+        catch (Exception e)
+        {
+            _c.Log.Warn("startup", "serializer warm-up failed", e);
+        }
     }
 
     private async Task RunPeriodicAfterWarmupAsync(CancellationToken ct)
@@ -274,7 +311,10 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _overlay.Dispose();
         _prereqs.Dispose();
         _thirdParty.Dispose();
+        _updates.Dispose();
         _c.Library.Dispose();
+        _c.Art.Dispose();
+        _ownedFetcher?.Dispose();
         _c.Sizes.Dispose();
         _c.Hub.Dispose();
         _c.Metadata.Dispose();
@@ -505,6 +545,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
     {
         var app = App(request);
         await _c.Library.FlushAsync();
+        _c.Library.RequestUpdateSize(app); // lazy: a pending update's download size is measured when somebody looks
         var detail = _c.Library.Detail(app, _c.Library.Summary(app) is null ? null : _saves.Get(app));
         return detail with { Prerequisites = await _prereqs.ForAsync(app, ct), ThirdPartyInfo = await _thirdParty.StatusAsync(app, ct) };
     });

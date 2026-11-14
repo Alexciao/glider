@@ -53,6 +53,7 @@ public sealed class Rig : IDisposable
     /// <summary>Stands in for Program Files (x86): Epic's own overlay folders live under it.</summary>
     public string ProgramFilesX86 => Path.Combine(Root, "pf86");
     public FakeOnboarding Onboarding { get; } = new();
+    internal Art.FakeFetcher ArtFetcher { get; } = new();
     public IIdleSignal? Idle { get; }
 
     /// <summary>The fake shell (shortcuts + registry); set before first use of <see cref="Service"/>. Null = the host offers none.</summary>
@@ -96,6 +97,7 @@ public sealed class Rig : IDisposable
                         ThirdPartyLaunchers = Launchers,
                         ThirdPartyHandoffDisplay = TimeSpan.FromSeconds(8),
                         OnboardingStore = Onboarding,
+                        ArtFetcher = ArtFetcher,
                         IdleSignal = Idle,
                         Shell = Shell,
                         MeasureDirectory = Measure,

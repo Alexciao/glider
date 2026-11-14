@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using Glider.Core.Art;
 using Glider.Core.Contracts;
 using Glider.Core.Game;
 using Glider.Core.Infrastructure;
@@ -24,7 +25,7 @@ public sealed class LibraryCacheFile
 /// Background sync (`list -T --json`) and update checks (`list-installed --check-updates`) run on the metadata lane; the
 /// UI never waits for them.
 /// </summary>
-internal sealed class LibraryService : IDisposable
+internal sealed class LibraryService : IArtSource, IDisposable
 {
     private const string Category = "library";
 
@@ -39,6 +40,7 @@ internal sealed class LibraryService : IDisposable
     private readonly HashSet<(string App, string Installed, string Latest)> _sizeTried = [];
     private LegendaryLibrary _lib = LegendaryLibrary.Empty;
     private bool _filesRead;
+    private readonly TaskCompletionSource _filesReadSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private ImmutableDictionary<string, GameSummary> _published = ImmutableDictionary<string, GameSummary>.Empty;
     private ImmutableDictionary<string, GameArt> _art = ImmutableDictionary<string, GameArt>.Empty;
     private long _revision;
@@ -113,6 +115,11 @@ internal sealed class LibraryService : IDisposable
 
     public CatalogItem? CatalogItem(string app) => Files.Items.TryGetValue(app, out var i) ? i : null;
 
+    // IArtSource: the art cache resolves a variant's Epic URL from the catalog on a cache miss.
+    ArtSource? IArtSource.Resolve(string app, ArtKind kind) => CatalogItem(app) is { } item ? GameCatalog.ArtSourceOf(item, kind) : null;
+
+    Task IArtSource.WhenReadyAsync(CancellationToken ct) => _filesReadSignal.Task.WaitAsync(ct);
+
     public LegendaryInstalledGame? Installed(string app) => Files.Installed?.GetValueOrDefault(app);
 
     /// <summary>Catalog FolderName (Legendary installs into &lt;base&gt;\&lt;FolderName&gt;), falling back to the app name.</summary>
@@ -138,6 +145,7 @@ internal sealed class LibraryService : IDisposable
     public void LoadCache()
     {
         _art = LoadArtIndex();
+        _c.Art.LoadPlaceholders();
         LibraryCacheFile? file = null;
         try
         {
@@ -312,6 +320,8 @@ internal sealed class LibraryService : IDisposable
                 _filesRead = true;
             }
 
+            _filesReadSignal.TrySetResult();
+
             UpdateBroken(lib);
         }
 
@@ -398,7 +408,7 @@ internal sealed class LibraryService : IDisposable
             }
         }
 
-        return new CatalogContext(games, runtime.ToImmutable(), _c.Settings.CloudSaves, _art);
+        return new CatalogContext(games, runtime.ToImmutable(), _c.Settings.CloudSaves, _art, _c.Art.Placeholders);
     }
 
     /// <summary>Installed games whose folder no longer holds the game (profile probe, else the installed executable).</summary>
@@ -435,6 +445,15 @@ internal sealed class LibraryService : IDisposable
         lock (_gate)
         {
             return new LibraryDelta(_revision, true, [.. _published.Values.OrderBy(g => g.AppName, StringComparer.Ordinal)], []);
+        }
+    }
+
+    /// <summary>The UI is looking at this game: measure its pending update's download size now (once; a no-op when known or busy).</summary>
+    public void RequestUpdateSize(string app)
+    {
+        if (Summary(app) is { UpdateAvailable: true, DownloadSizeBytes: null })
+        {
+            MeasureUpdateSizes(Games, app);
         }
     }
 
@@ -580,7 +599,7 @@ internal sealed class LibraryService : IDisposable
     /// Update download sizes, lazily: one dry run per installed game with a pending update (metadata lane), never while the
     /// writer lane runs (the dry run needs Legendary's install lock and would be refused).
     /// </summary>
-    private void MeasureUpdateSizes(ImmutableDictionary<string, GameSummary> map)
+    private void MeasureUpdateSizes(ImmutableDictionary<string, GameSummary> map, string? onlyApp = null)
     {
         if (_c.Hub.State.Auth.Status != AuthStatus.SignedIn || _c.Jobs.IsBusy)
         {
@@ -597,7 +616,7 @@ internal sealed class LibraryService : IDisposable
 
             foreach (var g in map.Values)
             {
-                if (g.UpdateAvailable && g.DownloadSizeBytes is null && g.InstalledVersion is { } i && g.LatestVersion is { } l && _sizeTried.Add((g.AppName, i, l)))
+                if ((onlyApp is null || g.AppName == onlyApp) && g.UpdateAvailable && g.DownloadSizeBytes is null && g.InstalledVersion is { } i && g.LatestVersion is { } l && _sizeTried.Add((g.AppName, i, l)))
                 {
                     todo.Add((g.AppName, i, l));
                 }

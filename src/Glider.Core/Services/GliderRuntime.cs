@@ -59,8 +59,12 @@ public sealed class GliderRuntime : IAsyncDisposable
         var log = new FileLog(paths.Logs, time);
         try
         {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var phases = new List<string>();
+            void Phase(string name) => phases.Add($"{name} {clock.Elapsed.TotalMilliseconds:0}");
             log.Info("startup", $"Glider starting; data={paths.Root}");
             var migration = await Migrator.RunAsync(paths, log, time, ct);
+            Phase("migrate");
 
             var settingsTask = SettingsStore.LoadAsync(paths, log, ct);
             var gamesTask = GamesStore.LoadAsync(paths, log, ct);
@@ -71,6 +75,7 @@ public sealed class GliderRuntime : IAsyncDisposable
             var collections = await collectionsTask;
             var onboarding = await onboardingTask;
             log.MinimumLevel = settings.Current.LogLevel;
+            Phase("stores");
 
             var tune = AutoTune.ForCurrentMachine();
             // Production verifies the bundled exe against the pinned hash; tests inject FakeLegendary via options.
@@ -92,7 +97,9 @@ public sealed class GliderRuntime : IAsyncDisposable
                 FolderNameFor = app => service?.LibraryForTests.FolderName(app),
                 InstallSizeFor = app => service?.LibraryForTests.Installed(app)?.InstallSizeBytes,
             });
+            Phase("legendary+queue");
             var egl = new EglService(eglEnvironment ?? EglEnvironment.ForMachine(), paths, log, options.EglProcesses, options.Egl);
+            Phase("egl");
             var defaults = new GliderServiceOptions();
             service = new GliderService(paths, host, legendary, jobs, egl, settings, games, log, time, events, new GliderServiceOptions
             {
@@ -114,11 +121,17 @@ public sealed class GliderRuntime : IAsyncDisposable
                 OverlayRegistry = options.OverlayRegistry ?? defaults.OverlayRegistry,
                 OverlayEnvironment = options.OverlayEnvironment ?? defaults.OverlayEnvironment,
                 ThirdPartyLaunchers = options.ThirdPartyLaunchers ?? defaults.ThirdPartyLaunchers,
+                ImageProcessor = options.ImageProcessor,
+                ArtFetcher = options.ArtFetcher,
+                WarmSerializers = options.WarmSerializers,
             });
+            Phase("service");
             hooks.Target = service.Hooks;
             policy.Target = service.QueuePolicy;
             service.SetMigratedFrom(migration.MigratedFrom);
             await service.StartAsync();
+            Phase("started");
+            log.Info("startup", "runtime composed (ms since start): " + string.Join(", ", phases));
             return new GliderRuntime(log, legendary, jobs, egl, service, migration, [settings, games, collections, onboarding]);
         }
         catch (Exception e)
@@ -163,6 +176,9 @@ public sealed class GliderRuntimeOptions
     public Overlay.IOverlayRegistry? OverlayRegistry { get; init; }
     public Overlay.OverlayEnvironment? OverlayEnvironment { get; init; }
     public Game.IThirdPartyLaunchers? ThirdPartyLaunchers { get; init; }
+    public Art.IImageProcessor? ImageProcessor { get; init; }
+    public Art.IArtFetcher? ArtFetcher { get; init; }
+    public bool WarmSerializers { get; init; }
 }
 
 /// <summary>Bridges construction cycles: the queue needs the policy, the policy comes from GliderService (which needs the queue).</summary>

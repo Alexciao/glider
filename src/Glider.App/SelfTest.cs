@@ -76,6 +76,7 @@ internal static partial class SelfTest
             await Step("state", () => Ui(rt, () => StateAndHitTests(win)));
             await Step("pixels", () => Ui(rt, () => Screenshot(win, Path.Combine(dir, "normal.png"), "normal")));
             await Step("cache", () => CacheTest(rt, win));
+            await Step("art", () => ArtTest(rt, win));
             await Step("maximize", () => MaximizeTest(rt, win, dir));
             await Step("hover", () => HoverTest(rt, win, dir));
             await Step("toast", () => Ui(rt, () => rt.Platform.ShowToast("Glider self-test", "Host toast via Shell_NotifyIcon (safe to ignore).")));
@@ -95,8 +96,17 @@ internal static partial class SelfTest
         }
     }
 
+    private static readonly HashSet<string>? Only = Environment.GetEnvironmentVariable("GLIDER_SELFTEST_ONLY") is { Length: > 0 } list
+        ? [.. list.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)]
+        : null;
+
     private static async Task Step(string name, Func<Task> body)
     {
+        if (Only is not null && !Only.Contains(name))
+        {
+            return; // GLIDER_SELFTEST_ONLY=art,cache runs just those steps
+        }
+
         try
         {
             await body();
@@ -273,6 +283,75 @@ internal static partial class SelfTest
 
             await Task.Delay(100);
         }
+    }
+
+    // ------------------------------------------------------------------ art.glider (lazy art cache served by WebResourceRequested)
+
+    /// <summary>
+    /// Seeds one cached picture (no catalog, no network), then loads it the way the UI does (&lt;img&gt;, fetch, canvas read-back), plus a
+    /// miss, a malformed URL and a traversal attempt. Also exercises the WPF image processor (cover colour, downscale) on a real JPEG.
+    /// </summary>
+    private static async Task ArtTest(HostRuntime rt, MainWindow win)
+    {
+        const string source = "https://cdn1.epicgames.com/selftest/source.jpg";
+        var v = Glider.Core.Art.ArtUrls.HashOf(source);
+        var jpeg = MakeJpeg(800, 1200, 200, 40, 40);
+        var dir = Path.Combine(rt.Paths.Cache, "art", "SelfTestApp");
+        Directory.CreateDirectory(dir);
+        await File.WriteAllBytesAsync(Path.Combine(dir, $"tall-thumb-{v}.jpg"), jpeg);
+
+        var processor = new WpfImageProcessor();
+        var facts = processor.Analyze(jpeg);
+        Report["art.processor.facts"] = facts is null ? "null" : $"{facts.Width}x{facts.Height} {facts.DominantColor}";
+        var small = processor.Downscale(jpeg, 300);
+        var smallFacts = small is null ? null : processor.Analyze(small);
+        Report["art.processor.downscale"] = smallFacts is null ? "null" : $"{smallFacts.Width}x{smallFacts.Height}, {small!.Length} bytes (from {jpeg.Length})";
+        Report["art.processor.garbage"] = processor.Analyze("not an image"u8) is null ? "null (ok)" : "decoded?!";
+
+        var good = $"https://art.glider/SelfTestApp/tall-thumb?v={v}";
+        var js = $$"""
+            (async()=>{const out={};
+              const t0 = performance.now();
+              try { const r = await fetch('{{good}}'); const b = await r.blob(); out.hit = r.status + ' ' + r.headers.get('content-type') + ' ' + b.size + ' cc=' + r.headers.get('cache-control'); } catch (e) { out.hit = 'ERR ' + e; }
+              out.hitMs = Math.round(performance.now() - t0);
+              out.img = await new Promise(res => { const i = new Image(); i.onload = () => { try { const c = document.createElement('canvas'); c.width = c.height = 1; const x = c.getContext('2d'); x.drawImage(i,0,0,1,1); const d = x.getImageData(0,0,1,1).data; res('loaded ' + i.naturalWidth + 'x' + i.naturalHeight + ' px=' + d[0] + ',' + d[1] + ',' + d[2]); } catch (e) { res('loaded ' + i.naturalWidth + 'x' + i.naturalHeight + ', canvas tainted: ' + e.name); } }; i.onerror = () => res('img error'); i.src = '{{good}}'; });
+              const t1 = performance.now();
+              for (const [k, u] of Object.entries({missGame:'https://art.glider/NoSuchGame/tall?v=0123456789', missVariant:'https://art.glider/SelfTestApp/wide', badKind:'https://art.glider/SelfTestApp/huge', escaped:'https://art.glider/..%2Fstate/tall', otherHost:'https://art.glider.example/SelfTestApp/tall'})) {
+                try { const r = await fetch(u); out[k] = r.status; } catch (e) { out[k] = 'ERR'; }
+              }
+              out.missesMs = Math.round(performance.now() - t1);
+              chrome.webview.postMessage({type:'host',op:'selftest',key:'art',value:out});
+            })()
+            """;
+        await rt.Ui.InvokeAsync(() => win.Web!.ExecuteScriptAsync(js)).Task.Unwrap();
+        for (var i = 0; i < 100; i++)
+        {
+            lock (JsMessages)
+            {
+                if (JsMessages.TryGetValue("art", out var value))
+                {
+                    Report["art.page"] = JsonSerializer.Deserialize<Dictionary<string, object>>(value.GetRawText());
+                    break;
+                }
+            }
+
+            await Task.Delay(100);
+        }
+    }
+
+    private static byte[] MakeJpeg(int w, int h, byte r, byte g, byte b)
+    {
+        var px = new byte[w * h * 4];
+        for (var i = 0; i < px.Length; i += 4)
+        {
+            (px[i], px[i + 1], px[i + 2], px[i + 3]) = (b, g, r, 255);
+        }
+
+        var enc = new JpegBitmapEncoder { QualityLevel = 85 };
+        enc.Frames.Add(BitmapFrame.Create(BitmapSource.Create(w, h, 96, 96, PixelFormats.Bgra32, null, px, w * 4)));
+        using var ms = new MemoryStream();
+        enc.Save(ms);
+        return ms.ToArray();
     }
 
     // ------------------------------------------------------------------ maximize + overlay click

@@ -1,3 +1,4 @@
+using Glider.Core.Art;
 using Glider.Core.Contracts;
 using Glider.Core.Game;
 using Glider.Core.Infrastructure;
@@ -28,6 +29,9 @@ internal sealed class ServiceContext
 
     /// <summary>The library (set by GliderService right after construction).</summary>
     public LibraryService Library { get; set; } = null!;
+
+    /// <summary>The lazy art cache behind https://art.glider/ (set by GliderService; also the library's placeholder colours).</summary>
+    public ArtCache Art { get; set; } = null!;
 
     /// <summary>Background measurement of install folders (GameSummary.InstalledSizeBytes). Set by GliderService.</summary>
     public InstalledSizeMeter Sizes { get; set; } = null!;
