@@ -65,7 +65,7 @@
     <!-- Bundled Legendary (exe + LICENSE.txt, fetched + hash-verified by the build scripts; gitignored). -->
     <Content Include="legendary\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <!-- Settings -> About shows the bundled Legendary license text. -->
-    <Content Include="legendary\LICENSE.txt" Link="licenses\legendary.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="legendary\LICENSE.txt" Condition="Exists('legendary\LICENSE.txt')" Link="licenses\legendary.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- We use the raw Core API only; the WPF/WinForms wrapper assemblies and API docs are dead weight in the package. -->
