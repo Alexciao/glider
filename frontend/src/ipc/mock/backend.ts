@@ -1587,7 +1587,11 @@ export class MockBackend {
     "saves.get": async (r) => {
       const g = this.rec(r.appName);
       await this.sleep(80);
-      return clone(g.saves ?? { supported: false, enabled: false, status: "notSupported", savePath: null, localModifiedAt: null, cloudModifiedAt: null, lastSyncedAt: null, lastError: null, backups: 0 });
+      if (!g.saves) {
+        return { supported: false, enabled: false, status: "notSupported", savePath: null, localModifiedAt: null, cloudModifiedAt: null, lastSyncedAt: null, lastError: null, backups: 0, conflict: null, note: null };
+      }
+      // Like the real backend: a conflicting game carries the details the resolve dialog shows.
+      return clone(g.saves.status === "conflict" ? { ...g.saves, conflict: g.conflict ?? this.conflictFor(g) } : g.saves);
     },
     "saves.sync": async (r) => {
       const g = this.rec(r.appName);

@@ -19,6 +19,8 @@ internal enum LegendaryCommandKind
     Launch,
     List,
     ListInstalled,
+    SaveList,
+    SaveSync,
 }
 
 /// <summary>
@@ -191,6 +193,9 @@ internal static class ErrorClassifier
             case LegendaryCommandKind.Status or LegendaryCommandKind.Info:
                 // Success is "valid JSON on stdout", decided by the caller; only reached when that failed.
                 break;
+
+            case LegendaryCommandKind.SaveList or LegendaryCommandKind.SaveSync:
+                return null; // no success marker exists (exit code 0 either way); the save service checks the result on disk
         }
 
         return Errors.LegendaryFailed(f.Detail ?? $"No success marker (exit code {run.ExitCode}). {Tail(run)}");

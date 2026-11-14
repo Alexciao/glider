@@ -57,6 +57,11 @@ public sealed class Rig : IDisposable
 
     public TimeSpan SizeMinInterval { get; set; } = TimeSpan.Zero;
 
+    /// <summary>Cloud-save commands (set before first use of <see cref="Service"/>; null = none).</summary>
+    internal Glider.Core.Saves.ILegendarySaves? SavesLegendary { get; set; }
+
+    internal Glider.Core.Saves.SaveOptions? SaveOptions { get; set; }
+
     /// <summary>Library delta coalescing window (zero = rebuild at once; with a value, deltas wait for <see cref="Time"/>).</summary>
     public TimeSpan LibraryCoalesce { get; set; } = TimeSpan.Zero;
 
@@ -81,6 +86,8 @@ public sealed class Rig : IDisposable
                         MeasureDirectory = Measure,
                         SizeMeasureMinInterval = SizeMinInterval,
                         LibraryCoalesceInterval = LibraryCoalesce,
+                        SavesLegendary = SavesLegendary,
+                        SaveOptions = SaveOptions,
                         LibraryCacheDelay = TimeSpan.Zero,
                         LibraryRetryDelay = TimeSpan.FromMilliseconds(5),
                         AppVersion = "0.2.0-test",

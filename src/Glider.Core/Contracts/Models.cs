@@ -342,7 +342,11 @@ public sealed record SaveState(
     DateTimeOffset? LastSyncedAt,
     GliderError? LastError,
     /// <summary>Number of backups kept for this game (taken before every overwrite).</summary>
-    int Backups);
+    int Backups,
+    /// <summary>Both sides changed since the last sync (Status = Conflict): what the user must choose between. Null otherwise.</summary>
+    SaveConflict? Conflict = null,
+    /// <summary>A quiet one-line explanation of the current state ("Offline: your saves will sync the next time you're online."). Null when there is nothing to add.</summary>
+    string? Note = null);
 
 public sealed record SaveConflict(
     string AppName,

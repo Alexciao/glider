@@ -15,7 +15,9 @@ public sealed record GameRuntime(
     /// <summary>Legendary's dry-run download size for the pending update (null = unknown).</summary>
     long? UpdateDownloadBytes = null,
     /// <summary>The install folder no longer holds the game.</summary>
-    bool Broken = false)
+    bool Broken = false,
+    /// <summary>Last known cloud-save status (null = not compared yet).</summary>
+    SaveSyncStatus? SaveStatus = null)
 {
     public static GameRuntime Idle { get; } = new();
 }
@@ -229,7 +231,7 @@ public static class GameCatalog
             installed is null ? null : run.InstalledSizeBytes,
             update ? run.UpdateDownloadBytes : null,
             cloud,
-            SaveStatus(cloud, ctx.CloudSavesEnabled, entry),
+            SaveStatus(cloud, ctx.CloudSavesEnabled, entry, run.SaveStatus),
             installed?.CanRunOffline ?? item.CanRunOffline,
             store,
             storeName,
@@ -306,10 +308,10 @@ public static class GameCatalog
     public static bool UpdateAvailable(string? installedVersion, string? latestVersion) =>
         installedVersion is { Length: > 0 } && latestVersion is { Length: > 0 } && !string.Equals(installedVersion, latestVersion, StringComparison.Ordinal);
 
-    public static SaveSyncStatus SaveStatus(bool supported, bool globalEnabled, GameEntry entry) =>
+    public static SaveSyncStatus SaveStatus(bool supported, bool globalEnabled, GameEntry entry, SaveSyncStatus? known = null) =>
         !supported ? SaveSyncStatus.NotSupported
         : !globalEnabled || !entry.Settings.CloudSaves ? SaveSyncStatus.Disabled
-        : SaveSyncStatus.Unknown;
+        : known ?? SaveSyncStatus.Unknown;
 
     /// <summary>Entitlement grant date (catalog item, then namespace, earliest), else the catalog creation date.</summary>
     public static DateTimeOffset? AddedAt(CatalogItem item, LegendaryLibrary lib)

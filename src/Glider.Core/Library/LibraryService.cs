@@ -374,6 +374,11 @@ internal sealed class LibraryService : IDisposable
             runtime[app] = Get(app) with { Broken = true };
         }
 
+        foreach (var (app, status) in _c.SaveStatuses)
+        {
+            runtime[app] = Get(app) with { SaveStatus = status };
+        }
+
         var games = _c.Games.Current;
         foreach (var (app, m) in s.Sizes)
         {

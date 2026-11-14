@@ -328,6 +328,8 @@ export function generateCatalog(opts: CatalogOptions): MockGame[] {
                 ? { code: "saveSyncFailed", title: "Cloud saves didn't sync", message: `Glider couldn't sync ${title}'s saves with Epic. You can play without syncing.`, fix: "retry", detail: "HTTP 500", appName }
                 : null,
             backups: isInstalled ? Math.floor(rand() * 5) : 0,
+            conflict: null,
+            note: null,
           }
         : null,
       conflict: null,

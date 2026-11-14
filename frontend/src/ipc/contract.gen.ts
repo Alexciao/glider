@@ -632,6 +632,8 @@ export interface SaveState {
   lastSyncedAt: string | null;
   lastError: GliderError | null;
   backups: number;
+  conflict: SaveConflict | null;
+  note: string | null;
 }
 
 export interface SaveSyncRequest {

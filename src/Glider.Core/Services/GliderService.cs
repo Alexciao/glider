@@ -83,6 +83,9 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _egl = new EglCoordinator(_c);
         _storage = new StorageService(_c);
         _saves = new Saves.SaveService(_c);
+        _saves.Launcher = (r, ct) => _launch.LaunchAsync(r, ct);
+        _launch.Saves = _saves;
+        _c.WhenSavesIdle = _saves.WhenIdleAsync;
         _prewarm = new Prewarm(_c, _auth, _egl, _updates, _install, _launch);
         _hooks = new JobHooks(_c) { EnqueueVerify = _install.EnqueueVerify };
         if (jobs is JobQueue q)
@@ -122,6 +125,8 @@ public sealed class GliderService : IGliderRpc, IDisposable
     internal Prewarm PrewarmForTests => _prewarm;
 
     internal UpdateService UpdatesForTests => _updates;
+
+    internal Saves.SaveService SavesForTests => _saves;
 
     /// <summary>
     /// Publishes the first snapshot and the cached library immediately (no Legendary process, no parse of its files), then
@@ -208,6 +213,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _c.Sizes.Dispose();
         _c.Hub.Dispose();
         _c.Metadata.Dispose();
+        _saves.Dispose();
         _shutdown.Dispose();
     }
 
@@ -516,9 +522,9 @@ public sealed class GliderService : IGliderRpc, IDisposable
 
     public Task<SaveState> GetSaves(AppRef request) => Rpc(nameof(GetSaves), _ => Task.FromResult(_saves.Get(App(request))));
 
-    public Task<SaveState> SyncSaves(SaveSyncRequest request) => Rpc(nameof(SyncSaves), _ => _saves.SyncAsync(Require(request, "request")));
+    public Task<SaveState> SyncSaves(SaveSyncRequest request) => Rpc(nameof(SyncSaves), ct => _saves.SyncAsync(Require(request, "request"), ct));
 
-    public Task<LaunchResult?> ResolveSaves(SaveResolveRequest request) => Rpc(nameof(ResolveSaves), _ => _saves.ResolveAsync(Require(request, "request")));
+    public Task<LaunchResult?> ResolveSaves(SaveResolveRequest request) => Rpc(nameof(ResolveSaves), ct => _saves.ResolveAsync(Require(request, "request"), ct));
 
     public Task OpenSaveBackups(AppRef request) => Rpc(nameof(OpenSaveBackups), _ => _saves.OpenBackupsAsync(App(request)));
 
