@@ -20,7 +20,7 @@ and it drives the bundled **Legendary** CLI (v0.21.1) as the Epic protocol engin
 │  Game/      GameProfiles (quirks), SessionTracker (process tree), launch, install, EAC     │
 │  Egl/       scan every .item, busy, drift, write-back with backups                         │
 │  Infrastructure/ stores (settings, games, collections, onboarding), Migrations, atomic IO  │
-│  Saves/ Overlay/ Store/  Phase 2 stubs                                                     │
+│  Saves/ Store/  Phase 2 stubs · Overlay/ EOS overlay                                       │
 └──────────────────────────────────────────┬─────────────────────────────────────────────────┘
                                            │ child processes, env LEGENDARY_CONFIG_PATH=%LocalAppData%\Glider\legendary
                                     legendary.exe (bundled, SHA-256 pinned)
@@ -57,6 +57,8 @@ and it drives the bundled **Legendary** CLI (v0.21.1) as the Epic protocol engin
 | `Game/InstallService.cs` | Plan (catalog FolderName, DLC options), install (+ one writer job per DLC, base with `--skip-dlcs`), update, verify→repair→verify, move, uninstall, import of EGL installs / located folders, folder validation (app from `.egstore`). |
 | `Services/JobHooks.cs` | Per-game gating (waits while that game runs, auth, EGL busy) and bookkeeping (install records, EGL write-back keyed by app, import outcomes and follow-up verify, notices with AppName/JobId). |
 | `Services/EglCoordinator.cs` | Contract `EglState` from the scan + library (status, drift, title, art) and startup drift reconciliation per EGL-shared game; `egl.checkReadiness`. |
+| `Overlay/` | `OverlayService` (state from files + `IOverlayRegistry`, install/update as an `Overlay` writer job, HKCU on/off, inline remove, periodic check), `OverlayFiles`, `OverlayRegistry` (HKCU seam + Windows impl). |
+| `Game/PrerequisiteService.cs`, `ThirdPartyService.cs`, `GameStateFiles.cs` | Elevated once-only prerequisites (`state/prereqs.json`); Ubisoft/EA activation and launcher hand-off (`state/thirdparty.json`); tiny lazy JSON state. |
 | `Services/UpdateService.cs` | Per-game auto-update policy (Default → Settings), notices once per version, `library.updateAll`, periodic checks; `QueuePolicy` (WhilePlaying, idle full speed, effective mode + reason). |
 | `Infrastructure/Migrations` | Versioned migrations (v0.1 → 2), run by `GliderRuntime` before any store loads; `state/schema.json` written last. |
 
