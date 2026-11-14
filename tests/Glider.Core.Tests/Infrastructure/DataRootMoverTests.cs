@@ -31,6 +31,24 @@ public sealed class DataRootMoverTests : IDisposable
     // ------------------------------------------------------------------ the move
 
     [Fact]
+    public void PreexistingDestinationFolderDoesNotReplaceOrDeleteLegacyData()
+    {
+        _l.Seed();
+        MoveLayout.Write(New, "state/old-install-data.json", "preexisting destination");
+        var legacyFile = Path.Combine(Old, "state", "games.json");
+        var legacyContents = File.ReadAllText(legacyFile);
+
+        Run();
+
+        // The real data moved in, and the unrelated folder that was there is kept (renamed), never deleted.
+        Assert.Equal(legacyContents, File.ReadAllText(Path.Combine(New, "state", "games.json")));
+        var kept = Directory.GetDirectories(New, "state.preexisting-*");
+        Assert.Single(kept);
+        Assert.Equal("preexisting destination", File.ReadAllText(Path.Combine(kept[0], "old-install-data.json")));
+        Assert.False(File.Exists(Path.Combine(New, "state", "old-install-data.json")));
+    }
+
+    [Fact]
     public void SameVolume_RenamesEveryDataDirectory_AndLeavesVelopackAlone()
     {
         var original = _l.Seed();

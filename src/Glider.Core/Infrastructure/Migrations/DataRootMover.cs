@@ -307,8 +307,15 @@ public sealed class DataRootMover
 
                 if (_fs.DirectoryExists(New(dir)))
                 {
-                    copied.Add(dir); // a verified copy from an earlier run: its source goes after the commit
-                    continue;
+                    if (IsCompleteCopy(dir))
+                    {
+                        copied.Add(dir); // a verified copy from an earlier run: its source goes after the commit
+                        continue;
+                    }
+
+                    // Not a copy of the old folder (e.g. created by something else before the first move): keep it, renamed,
+                    // and move the real data in. The old source is never scheduled for deletion against an unverified copy.
+                    SetAside(dir);
                 }
 
                 if (MoveOne(dir))
@@ -405,6 +412,34 @@ public sealed class DataRootMover
         Verify(source, stage, DataRoot.HashVerified.Contains(dir));
         Step("verify:" + dir);
         _fs.MoveDirectory(stage, New(dir)); // same volume (both in the new root): the verified copy appears atomically
+    }
+
+    /// <summary>True when the new root's folder is a complete, byte-identical copy of the old one (every file hashed).</summary>
+    private bool IsCompleteCopy(string dir)
+    {
+        try
+        {
+            Verify(Old(dir), New(dir), hashes: true);
+            return true;
+        }
+        catch (DataRootVerifyException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Renames a pre-existing, unrelated folder in the new root out of the way (never deletes it).</summary>
+    private void SetAside(string dir)
+    {
+        var stamp = _options.Time.GetUtcNow().ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+        var target = New(dir) + ".preexisting-" + stamp;
+        for (var n = 2; _fs.DirectoryExists(target); n++)
+        {
+            target = New(dir) + ".preexisting-" + stamp + "-" + n.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        _fs.MoveDirectory(New(dir), target);
+        Note($"{New(dir)} existed but was not a copy of {Old(dir)}; kept it as {Path.GetFileName(target)} and moved the old folder in.");
     }
 
     private void Verify(string source, string copy, bool hashes)
