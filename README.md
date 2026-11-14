@@ -32,7 +32,9 @@ the Epic Games Launcher.
 1. Download `Glider-win-Setup.exe` from the [latest release](../../releases/latest) and run it.
 2. **SmartScreen**: the build isn't code-signed yet, so Windows may say "Windows protected your PC".
    Click **More info → Run anyway**. Glider installs per-user (no admin) to `%LocalAppData%\Glider`
-   and creates a Start-menu shortcut. If the WebView2 runtime is missing (rare on Windows 10/11), the
+   and creates a Start-menu shortcut. Your data (Epic sign-in, library, settings, save and EGL backups, logs) lives separately in
+   `%LocalAppData%\GliderData`, so uninstalling Glider keeps it; delete that folder to remove it too. Data from an older Glider is
+   moved there automatically at the first start (a `data-moved-to.txt` note is left behind). If the WebView2 runtime is missing (rare on Windows 10/11), the
    installer downloads it.
 3. **First run**: Glider asks you to **Sign in with Epic**. A login window opens and closes by itself once you're signed in.
 4. Then either:
@@ -41,20 +43,20 @@ the Epic Games Launcher.
      install"*. Click **Use this install**. Nothing is downloaded. You can also **Locate another folder…**.
 5. Press **Play**. The first launch may show a Windows (UAC) prompt to install Easy Anti-Cheat; accept it.
 
-**Logs**: `%LocalAppData%\Glider\logs\` (`glider-YYYYMMDD.log` for the core, `host-YYYYMMDD.log` for the window).
+**Logs**: `%LocalAppData%\GliderData\logs\` (`glider-YYYYMMDD.log` for the core, `host-YYYYMMDD.log` for the window).
 Settings → Advanced has a log viewer and **Copy logs** for bug reports (no tokens are included).
 
 ## Switching from the Epic Games Launcher
 
 - On startup Glider reads EGL's install manifests (`%ProgramData%\Epic\EpicGamesLauncher\Data\Manifests\*.item`
   and `LauncherInstalled.dat`), on any drive. Stale entries (moved/deleted folders) are shown but disabled.
-- **Adoption is a one-time import** into Glider's own isolated data (`%LocalAppData%\Glider\legendary`).
+- **Adoption is a one-time import** into Glider's own isolated data (`%LocalAppData%\GliderData\legendary`).
   Nothing re-downloads. If EGL's version matches the latest, no verify is needed; otherwise a background verify runs.
 - **EGL keeps working.** Glider never deletes, moves or edits EGL files, with one opt-in exception:
   **"Keep Epic Games Launcher in sync"** (Settings → Epic Games Launcher, on by default when EGL is detected).
   After Glider updates the game, it writes the new version back into EGL's manifest exactly like Legendary's
   EGL export does, so EGL doesn't ask to re-download or repair. Every EGL file is backed up first
-  (`%LocalAppData%\Glider\backups\egl`) and written atomically.
+  (`%LocalAppData%\GliderData\backups\egl`) and written atomically.
 - If EGL updates the game, Glider notices at startup and silently refreshes its record. It never re-downloads.
 - While EGL is updating or verifying Fortnite, Glider waits ("Epic Games Launcher is updating Fortnite, so
   Glider will wait") and continues automatically. Launching while EGL is merely open is fine.

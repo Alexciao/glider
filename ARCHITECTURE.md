@@ -23,7 +23,7 @@ and it drives the bundled **Legendary** CLI (v0.21.1) as the Epic protocol engin
 │  Overlay/ Saves/  EOS overlay, save sync                                                   │
 │  Store/     links + deep-link parser, URLs, nav policy, free games, StoreService           │
 └──────────────────────────────────────────┬─────────────────────────────────────────────────┘
-                                           │ child processes, env LEGENDARY_CONFIG_PATH=%LocalAppData%\Glider\legendary
+                                           │ child processes, env LEGENDARY_CONFIG_PATH=%LocalAppData%\GliderData\legendary
                                     legendary.exe (bundled, SHA-256 pinned)
 ```
 
@@ -93,19 +93,27 @@ and it drives the bundled **Legendary** CLI (v0.21.1) as the Epic protocol engin
 
 Saves (S lane): `Saves/SaveService` — one sync at a time, exclusive per game with writer jobs and with the game running; details in [`docs/cloud-saves.md`](docs/cloud-saves.md).
 
-## Data locations (all per-user, `%LocalAppData%\Glider\`)
+## Data locations (all per-user, `%LocalAppData%\GliderData\`)
+
+Velopack installs the app to `%LocalAppData%\Glider\` (`current\`, `packages\`, `Update.exe`, the `Glider.exe` stub) and deletes
+that folder on uninstall, so the data lives next to it in its own root and survives an uninstall. Up to v0.2-preview both were the
+same folder: the **schema 3 data-root move** (`Infrastructure/Migrations/DataRootMover.cs`) runs once in the host, under the
+single-instance mutex and before logging, WebView2 or Core open any file, and leaves `data-moved-to.txt` in the old folder.
+`--data-dir <dir>` (tests, portable use) is used as it is and never moved.
 
 | Path | Content |
 |---|---|
+| `data-root.json` | commit marker of the data-root move: `{schemaVersion: 3, movedFrom, movedAt, directories, pendingDeletes, finished}` |
 | `legendary\` | Legendary's isolated config (`LEGENDARY_CONFIG_PATH`): user.json, installed.json, metadata, manifests. Glider only reads it. |
 | `state\saves.json` | cloud-save ledger: per game the last synced file list (hashes, mtimes) and cloud manifests |
 | `backups\saves\<app>\<ts>\` | local save copies taken before every overwrite and after uploads |
-| `state\schema.json` | `{schemaVersion: 2, migratedFrom, migratedAt}` (migration commit marker) |
+| `state\schema.json` | `{schemaVersion: 3, migratedFrom, migratedAt, history: [{from, to, at, note}]}` (migration commit marker) |
 | `state\settings.json`, `games.json`, `collections.json`, `jobs.json`, `onboarding.json` | schema 2 stores (`games.json` = per-app install record, favorite, hidden, playtime, settings, shortcuts) |
 | `cache\library.json`, `cache\installed-size.json`, `cache\update-notices.json`, `cache\art\<app>\`, `cache\art\placeholders.json` | caches (safe to delete) |
 | `backups\migration\v0.1-<ts>\` | byte copies of the v0.1 files before migrating |
 | `backups\egl\<ts>\` | copies of every EGL file before Glider writes it |
-| `logs\`, `webview2\` | rolling logs, WebView2 user data |
+| `logs\`, `webview2\` | rolling logs, WebView2 user data (the `GliderEpic` profile holds the Epic web session) |
+| `overlay\`, `placeholder\` | Glider's managed EOS overlay; the host's fallback page when no frontend build is found |
 
 ## Threading & performance rules
 

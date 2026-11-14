@@ -172,7 +172,7 @@ because it is secondary.
 ### Safety: backup, atomic write, locks, rollback
 
 * Before the first write, every target that exists **and would change** is copied byte for byte to
-  `%LocalAppData%\Glider\backups\egl\<yyyyMMdd-HHmmss-fff>\{Manifests|egstore|UnrealEngineLauncher}\…`. A
+  `%LocalAppData%\GliderData\backups\egl\<yyyyMMdd-HHmmss-fff>\{Manifests|egstore|UnrealEngineLauncher}\…`. A
   `backup-index.txt` maps each copy to its original path. If the backup fails, nothing is written. The newest 20 sets
   are kept **[test]**.
 * Each file is written to `.<name>.<random>.glider.tmp` in the **same directory**, flushed with `WriteThrough` +
