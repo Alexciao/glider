@@ -722,6 +722,30 @@ public class SaveServiceTests
     }
 
     [Fact]
+    public async Task ADifferentGamesSyncIsNotQueuedBehindThisOne_UpToTheGlobalLimit() // review L3
+    {
+        using var s = new SaveRig();
+        s.AddGame("Other1");
+        s.AddGame("Other2");
+        await s.StartAsync();
+        s.Cloud.StoreSavePath(s.SaveDir, "Other1");
+        s.Cloud.StoreSavePath(s.SaveDir, "Other2");
+        s.Write("slot1.sav", "v1", T0);
+        s.Cloud.SyncGate = new TaskCompletionSource();
+
+        var first = s.SyncAsync();
+        await WaitUntil(() => s.Cloud.SyncCalls(SyncMode.Upload) == 1);
+        var second = s.Service.SyncSaves(new SaveSyncRequest("Other1", SyncDirection.Auto));
+        await WaitUntil(() => s.Cloud.SyncCalls(SyncMode.Upload) == 2); // game B did not wait for game A's upload
+        var third = s.Service.SyncSaves(new SaveSyncRequest("Other2", SyncDirection.Auto));
+        await Task.Delay(150, TestContext.Current.CancellationToken);
+        Assert.Equal(SaveService.MaxConcurrentSyncs, s.Cloud.SyncCalls(SyncMode.Upload)); // the global limit holds the third
+
+        s.Cloud.SyncGate.SetResult();
+        await Task.WhenAll(first, second, third).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task AWriterJobWaitsForASaveSyncOfItsGame()
     {
         using var s = new SaveRig();

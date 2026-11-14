@@ -38,7 +38,12 @@ internal sealed class SaveService : IDisposable
     private readonly SaveOptions _options;
     private readonly SaveLedger _ledger;
     private readonly SaveBackups _backups;
-    private readonly SemaphoreSlim _lane = new(1, 1);
+
+    /// <summary>At most this many `sync-saves` run at once, across games (each game is also exclusive on its own).</summary>
+    internal const int MaxConcurrentSyncs = 2;
+
+    private readonly SemaphoreSlim _lane = new(MaxConcurrentSyncs, MaxConcurrentSyncs);
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _gameLanes = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, AppInfo> _info = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, int> _busy = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Task> _postExit = new(StringComparer.Ordinal);
@@ -430,17 +435,27 @@ internal sealed class SaveService : IDisposable
 
         var ctx = new Ctx(app, title, installPath, template, SaveFilters.FromMetadata(item.Attribute("CloudIncludeList"), item.Attribute("CloudExcludeList")));
 
-        await _lane.WaitAsync(ct).ConfigureAwait(false);
-        _busy.AddOrUpdate(app, 1, (_, n) => n + 1);
+        // One sync per game, and a small global limit: game A's pre-launch sync must not queue behind game B's post-exit upload.
+        var gameLane = _gameLanes.GetOrAdd(app, _ => new SemaphoreSlim(1, 1));
+        await gameLane.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            return await SyncLockedAsync(ctx, cli, trigger, direction, keep, ct).ConfigureAwait(false);
+            await _lane.WaitAsync(ct).ConfigureAwait(false);
+            _busy.AddOrUpdate(app, 1, (_, n) => n + 1);
+            try
+            {
+                return await SyncLockedAsync(ctx, cli, trigger, direction, keep, ct).ConfigureAwait(false);
+            }
+            finally
+            {
+                _busy.AddOrUpdate(app, 0, (_, n) => n - 1);
+                _busy.TryRemove(new KeyValuePair<string, int>(app, 0));
+                _lane.Release();
+            }
         }
         finally
         {
-            _busy.AddOrUpdate(app, 0, (_, n) => n - 1);
-            _busy.TryRemove(new KeyValuePair<string, int>(app, 0));
-            _lane.Release();
+            gameLane.Release();
         }
     }
 
@@ -807,6 +822,11 @@ internal sealed class SaveService : IDisposable
     public void Dispose()
     {
         _lane.Dispose();
+        foreach (var l in _gameLanes.Values)
+        {
+            l.Dispose();
+        }
+
         _ledger.Dispose();
     }
 }
