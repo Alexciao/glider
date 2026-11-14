@@ -4,8 +4,8 @@ using Glider.Core.Jobs;
 
 namespace Glider.Core.Services;
 
-/// <summary>The service layer's side of every writer-lane job: per-game gating before it runs and bookkeeping after.</summary>
-internal sealed class JobHooks : IJobHooks
+/// <summary>The service layer's side of every writer-lane job: per-game gating (non-blocking, <see cref="IJobGate"/>) before it runs and bookkeeping after.</summary>
+internal sealed class JobHooks : IJobHooks, IJobGate
 {
     private readonly ServiceContext _c;
 
@@ -20,54 +20,73 @@ internal sealed class JobHooks : IJobHooks
     /// <summary>The overlay service's side of an overlay job's end (state refresh, notice, outcome); set by GliderService.</summary>
     public Func<JobInfo, bool, CancellationToken, Task>? OverlayFinished { get; set; }
 
-    public async Task BeforeRunAsync(JobInfo job, Action<string?> setBlockedReason, CancellationToken ct)
+    /// <summary>
+    /// Why the job can't start now, without waiting (review H3): the queue asks before it gives the job the writer slot,
+    /// shows the reason, runs the next eligible job meanwhile, and asks again on its next wake-up.
+    /// </summary>
+    public string? ReasonNotToStart(JobInfo job)
     {
         var app = job.AppName;
         if (job.Kind == JobKind.Overlay)
         {
             // The overlay's DLL is loaded into every running game: it can't be replaced until they all close.
-            if (_c.Hub.State.AnySessionActive)
-            {
-                setBlockedReason("Waiting for games to close");
-                while (_c.Hub.State.AnySessionActive)
-                {
-                    await Task.Delay(_c.Options.ProcessPollInterval, _c.Time, ct);
-                }
-
-                setBlockedReason(null);
-            }
-
-            return;
+            return _c.Hub.State.AnySessionActive ? "Waiting for games to close" : null;
         }
 
-        await _c.WhenSavesIdle(app, ct); // a cloud-save sync of this game finishes first (S lane is exclusive with W jobs on the game)
+        if (SavesBusy(app))
+        {
+            return $"Waiting for {_c.TitleOf(app)}'s cloud saves to sync"; // the S lane is exclusive with W jobs on the game
+        }
+
         if (ServiceContext.IsWriteJob(job.Kind) && _c.IsGameRunning(app))
         {
-            // Files of a running game can't be replaced: wait for it to close instead of failing the job.
-            var reason = $"Waiting for {_c.TitleOf(app)} to close";
-            setBlockedReason(reason);
-            while (_c.IsGameRunning(app))
-            {
-                await Task.Delay(_c.Options.ProcessPollInterval, _c.Time, ct);
-            }
-
-            setBlockedReason(null);
+            return $"Waiting for {_c.TitleOf(app)} to close"; // files of a running game can't be replaced
         }
 
-        if (ServiceContext.IsNetworkJob(job.Kind))
+        return TargetFolder(job) is { } path ? EglBusyReason(path) : null;
+    }
+
+    /// <summary>
+    /// Runs once the job holds the writer slot: re-checks the gates (one may have closed since the queue asked; the queue
+    /// then puts the job back as waiting) and the Epic session. Never waits for the game, EGL or saves.
+    /// </summary>
+    public async Task BeforeRunAsync(JobInfo job, Action<string?> setBlockedReason, CancellationToken ct)
+    {
+        if (ReasonNotToStart(job) is { } reason)
+        {
+            _c.Log.Info("jobs", $"{job.Kind} {job.AppName} {job.Id} can't start yet: {reason}");
+            throw new JobGatedException(reason);
+        }
+
+        if (job.Kind != JobKind.Overlay && ServiceContext.IsNetworkJob(job.Kind))
         {
             await _c.RequireSignedInAsync(ct);
         }
+    }
 
-        var path = TargetFolder(job);
-        if (path is not null && _c.Egl.IsBusyWith(path))
+    /// <summary>A cloud-save operation touches the app now (probes the save service's idle wait without waiting on it).</summary>
+    private bool SavesBusy(string app)
+    {
+        using var probe = new CancellationTokenSource();
+        var idle = _c.WhenSavesIdle(app, probe.Token);
+        if (idle.IsCompleted)
         {
-            _c.Log.Info("jobs", $"{job.Kind} {app} {job.Id} waiting: EGL is busy with {path}");
-            setBlockedReason(Errors.EglBusy().Message);
-            await _c.Egl.WaitUntilNotBusyAsync(path, reason => setBlockedReason(reason ?? Errors.EglBusy().Message), ct);
-            setBlockedReason(null);
-            _c.Log.Info("jobs", $"{job.Kind} {app} {job.Id} continuing: EGL finished");
+            _ = idle.Exception; // observed; a failing probe counts as idle, as the wait did
+            return false;
         }
+
+        probe.Cancel(); // ends the abandoned wait
+        return true;
+    }
+
+    private string? EglBusyReason(string path)
+    {
+        if (_c.Egl is Egl.EglService real)
+        {
+            return real.GetBusyReason(path);
+        }
+
+        return _c.Egl.IsBusyWith(path) ? Errors.EglBusy().Message : null;
     }
 
     /// <summary>The folder a job touches: the install, the planned folder of a fresh install, or the folder being imported.</summary>

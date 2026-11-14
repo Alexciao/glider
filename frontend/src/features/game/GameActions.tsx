@@ -46,8 +46,12 @@ const ICONS: Partial<Record<ActionKind, ReactNode>> = {
   closeGame: <Square size={14} fill="currentColor" strokeWidth={0} />,
 };
 
+/** Core refuses to cancel some running steps (an uninstall mid-delete, a move rewriting its metadata). */
+const cancelRefused = (action: GameAction): boolean => action.intent === "cancel" && action.job?.cancellable === false;
+
 /** Runs what the primary segment says it does. */
 export function pressPrimary(action: GameAction, appName: string): void {
+  if (cancelRefused(action)) return;
   const ui = useUi.getState();
   switch (action.intent) {
     case "signIn":
@@ -109,7 +113,7 @@ export function GameActions({
       faceKey={action.faceKey}
       icon={ICONS[action.kind]}
       busy={action.busy}
-      disabled={action.disabled}
+      disabled={action.disabled || cancelRefused(action)}
       moment={moment}
       aria-label={`${game.title} actions`}
       onPress={() => pressPrimary(action, appName)}
@@ -154,7 +158,7 @@ function GameMenuItems({ snap, game, detail, action }: { snap: AppSnapshot; game
         </DropdownMenuItem>,
       );
     }
-    if (action.intent !== "cancel") {
+    if (action.intent !== "cancel" && job.cancellable) {
       items.push(
         <DropdownMenuItem key="cancel" icon={<X size={14} />} onSelect={() => openDialog({ kind: "cancelJob", jobId: job.id })}>
           Cancel {JOB_NOUN[job.kind].toLowerCase()}…

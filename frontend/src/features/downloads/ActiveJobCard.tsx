@@ -203,7 +203,7 @@ export function ActiveJobCard({ job, variant = "full", className }: ActiveJobCar
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <PauseResume job={job} />
-          {job.kind !== "uninstall" && (
+          {job.cancellable && (
             <Button variant="ghost" icon={<X size={14} />} onClick={() => openDialog({ kind: "cancelJob", jobId: job.id })}>
               Cancel
             </Button>

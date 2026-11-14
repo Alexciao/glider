@@ -448,7 +448,12 @@ public sealed record JobInfo(
     string? BlockedReason,
     /// <summary>Verify/repair jobs: what was found and fixed. Null until the first verify finishes.</summary>
     VerifyReport? Verify,
-    JobOutcome? Outcome)
+    JobOutcome? Outcome,
+    /// <summary>
+    /// <c>jobs.cancel</c> is accepted now. False while a step runs that must not be interrupted: a running uninstall
+    /// (killing Legendary mid-delete leaves a half-deleted, still-registered game) and a move outside its copy phase.
+    /// </summary>
+    bool Cancellable = true)
 {
     public const string OverlayAppName = "eos-overlay";
 }

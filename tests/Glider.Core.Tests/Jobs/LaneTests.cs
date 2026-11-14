@@ -27,6 +27,11 @@ internal sealed class GatedLegendary : ILegendary
     /// <summary>Set once the gated run reported its first progress (the writer left its pre-download phase).</summary>
     public ConcurrentDictionary<string, TaskCompletionSource> Started { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>Apps whose gated run reports a progress line before blocking (e.g. a move in its copy phase).</summary>
+    public ConcurrentDictionary<string, LegendaryProgress> EarlyProgress { get; } = new(StringComparer.Ordinal);
+
+    public static LegendaryProgress Line(double percent, double bytesPerSecond = 1) => new(percent, 1, 10, 1, 1, 10, 10, bytesPerSecond, bytesPerSecond, bytesPerSecond, 0);
+
     public TaskCompletionSource Gate(string app) => Gates.GetOrAdd(app, _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
 
     public TaskCompletionSource StartedFor(string app) => Started.GetOrAdd(app, _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
@@ -42,6 +47,11 @@ internal sealed class GatedLegendary : ILegendary
 
         if (Gates.TryGetValue(app, out var gate))
         {
+            if (EarlyProgress.TryGetValue(app, out var early))
+            {
+                progress?.Report(early);
+            }
+
             StartedFor(app).TrySetResult();
             await gate.Task.WaitAsync(ct);
         }
@@ -65,6 +75,11 @@ internal sealed class GatedLegendary : ILegendary
 
     public Task<LegendaryOutcome> UninstallAsync(string appName, bool keepFiles, CancellationToken ct)
     {
+        if (Gates.ContainsKey(appName))
+        {
+            return Run("uninstall", appName, null, ct);
+        }
+
         Calls.Enqueue($"uninstall:{appName}");
         return Ok;
     }

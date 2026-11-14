@@ -19,10 +19,10 @@ public class JobHooksTests
         var run = rig.Jobs.RunAsync(job.Id, rig.Service.Hooks);
 
         await WaitFor(() => rig.Jobs.Get(job.Id).Status == JobStatus.Waiting);
-        Assert.Equal(rig.Egl.BusyReason, rig.Jobs.Get(job.Id).BlockedReason);
+        Assert.Equal(Errors.EglBusy().Message, rig.Jobs.Get(job.Id).BlockedReason);
         Assert.False(run.IsCompleted);
 
-        rig.Egl.NotBusy.SetResult();
+        rig.Egl.Busy = false;
         var done = await run.WaitAsync(TimeSpan.FromSeconds(60));
         Assert.Equal(JobStatus.Completed, done.Status);
         Assert.Null(done.BlockedReason);
@@ -55,6 +55,29 @@ public class JobHooksTests
         }
 
         Assert.Equal(JobStatus.Completed, (await run.WaitAsync(TimeSpan.FromSeconds(60))).Status);
+    }
+
+    [Fact]
+    public async Task TheGateNeverWaits_ItReportsWhyAJobCantStart()
+    {
+        using var rig = new Rig();
+        rig.Install("v1");
+        rig.Settings.Set(Settings.Default with { AutoUpdate = AutoUpdatePolicy.Never });
+        await rig.StartWarmAsync();
+        var gate = Assert.IsAssignableFrom<Glider.Core.Jobs.IJobGate>(rig.Service.Hooks);
+        var job = rig.Jobs.Enqueue(new JobRequest(Fn, JobKind.Update, null, null, "v1", "v2"));
+        Assert.Null(gate.ReasonNotToStart(rig.Jobs.Get(job.Id)));
+
+        rig.Processes.Add(FortniteLayout.ShippingProcessName);
+        Assert.Contains("Fortnite", gate.ReasonNotToStart(rig.Jobs.Get(job.Id)), StringComparison.Ordinal);
+        // Re-checked at the claim: the hooks hand the job back instead of holding the writer slot until the game closes.
+        var gated = await Assert.ThrowsAsync<Glider.Core.Jobs.JobGatedException>(() =>
+            rig.Service.Hooks.BeforeRunAsync(rig.Jobs.Get(job.Id), _ => { }, TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        Assert.Contains("Fortnite", gated.Reason, StringComparison.Ordinal);
+        rig.Processes.Remove(FortniteLayout.ShippingProcessName);
+
+        rig.Egl.Busy = true;
+        Assert.Equal(Errors.EglBusy().Message, gate.ReasonNotToStart(rig.Jobs.Get(job.Id)));
     }
 
     [Fact]

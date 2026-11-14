@@ -109,6 +109,12 @@ const WRITE_KINDS: readonly JobKind[] = ["install", "update", "repair", "verify"
 const NETWORK_KINDS: readonly JobKind[] = ["install", "update", "repair", "modify", "overlay"];
 const PAUSABLE: readonly JobKind[] = ["install", "update", "repair", "verify", "modify", "overlay"];
 
+/** Core's `JobInfo.cancellable`: a running uninstall can't be stopped (the mock's moves have no copy phase to tell apart). */
+const withCancellable = (info: JobInfo): JobInfo => {
+  const cancellable = !(info.status === "running" && info.kind === "uninstall");
+  return info.cancellable === cancellable ? info : { ...info, cancellable };
+};
+
 /** Calls that only read: they never consume an injected failure. */
 const READ_ONLY = new Set<string>([
   "app.getSnapshot", "app.getLogs", "app.getLicenses", "app.ready", "window.getInfo", "library.get", "game.getDetail",
@@ -500,7 +506,7 @@ export class MockBackend {
 
   private queueState(): QueueState {
     const { mode, reason } = this.effectiveMode();
-    return { jobs: [...this.queue.map((e) => e.info), ...this.finished.slice(0, MAX_FINISHED_JOBS)], paused: this.queuePaused, effectiveMode: mode, modeReason: reason };
+    return { jobs: [...this.queue.map((e) => withCancellable(e.info)), ...this.finished.slice(0, MAX_FINISHED_JOBS)], paused: this.queuePaused, effectiveMode: mode, modeReason: reason };
   }
 
   private eglState(): EglState {
@@ -642,6 +648,7 @@ export class MockBackend {
       blockedReason: null,
       verify: null,
       outcome: null,
+      cancellable: true,
       ...extra,
     };
   }

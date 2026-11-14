@@ -50,6 +50,19 @@ internal static class JobPlan
 
     public static bool CanPause(JobKind kind) => kind is JobKind.Install or JobKind.Update or JobKind.Repair or JobKind.Verify or JobKind.Modify;
 
+    /// <summary>
+    /// Whether a job may be cancelled now. Anything that hasn't started can be. Once running, an uninstall can't: killing
+    /// Legendary mid-delete leaves a half-deleted folder still listed in installed.json (review M8). A move can only while
+    /// it copies across volumes (<paramref name="copying"/>), because that copy is discarded; a same-volume rename and the
+    /// metadata rewrite after a copy must finish.
+    /// </summary>
+    public static bool CanCancel(JobKind kind, bool running, bool copying) => !running || kind switch
+    {
+        JobKind.Uninstall => false,
+        JobKind.Move => copying,
+        _ => true,
+    };
+
     /// <summary>Kinds whose Legendary run logs in and refreshes metadata first (the M lane must not overlap that phase).</summary>
     public static bool HasPreDownloadPhase(JobKind kind) => kind is JobKind.Install or JobKind.Update or JobKind.Repair or JobKind.Verify or JobKind.Import or JobKind.Modify;
 }
