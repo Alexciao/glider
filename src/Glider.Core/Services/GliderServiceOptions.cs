@@ -126,6 +126,12 @@ public sealed class GliderServiceOptions
     /// <summary>Host: serialize a throw-away snapshot + library on the thread pool at start, so the UI's first two requests (which gate the first paint) hit a warm serializer. Off in tests.</summary>
     public bool WarmSerializers { get; init; }
 
+    /// <summary>Fetch Epic's free games in the background (the runtime turns this on; unit tests never touch the network).</summary>
+    public bool FreeGamesBackground { get; init; }
+
+    /// <summary>Endpoint, region, HTTP handler and timing of the free-games feed (tests inject a handler).</summary>
+    public Store.FreeGamesOptions? FreeGames { get; init; }
+
     private static string DefaultAppVersion()
     {
         var v = typeof(GliderServiceOptions).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0";

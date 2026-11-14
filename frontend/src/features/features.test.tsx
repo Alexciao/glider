@@ -10,7 +10,6 @@ import { useNotices } from "../state/notices";
 import { resetFreeGamesForTests } from "../state/freeGames";
 import { resetLibraryPrefsForTests } from "../state/libraryPrefs";
 import { resetProgressForTests } from "../state/progress";
-import { useStoreTarget } from "../state/storeTarget";
 import { navigate, useRouter } from "../state/router";
 import { useApp } from "../state/store";
 import { useUi } from "../state/ui";
@@ -65,7 +64,6 @@ beforeEach(() => {
   resetProgressForTests();
   resetFreeGamesForTests();
   resetLibraryPrefsForTests();
-  useStoreTarget.setState({ target: null });
   localStorage.clear();
 });
 afterEach(() => {
@@ -191,8 +189,7 @@ describe("Home", () => {
     await waitFor(() => expect(within(section).getAllByRole("button").length).toBeGreaterThan(1));
     expect(within(section).getByText("In your library")).toBeInTheDocument();
     await user.click(within(section).getByRole("button", { name: /Lanternfall/ }));
-    expect(useRouter.getState().route).toEqual({ page: "store" });
-    expect(useStoreTarget.getState().target).toEqual({ kind: "product", slug: "lanternfall" });
+    expect(useRouter.getState().route).toEqual({ page: "store", target: { kind: "product", slug: "lanternfall" } });
   });
 
   it("offline, the free games section is simply not drawn", async () => {
@@ -323,7 +320,7 @@ describe("Shell routing", () => {
     act(() => navigate("downloads"));
     expect(await screen.findByRole("heading", { name: "Downloads" })).toBeInTheDocument();
     act(() => navigate("store"));
-    expect(await screen.findByRole("heading", { name: "Store" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Open in browser" })).toBeInTheDocument(); // the Store toolbar
     act(() => navigate("settings"));
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
   });

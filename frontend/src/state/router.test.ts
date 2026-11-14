@@ -15,14 +15,14 @@ describe("parseRoute / formatRoute", () => {
     ["game/Foxglove%2F1A2", { page: "game", appName: "Foxglove/1A2" }],
     ["game/0123456789abcdef0123456789abcdef/", { page: "game", appName: "0123456789abcdef0123456789abcdef" }],
     ["game/Sugar/install", { page: "game", appName: "Sugar" }],
-    ["store/p/some-game_2", { page: "store", slug: "some-game_2" }],
+    ["store/p/some-game-2", { page: "store", target: { kind: "product", slug: "some-game-2" } }], // glider://store/p/<slug> alias
   ] as [string, Route][])("%s", (input, route) => {
     expect(parseRoute(input)).toEqual(route);
   });
 
   it("rejects junk", () => {
     for (const bad of ["", "#", "/", "nope", "game", "game/", "downloads/extra", "library/Fortnite", null, undefined]) expect(parseRoute(bad)).toBeNull();
-    for (const bad of ["game/a/b", "game/a/install/x", "game/%E0%A4%A", "store/p", "store/p/", "store/p/a/b", "store/x/y", "store/p/bad.slug", "store/p/%2e%2e"]) expect(parseRoute(bad)).toBeNull();
+    for (const bad of ["game/a/b", "game/a/install/x", "game/%E0%A4%A", "store/p", "store/p/", "store/p/a/b", "store/x/y", "store/p/bad.slug", "store/p/%2e%2e", "store/p/some_game", "store/p/%E0%A4%A"]) expect(parseRoute(bad)).toBeNull();
   });
 
   it("installIntent only fires for the /install suffix", () => {
@@ -35,9 +35,12 @@ describe("parseRoute / formatRoute", () => {
   });
 
   it("formats and compares store slugs", () => {
-    expect(formatRoute({ page: "store", slug: "x" })).toBe("store/p/x");
+    // The legacy store/p/<slug> alias normalizes to the one canonical scheme.
+    expect(formatRoute({ page: "store", target: { kind: "product", slug: "x" } })).toBe("store/product/x");
+    expect(formatRoute(parseRoute("store/p/x")!)).toBe("store/product/x");
+    expect(parseRoute("store/p/x")).toEqual(parseRoute("store/product/x"));
     expect(formatRoute({ page: "store" })).toBe("store");
-    expect(sameRoute({ page: "store", slug: "x" }, { page: "store", slug: "y" })).toBe(false);
+    expect(sameRoute({ page: "store", target: { kind: "product", slug: "x" } }, { page: "store", target: { kind: "product", slug: "y" } })).toBe(false);
     expect(sameRoute({ page: "store" }, { page: "store" })).toBe(true);
   });
 

@@ -84,6 +84,21 @@ internal sealed partial class MainWindow : Window
 
     public bool IsMicaActive { get; private set; }
 
+    public bool IsMinimized => _minimized;
+
+    /// <summary>The Store view asked to hand keyboard focus back to the UI (Tab out of the Store page).</summary>
+    public void FocusUi(bool previous)
+    {
+        try
+        {
+            _controller?.MoveFocus(previous ? CoreWebView2MoveFocusReason.Previous : CoreWebView2MoveFocusReason.Next);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
+        {
+            HostLog.Warn("MoveFocus (from the Store) failed", ex);
+        }
+    }
+
     public WindowInfo Info => new(_maximized, _focused, _visible && !_minimized);
 
     public CoreWebView2? Web => _web;
@@ -240,6 +255,7 @@ internal sealed partial class MainWindow : Window
         _placementTimer.Stop();
         SavePlacement();
         _rt.Bridge.Detach();
+        _rt.Platform.StoreIfCreated?.Dispose();
         try
         {
             _controller?.Close();
@@ -390,6 +406,7 @@ internal sealed partial class MainWindow : Window
     private void RecreateWebView()
     {
         _rt.Bridge.Detach();
+        _ = _rt.Platform.StoreIfCreated?.DestroyAsync(); // it belonged to the dead environment
         try
         {
             _controller?.Close();
@@ -472,6 +489,8 @@ internal sealed partial class MainWindow : Window
         {
             HostLog.Warn("EnterLowMemory failed", ex);
         }
+
+        _rt.Platform.StoreIfCreated?.OnWindowHidden();
     }
 
     private void LeaveLowMemory()
@@ -500,6 +519,7 @@ internal sealed partial class MainWindow : Window
         }
 
         _rt.Bridge.Hold(false);
+        _rt.Platform.StoreIfCreated?.OnWindowShown();
     }
 
     /// <summary>After ~8 s fully hidden: suspend the page (needs IsVisible=false) and trim the host's own working set.</summary>
@@ -513,6 +533,11 @@ internal sealed partial class MainWindow : Window
         try
         {
             var w = _web;
+            if (_rt.Platform.StoreIfCreated is { } store)
+            {
+                await store.SuspendNowAsync(); // before MemoryTrimmer below, so the trim sees the smaller footprint
+            }
+
             if (w is not null && _controller is { IsVisible: false })
             {
                 _rt.Bridge.Hold(true);

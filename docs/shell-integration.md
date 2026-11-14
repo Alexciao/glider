@@ -16,14 +16,19 @@ validated afterwards (a decoded `%`, bad UTF-8, `%00`… are refused); the query
 
 `com.epicgames.launcher://` (only while `Settings.HandleEpicLinks` is on) goes through `EpicLauncherUri` and `EpicLinkMapper`:
 `apps/<ns>%3A<cat>%3A<app>?action=launch` → launch, `install|update` → install dialog, `verify|updatecheck` → game page, `uninstall` → ignored,
-`store/p/<slug>` → store page, `library` → library. `arg`, `env.*`, install paths and other query parameters are dropped. The game is resolved by app name
-(case-insensitive), then by (namespace, catalog item id).
+`store/p/<slug>` / `store/product/<slug>` → store page, `library` → library (bundle pages and other `store/...` links → the Store's home).
+`arg`, `env.*`, install paths and other query parameters are dropped. The game is resolved by app name (case-insensitive), then by (namespace, catalog item id).
+
+`EpicLauncherUri` is the **only** parser for these links: the in-Store deep links (a launcher link clicked on the web Store, routed by `StoreIntentRouter`) use the
+same `EpicLink` result. The stricter of both rule sets applies: ASCII only; no userinfo, port, fragment, backslash or embedded second scheme; percent-escapes decoded
+once; app-name parts `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`; slugs only through `StoreSlug` (`[a-z0-9-]`, lower-cased, a trailing `/home` allowed); an undecodable query
+refuses the link; an unknown `action` makes the link `Unknown`; `silent` counts only as `true`; `library/extra` is `Unknown`.
 
 A refused or ignored link shows the main window (a cold start must not leave an invisible process). The same link within 1.5 s is handled once.
 
 ## UI routes (`navigate` event)
 
-`game/<app>`, `game/<app>/install` (bridge opens the install dialog), `downloads`, `library`, `store`, `store/p/<slug>` (`Route.slug`; the Store view should navigate there).
+`game/<app>`, `game/<app>/install` (bridge opens the install dialog), `downloads`, `library`, `store`, `store/product/<slug>` (a typed Store target; `store/p/<slug>` is read as an alias), plus the other Store routes (`store/bundle/<slug>`, `store/free-games`, `store/wishlist`, `store/browse`).
 A route sent before the UI called `app.ready` is held (latest wins) and delivered on `app.ready`.
 
 ## Single instance

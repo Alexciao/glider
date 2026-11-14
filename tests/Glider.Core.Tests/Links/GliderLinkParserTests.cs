@@ -38,8 +38,8 @@ public class GliderLinkParserTests
         Assert.Equal("downloads", Ok("glider://downloads/").Route);
         Assert.Equal("library", Ok("glider://library").Route);
         Assert.Equal("store", Ok("glider://store").Route);
-        Assert.Equal("store/p/fortnite", Ok("glider://store/p/fortnite").Route);
-        Assert.Equal("store/p/grand-theft-auto-v_enhanced", Ok("glider://store/p/grand-theft-auto-v_enhanced").Route);
+        Assert.Equal("store/product/fortnite", Ok("glider://store/p/fortnite").Route);
+        Assert.Equal("store/product/grand-theft-auto-v_enhanced", Ok("glider://store/p/grand-theft-auto-v_enhanced").Route);
     }
 
     [Fact]

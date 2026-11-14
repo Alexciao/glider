@@ -551,3 +551,16 @@ Third-party source and reverse-engineering:
 * r2modman launch-URI change: https://github.com/ebkr/r2modmanPlus/issues/1973
 
 Repo: `DECISIONS.md` (login entries), `docs/research/legendary.md`, `docs/research/heroic.md`, `docs/perf-host.md`, `src/Glider.App/{WebViewSetup,HostRuntime,EpicLogin,MainWindow,CaptionOverlays}.cs`.
+
+---
+
+## 10. Implementation notes (v0.2 Phase 2, part B5)
+
+Built as designed, with these deviations from §7.1 (the Phase 1 contract already had `store.show/setBounds/hide/back/reload` and `freeGames.get`, so the surface was extended additively instead of replaced):
+
+* RPC: `store.show { target, bounds }` replaces `store.open` + `store.setVisible` (show = visible, `store.hide` = not); added `store.setCovered`, `store.openInBrowser`, `store.getState`, `freeGames.refresh`, event `freeGames`. `StoreState` gained `phase/url/host/secure/canGoForward/checkoutActive/covered/coverUrl/error`; `StoreTargetKind` gained `bundle/browse/lastVisited`; `FreeGame` gained `tallImageUrl/regularPrice/seller/bundle`; `FreeGamesResult.stale`.
+* Deep links are routed by Core: launch (installed, user gesture on an Epic origin) → `game.launch`; everything else → the `navigate` event (`game/<app>`, `store/product/<slug>`, `library`, `store`); there is no separate `storeIntent` event.
+* `library.refresh` was already a background sync; checkout-driven refreshes reuse it (single-flight) and publish "was added to your library" notices (no `NoticeKind` was needed).
+* Cookie names of `www.epicgames.com` are logged (names and session flag only) at the first Store open of a run: that line answers L1 without a separate `--store-probe` flag.
+* Not built: the `store.memory` self-test step (L7), toast anchoring into the Store toolbar (notices raised while on the Store tab sit under the native view; the toolbar is the place to move them), the persisted `storeLastPath` (kept in memory for the run), a "Store region" setting.
+* Verified by `--selftest` (temp data dir, anonymous, no sign-in): the real WebView2 creates on the shared profile, loads `store.epicgames.com` (host and title reported), native bounds equal the placeholder rectangle at 96 dpi, cover snapshot written and `IsVisible` false while covered, hide, and destroy removes the snapshot. Not verified live: everything in §9 that needs an account (L1-L6, L8, L9), DPI 150/200 %, popups.

@@ -1,30 +1,14 @@
-import { create } from "zustand";
 import type { StoreTarget } from "../ipc/contract.gen";
-import { navigate } from "./router";
+import { navigate, storeRoute } from "./router";
 
 /**
- * Where the Store page should land the next time it shows (a product page from "Free this week", the free-games page, …).
- * The Store page reads and clears it when it opens (`takeStoreTarget`), then calls `store.show` with it. It lives apart
- * from the router so deep links from Home don't need a second route shape.
+ * Go to the Store, landing on `target` (omit for its home page). The route carries the target (`store/product/<slug>`,
+ * `store/free-games`, …): the Store page reads it from there and passes it to `store.show`, so a deep link from Home, a
+ * `glider://store/p/<slug>` link and a Store link clicked inside the Store all land the same way and survive a reload.
  */
-interface StoreTargetStore {
-  target: StoreTarget | null;
-}
-
-export const useStoreTarget = create<StoreTargetStore>(() => ({ target: null }));
-
-/** Go to the Store, landing on `target` (omit for its home page). */
 export function openStore(target?: StoreTarget | null): void {
-  useStoreTarget.setState({ target: target ?? null });
-  navigate("store");
+  navigate(storeRoute(target));
 }
 
-/** Read and clear the pending target (the Store page calls this once when it opens). */
-export function takeStoreTarget(): StoreTarget | null {
-  const { target } = useStoreTarget.getState();
-  if (target) useStoreTarget.setState({ target: null });
-  return target;
-}
-
-/** The deep link for a product slug on the Store. */
+/** The deep link for a product slug on the Store (the free-games page when the feed gave no slug). */
 export const productTarget = (slug: string | null): StoreTarget => (slug ? { kind: "product", slug } : { kind: "freeGames", slug: null });

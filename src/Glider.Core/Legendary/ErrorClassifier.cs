@@ -24,6 +24,7 @@ internal enum LegendaryCommandKind
     EosOverlay,
     Activate,
     ThirdPartyLaunch,
+    Token,
 }
 
 /// <summary>

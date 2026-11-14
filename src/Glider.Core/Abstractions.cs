@@ -82,6 +82,9 @@ public interface IHostPlatform
 
     bool IsWindows11 { get; }
     BackdropKind Backdrop { get; }
+
+    /// <summary>The native Store view (a second WebView2 over the Store page's placeholder). Null on hosts without one.</summary>
+    Store.IStoreHost? StoreHost => null;
 }
 
 // ============================== Legendary ==============================
@@ -249,6 +252,12 @@ public interface ILegendary
     /// </summary>
     Task<string> GetThirdPartyUriAsync(string appName, ThirdPartyStore store, bool offline, CancellationToken ct) =>
         throw new GliderException(Errors.NotAvailableYet("third-party launch"));
+
+    /// <summary>
+    /// `get-token --json`: a fresh one-time web exchange code (32 hex) for the signed-in account, used for the Store's web sign-in.
+    /// A credential: never logged, never stored, valid ~5 minutes. Null when signed out or Epic refuses.
+    /// </summary>
+    Task<string?> GetWebExchangeCodeAsync(CancellationToken ct) => Task.FromResult<string?>(null);
 }
 
 // ============================== Glider's per-game records (state/games.json) ==============================

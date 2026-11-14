@@ -184,6 +184,10 @@ export interface FreeGame {
   endsAt: string;
   status: FreeGameStatus;
   owned: boolean;
+  tallImageUrl: string | null;
+  regularPrice: string | null;
+  seller: string | null;
+  bundle: boolean;
 }
 
 export type FreeGameStatus = "freeNow" | "upcoming";
@@ -191,6 +195,7 @@ export type FreeGameStatus = "freeNow" | "upcoming";
 export interface FreeGamesResult {
   items: FreeGame[];
   fetchedAt: string | null;
+  stale: boolean;
 }
 
 export interface GameArt {
@@ -697,6 +702,12 @@ export interface StoreBounds {
   height: number;
 }
 
+export interface StoreCoverRequest {
+  covered: boolean;
+}
+
+export type StorePhase = "idle" | "creating" | "loading" | "ready" | "hidden" | "suspended" | "signedOut" | "error";
+
 export interface StoreShowRequest {
   target: StoreTarget | null;
   bounds: StoreBounds;
@@ -708,6 +719,15 @@ export interface StoreState {
   loading: boolean;
   canGoBack: boolean;
   title: string | null;
+  phase: StorePhase;
+  url: string | null;
+  host: string | null;
+  secure: boolean;
+  canGoForward: boolean;
+  checkoutActive: boolean;
+  covered: boolean;
+  coverUrl: string | null;
+  error: GliderError | null;
 }
 
 export interface StoreTarget {
@@ -715,7 +735,7 @@ export interface StoreTarget {
   slug: string | null;
 }
 
-export type StoreTargetKind = "home" | "product" | "freeGames" | "wishlist" | "library";
+export type StoreTargetKind = "home" | "product" | "freeGames" | "wishlist" | "library" | "bundle" | "browse" | "lastVisited";
 
 export type SyncDirection = "auto" | "upload" | "download";
 
@@ -803,6 +823,7 @@ export interface RpcMethods {
   "egl.rescan": { params: void; result: EglState };
   "egl.validateFolder": { params: ValidateFolderRequest; result: FolderValidation };
   "freeGames.get": { params: void; result: FreeGamesResult };
+  "freeGames.refresh": { params: void; result: FreeGamesResult };
   "game.activate": { params: AppRef; result: void };
   "game.close": { params: AppRef; result: void };
   "game.getDetail": { params: AppRef; result: GameDetail };
@@ -849,9 +870,12 @@ export interface RpcMethods {
   "settings.reset": { params: void; result: Settings };
   "settings.update": { params: Settings; result: Settings };
   "store.back": { params: void; result: StoreState };
+  "store.getState": { params: void; result: StoreState };
   "store.hide": { params: void; result: StoreState };
+  "store.openInBrowser": { params: void; result: void };
   "store.reload": { params: void; result: StoreState };
   "store.setBounds": { params: StoreBounds; result: void };
+  "store.setCovered": { params: StoreCoverRequest; result: StoreState };
   "store.show": { params: StoreShowRequest; result: StoreState };
   "window.close": { params: void; result: void };
   "window.getInfo": { params: void; result: WindowInfo };
@@ -864,6 +888,7 @@ export type RpcMethodName = keyof RpcMethods;
 /** Server-pushed events: event name → payload type. */
 export interface RpcEventMap {
   "caption": CaptionEvent;
+  "freeGames": FreeGamesResult;
   "library": LibraryDelta;
   "navigate": NavigateEvent;
   "notice": Notice;
@@ -898,6 +923,7 @@ export const RPC_METHODS = [
   "egl.rescan",
   "egl.validateFolder",
   "freeGames.get",
+  "freeGames.refresh",
   "game.activate",
   "game.close",
   "game.getDetail",
@@ -944,9 +970,12 @@ export const RPC_METHODS = [
   "settings.reset",
   "settings.update",
   "store.back",
+  "store.getState",
   "store.hide",
+  "store.openInBrowser",
   "store.reload",
   "store.setBounds",
+  "store.setCovered",
   "store.show",
   "window.close",
   "window.getInfo",

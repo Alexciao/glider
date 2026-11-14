@@ -99,6 +99,25 @@ internal static class WebViewSetup
     }
 
     /// <summary>
+    /// Settings for the Store view and its popups (docs/research/store-webview.md section 6): no bridge to the host (web messages and
+    /// host objects off), no saved passwords or autofill in the Glider profile, no built-in error page (Glider draws its own).
+    /// </summary>
+    public static void ConfigureStoreSettings(CoreWebView2Settings s)
+    {
+        s.AreDevToolsEnabled = DeveloperMode;
+        s.AreDefaultContextMenusEnabled = DeveloperMode;
+        s.AreBrowserAcceleratorKeysEnabled = DeveloperMode;
+        s.IsWebMessageEnabled = false;
+        s.AreHostObjectsAllowed = false;
+        s.IsPasswordAutosaveEnabled = false;
+        s.IsGeneralAutofillEnabled = false;
+        s.IsStatusBarEnabled = false;
+        s.IsBuiltInErrorPageEnabled = false;
+        s.IsSwipeNavigationEnabled = false;
+        s.IsScriptEnabled = true; // Epic's own page needs it; nothing of ours is ever injected
+    }
+
+    /// <summary>
     /// Maps https://app.glider/ → UI folder and https://cache.glider/ → AppPaths.Cache. (A WebResourceRequested handler cannot serve a
     /// sub-path of a mapped host: verified that virtual-host requests never raise the event, so the cache gets its own host.)
     /// </summary>

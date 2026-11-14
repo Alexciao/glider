@@ -1,10 +1,13 @@
 import { create } from "zustand";
+import type { StoreTarget } from "../ipc/contract.gen";
 
 /**
  * A tiny hash router. Routes are plain strings so the host can send them in the `navigate` event
  * ("game/Fortnite", "downloads", …) and glider:// links map onto them one to one.
  *
- *   home · library · game/<appName> · downloads · store · store/p/<slug> · settings
+ *   home · library · game/<appName> · downloads · settings · store
+ *   store/product/<slug> · store/bundle/<slug> · store/free-games · store/wishlist · store/browse   (a typed Store destination)
+ *   store/p/<slug>  (legacy alias of store/product/<slug>: what `glider://store/p/<slug>` links and older hosts send)
  *
  * `game/<appName>/install` (glider://install/<app>) shows the game page; {@link installIntent} tells the bridge to open its
  * install dialog on top. A link never starts a download by itself.
@@ -14,7 +17,7 @@ export type Route =
   | { page: "library" }
   | { page: "game"; appName: string }
   | { page: "downloads" }
-  | { page: "store"; /** Epic product slug from a glider://store/p/<slug> link; the Store view navigates there. */ slug?: string }
+  | { page: "store"; target?: StoreTarget }
   | { page: "settings" };
 
 export type Page = Route["page"];
@@ -35,10 +38,7 @@ export function parseRoute(input: string | null | undefined): Route | null {
     const name = safeDecode(rest[0]);
     return name ? { page: "game", appName: name } : null;
   }
-  if (head === "store" && rest.length === 2 && rest[0] === "p") {
-    const slug = safeDecode(rest[1]);
-    return slug && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(slug) ? { page: "store", slug } : null;
-  }
+  if (head === "store" && rest.length > 0) return parseStore(rest);
   if (rest.length === 0 && SIMPLE.has(head as Page)) return { page: head as Exclude<Page, "game"> } as Route;
   return null;
 }
@@ -59,16 +59,41 @@ export function installIntent(input: string | null | undefined): string | null {
   return /\/install\/*$/.test(input ?? "") ? route.appName : null;
 }
 
+/** Epic's slug shape (the same rule Core's `StoreSlug` applies before it builds any address). */
+const SLUG = /^[a-z0-9][a-z0-9-]{0,127}$/;
+
+function parseStore(rest: string[]): Route | null {
+  const [kind, slug, ...more] = rest;
+  if (more.length > 0) return null;
+  // "p" is the alias used by glider://store/p/<slug> and the Epic launcher's own links.
+  if ((kind === "product" || kind === "p" || kind === "bundle") && slug) {
+    const clean = safeDecode(slug)?.toLowerCase();
+    return clean && SLUG.test(clean) ? { page: "store", target: { kind: kind === "bundle" ? "bundle" : "product", slug: clean } } : null;
+  }
+  if (slug) return null;
+  if (kind === "free-games") return { page: "store", target: { kind: "freeGames", slug: null } };
+  if (kind === "wishlist" || kind === "browse") return { page: "store", target: { kind, slug: null } };
+  return null;
+}
+
+/** The route that opens the Store at a typed target (never a raw URL). */
+export function storeRoute(target: StoreTarget | null | undefined): Route {
+  return target ? { page: "store", target } : { page: "store" };
+}
+
 /** "game/Fortnite"; appNames are percent-encoded so odd characters can't break the hash. */
 export function formatRoute(r: Route): string {
   if (r.page === "game") return `game/${encodeURIComponent(r.appName)}`;
-  return r.page === "store" && r.slug ? `store/p/${r.slug}` : r.page;
+  if (r.page === "store" && r.target) {
+    const t = r.target;
+    if ((t.kind === "product" || t.kind === "bundle") && t.slug) return `store/${t.kind}/${encodeURIComponent(t.slug)}`;
+    if (t.kind === "freeGames") return "store/free-games";
+    if (t.kind === "wishlist" || t.kind === "browse") return `store/${t.kind}`;
+  }
+  return r.page;
 }
 
-export const sameRoute = (a: Route, b: Route): boolean =>
-  a.page === b.page &&
-  (a.page !== "game" || (b.page === "game" && a.appName === b.appName)) &&
-  (a.page !== "store" || (b.page === "store" && a.slug === b.slug));
+export const sameRoute = (a: Route, b: Route): boolean => a.page === b.page && formatRoute(a) === formatRoute(b);
 
 const readHash = (): Route => parseRoute(typeof location === "undefined" ? "" : location.hash) ?? DEFAULT_ROUTE;
 
