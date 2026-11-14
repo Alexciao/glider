@@ -16,6 +16,9 @@ public sealed class GliderServiceOptions
     /// <summary>Null = treat the user as idle (auto-update then only waits for the game to close).</summary>
     public IIdleSignal? IdleSignal { get; init; }
 
+    /// <summary>Shortcuts and URL-protocol registration (the host's shell). Null = unavailable (game.setShortcut reports so; protocols are left alone).</summary>
+    public Links.IShellIntegration? Shell { get; init; }
+
     /// <summary>Null = <see cref="Infrastructure.FileOnboardingStore"/> in state/ (loaded by the runtime).</summary>
     public Infrastructure.IOnboardingStore? OnboardingStore { get; init; }
 

@@ -4,13 +4,6 @@ using Glider.Core.Contracts;
 
 namespace Glider.Core.Game;
 
-/// <summary>Desktop / Start-menu shortcuts per game (Phase 2).</summary>
-internal sealed class ShortcutService
-{
-    // Phase 2
-    public Task<ShortcutState> SetAsync(ShortcutRequest request) => throw new GliderException(Errors.NotAvailableYet("shortcuts"));
-}
-
 /// <summary>Ubisoft Connect / EA app linking via `legendary activate` (Phase 2, metadata lane).</summary>
 internal sealed class ActivationService
 {

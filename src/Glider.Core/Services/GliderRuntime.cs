@@ -108,6 +108,7 @@ public sealed class GliderRuntime : IAsyncDisposable
                 LibraryCoalesceInterval = options.LibraryCoalesceInterval ?? defaults.LibraryCoalesceInterval,
                 LibraryCacheDelay = options.LibraryCacheDelay ?? defaults.LibraryCacheDelay,
                 OnboardingStore = onboarding,
+                Shell = options.Shell,
                 Collections = collections,
                 WriterActivity = activity,
             });
@@ -150,6 +151,7 @@ public sealed class GliderRuntimeOptions
     public IGameProcessStarter? ProcessStarter { get; init; }
     public IServiceQuery? ServiceQuery { get; init; }
     public IDiskInfo? DiskInfo { get; init; }
+    public Links.IShellIntegration? Shell { get; init; }
     public TimeSpan? ProcessPollInterval { get; init; }
     public TimeSpan? SessionEndGrace { get; init; }
     public TimeSpan? LockRetryDelay { get; init; }
