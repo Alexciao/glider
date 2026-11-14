@@ -8,7 +8,6 @@ import type {
   EglState,
   ErrorCode,
   FolderValidation,
-  FreeGamesResult,
   GameDetail,
   GameSummary,
   GliderError,
@@ -39,11 +38,10 @@ import type {
   StoreState,
   VerifyMode,
 } from "../contract.gen";
-import { wideArt } from "./art";
+import { mockFreeGames, mockStoreLocation, idleStore } from "./store";
 import type { MockGame } from "./catalog";
 import {
   ACCOUNT,
-  DAY,
   DATA_DIRECTORY,
   GiB,
   HOUR,
@@ -113,7 +111,8 @@ const PAUSABLE: readonly JobKind[] = ["install", "update", "repair", "verify", "
 /** Calls that only read: they never consume an injected failure. */
 const READ_ONLY = new Set<string>([
   "app.getSnapshot", "app.getLogs", "app.getLicenses", "app.ready", "window.getInfo", "library.get", "game.getDetail",
-  "game.planInstall", "game.prepareLaunch", "saves.get", "jobs.getHistory", "freeGames.get", "egl.validateFolder",
+  "game.planInstall", "game.prepareLaunch", "saves.get", "jobs.getHistory", "freeGames.get", "freeGames.refresh", "store.getState",
+  "store.openInBrowser", "store.setCovered", "egl.validateFolder",
   "egl.checkReadiness", "store.setBounds", "app.openPath", "app.openExternal", "app.copyLogs", "game.openFolder", "saves.openBackups",
   "window.minimize", "window.toggleMaximize", "window.close", "app.quit", "app.pickFolder",
 ]);
@@ -167,7 +166,7 @@ export class MockBackend {
   private syncing = false;
   private syncError: GliderError | null = null;
   private lastSyncedAt: string | null = null;
-  private store: StoreState = { created: false, visible: false, loading: false, canGoBack: false, title: null };
+  private store: StoreState = idleStore();
 
   private queue: JobEntry[] = [];
   private finished: JobInfo[] = [];
@@ -328,7 +327,7 @@ export class MockBackend {
     this.syncing = false;
     this.syncError = w.syncError;
     this.lastSyncedAt = w.lastSyncedAt;
-    this.store = { created: false, visible: false, loading: false, canGoBack: false, title: null };
+    this.store = idleStore();
     this.queue = [];
     this.finished = [];
     this.histories = new Map();
@@ -1802,47 +1801,65 @@ export class MockBackend {
 
     // ---- store / free games ----
     "store.show": async (r) => {
-      this.store = { created: true, visible: true, loading: true, canGoBack: r.target !== null && r.target.kind !== "home", title: r.target?.kind === "freeGames" ? "Free Games" : "Store" };
+      const loc = r.target ? mockStoreLocation(r.target) : null;
+      this.store = {
+        ...this.store,
+        created: true,
+        visible: true,
+        loading: true,
+        phase: "loading",
+        covered: false,
+        canGoBack: loc?.deep ?? this.store.canGoBack,
+        ...(loc ? { title: loc.title, url: loc.url, host: "store.epicgames.com", secure: true } : {}),
+      };
       this.event("store", { ...this.store });
       this.timer(700, () => {
-        this.store = { ...this.store, loading: false };
+        if (this.store.phase !== "loading") return;
+        this.store = { ...this.store, loading: false, phase: "ready" };
         this.event("store", { ...this.store });
       });
       return { ...this.store };
     },
     "store.setBounds": async () => {},
     "store.hide": async () => {
-      this.store = { ...this.store, visible: false, loading: false };
+      this.store = { ...this.store, visible: false, loading: false, covered: false, phase: this.store.created ? "hidden" : "idle" };
       this.event("store", { ...this.store });
       return { ...this.store };
     },
     "store.back": async () => {
-      this.store = { ...this.store, canGoBack: false, title: "Store" };
+      const loc = mockStoreLocation(null);
+      this.store = { ...this.store, canGoBack: false, canGoForward: true, title: loc.title, url: loc.url };
       this.event("store", { ...this.store });
       return { ...this.store };
     },
     "store.reload": async () => {
-      this.store = { ...this.store, loading: true };
+      this.store = { ...this.store, loading: true, phase: "loading" };
       this.event("store", { ...this.store });
       this.timer(500, () => {
-        this.store = { ...this.store, loading: false };
+        this.store = { ...this.store, loading: false, phase: "ready" };
         this.event("store", { ...this.store });
       });
       return { ...this.store };
     },
+    "store.setCovered": async (r) => {
+      this.store = { ...this.store, covered: r.covered };
+      this.event("store", { ...this.store });
+      return { ...this.store };
+    },
+    "store.openInBrowser": async () => {},
+    "store.getState": async () => ({ ...this.store }),
     "freeGames.get": async () => {
       this.requireOnline("Loading free games");
       await this.sleep(250);
-      const now = Date.now();
       const owned = [...this.games.values()].find((g) => g.summary.kind === "game" && g.summary.installStatus !== "notInstallable");
-      const r: FreeGamesResult = {
-        fetchedAt: iso(),
-        items: [
-          { id: "free-1", title: "Lanternfall", imageUrl: wideArt("free-1"), slug: "lanternfall", startsAt: iso(now - 2 * DAY), endsAt: iso(now + 4 * DAY), status: "freeNow", owned: false },
-          { id: "free-2", title: owned?.summary.title ?? "Orchard Tactics", imageUrl: wideArt("free-2"), slug: "orchard-tactics", startsAt: iso(now - 1 * DAY), endsAt: iso(now + 5 * DAY), status: "freeNow", owned: owned !== undefined },
-          { id: "free-3", title: "Saltmarsh Courier", imageUrl: wideArt("free-3"), slug: "saltmarsh-courier", startsAt: iso(now + 4 * DAY), endsAt: iso(now + 11 * DAY), status: "upcoming", owned: false },
-        ],
-      };
+      return mockFreeGames(Date.now(), iso, owned?.summary.title ?? null);
+    },
+    "freeGames.refresh": async () => {
+      this.requireOnline("Refreshing free games");
+      await this.sleep(400);
+      const owned = [...this.games.values()].find((g) => g.summary.kind === "game" && g.summary.installStatus !== "notInstallable");
+      const r = mockFreeGames(Date.now(), iso, owned?.summary.title ?? null);
+      this.event("freeGames", r);
       return r;
     },
 
