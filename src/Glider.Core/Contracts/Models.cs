@@ -330,9 +330,7 @@ public sealed record LaunchRequest(
     /// <summary>Null = the game's setting.</summary>
     LaunchMode? Mode,
     /// <summary>Skip the pre-launch cloud-save sync once (e.g. after the user chose "Play without syncing").</summary>
-    bool SkipSaveSync,
-    /// <summary>Launch without running the game's pending prerequisites (the user chose "Play anyway" after they failed).</summary>
-    bool SkipPrerequisites = false);
+    bool SkipSaveSync);
 
 [JsonConverter(typeof(CamelEnumConverter<LaunchOutcome>))]
 public enum LaunchOutcome
@@ -854,6 +852,7 @@ public enum ErrorCode
     LegendaryFailed,
     LegendaryLocked,
     EacSetupFailed,
+    /// <summary>A prerequisite installer failed or was declined. The UI offers Retry (launch again) and "Play anyway" (<c>game.skipPrerequisites</c>, then launch).</summary>
     PrerequisiteFailed,
     LaunchFailed,
     ThirdPartyRequired,
@@ -866,7 +865,7 @@ public enum ErrorCode
 }
 
 [JsonConverter(typeof(CamelEnumConverter<FixAction>))]
-public enum FixAction { SignIn, FreeSpace, Repair, Retry, ChooseFolder, OpenLogs, CloseGame, WaitForEgl, Activate, ResolveSaves, InstallPrerequisites, PlayOffline, PlayAnyway }
+public enum FixAction { SignIn, FreeSpace, Repair, Retry, ChooseFolder, OpenLogs, CloseGame, WaitForEgl, Activate, ResolveSaves, InstallPrerequisites, PlayOffline }
 
 /// <summary>A human-readable failure with an optional one-click fix. Detail is technical (for logs/copy).</summary>
 public sealed record GliderError(ErrorCode Code, string Title, string Message, FixAction? Fix, string? Detail, string? AppName = null);

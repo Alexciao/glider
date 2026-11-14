@@ -521,6 +521,8 @@ public sealed class GliderService : IGliderRpc, IDisposable
 
     public Task InstallPrerequisites(AppRef request) => Rpc(nameof(InstallPrerequisites), ct => _prereqs.InstallAsync(App(request), ct));
 
+    public Task SkipPrerequisites(AppRef request) => Rpc(nameof(SkipPrerequisites), ct => _prereqs.SkipAsync(App(request), ct));
+
     public Task<ShortcutState> SetShortcut(ShortcutRequest request) => Rpc(nameof(SetShortcut), _ => _shortcuts.SetAsync(Require(request, "request")));
 
     // ================================================================== cloud saves (Phase 2)

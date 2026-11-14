@@ -284,14 +284,7 @@ internal sealed class LaunchService
             SetRun(app, summary.Title, RunState.Preparing, null, offline);
             if (Prerequisites is { } prerequisites)
             {
-                if (request.SkipPrerequisites)
-                {
-                    await prerequisites.SkipAsync(app, ct);
-                }
-                else
-                {
-                    await prerequisites.EnsureAsync(app, () => SetRun(app, summary.Title, RunState.InstallingPrerequisites, null, offline), ct);
-                }
+                await prerequisites.EnsureAsync(app, () => SetRun(app, summary.Title, RunState.InstallingPrerequisites, null, offline), ct);
             }
 
             var ranEac = await _eac.EnsureInstalledAsync(app, installPath, () => SetRun(app, summary.Title, RunState.InstallingPrerequisites, null, offline), ct);
