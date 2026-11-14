@@ -32,6 +32,9 @@ internal static class HostConstants
 
     public const string MainMutexName = @"Local\Glider.SingleInstance";
     public const string WebViewProfileEpic = "GliderEpic";
+
+    /// <summary>The embedded Store (docs/research/store-webview.md); same profile as sign-in.</summary>
+    public const string StoreOrigin = "https://store.epicgames.com/";
     public const string WebViewInstallLink = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";
     public const string RunKeyValueName = "Glider";
 

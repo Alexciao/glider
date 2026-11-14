@@ -81,6 +81,7 @@ internal static partial class SelfTest
             await Step("hover", () => HoverTest(rt, win, dir));
             await Step("toast", () => Ui(rt, () => rt.Platform.ShowToast("Glider self-test", "Host toast via Shell_NotifyIcon (safe to ignore).")));
             await Step("placement", () => Ui(rt, () => PlacementTest(rt, win)));
+            await Step("store", () => StoreTest(rt, win, dir));
             await Step("login", () => LoginTest(rt, dir));
             await Step("close", () => CloseTest(rt, win));
             await Step("hide-suspend", () => HideSuspendTest(rt, win));
@@ -434,6 +435,39 @@ internal static partial class SelfTest
         WindowPlacementStore.Save(rt.Paths, win.Hwnd);
         var path = Path.Combine(rt.Paths.State, "window.json");
         Report["placement.file"] = File.Exists(path) ? File.ReadAllText(path) : "MISSING";
+    }
+
+    /// <summary>
+    /// The embedded Store, anonymously (no sign-in, no exchange code): opens the public Store home over a placeholder rectangle, then
+    /// covers/uncovers it (snapshot), hides it, and closes it. Reports the phase after each step and the native bounds.
+    /// </summary>
+    private static async Task StoreTest(HostRuntime rt, MainWindow win, string dir)
+    {
+        var store = rt.Platform.StoreHost ?? throw new InvalidOperationException("no store host");
+        var bounds = new Glider.Core.Contracts.StoreBounds(72, 40, 800, 520);
+        var state = await store.ShowAsync(Glider.Core.Store.StoreUrls.Home("en-US"), bounds);
+        for (var i = 0; i < 40 && state.Phase is Glider.Core.Contracts.StorePhase.Loading or Glider.Core.Contracts.StorePhase.Creating; i++)
+        {
+            await Task.Delay(500);
+            state = store.State;
+        }
+
+        Report["store.afterShow"] = $"{state.Phase} host={state.Host} visible={state.Visible} title={state.Title}";
+        await Task.Delay(1500);
+        if (rt.Platform.StoreIfCreated is { } view)
+        {
+            await rt.Ui.InvokeAsync(() => Report["store.nativeBounds"] = view.DescribeBoundsForTests());
+        }
+
+        await rt.Ui.InvokeAsync(() => Screenshot(win, Path.Combine(dir, "store.png"), "store"));
+        var covered = await store.SetCoveredAsync(true);
+        Report["store.cover"] = $"covered={covered.Covered} visible={covered.Visible} snapshot={covered.CoverUrl is not null && File.Exists(Path.Combine(rt.Paths.Cache, "store-cover.png"))}";
+        var uncovered = await store.SetCoveredAsync(false);
+        Report["store.uncover"] = $"covered={uncovered.Covered} visible={uncovered.Visible}";
+        var hidden = await store.HideAsync();
+        Report["store.hide"] = $"{hidden.Phase} visible={hidden.Visible}";
+        await store.DestroyAsync();
+        Report["store.destroy"] = $"{store.State.Phase} created={store.State.Created} snapshotLeft={File.Exists(Path.Combine(rt.Paths.Cache, "store-cover.png"))}";
     }
 
     private static async Task LoginTest(HostRuntime rt, string dir)

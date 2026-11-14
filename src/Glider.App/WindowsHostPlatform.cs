@@ -19,12 +19,21 @@ internal sealed class WindowsHostPlatform : IHostPlatform
     private readonly EpicLogin _login;
     private volatile MainWindow? _window;
     private volatile TrayIcon? _tray;
+    private StoreView? _store;
 
     public WindowsHostPlatform(HostRuntime rt)
     {
         _rt = rt;
         _login = new EpicLogin(rt);
     }
+
+    /// <summary>The embedded Store (its WebView2 is only created on the first <c>store.show</c>).</summary>
+    public Glider.Core.Store.IStoreHost? StoreHost => StoreOrCreate();
+
+    /// <summary>Null until Core first asks for it: the window's size/DPI/activation hooks use this so they cost nothing before that.</summary>
+    internal StoreView? StoreIfCreated => _store;
+
+    private StoreView StoreOrCreate() => _store ??= new StoreView(_rt, () => _window);
 
     private Dispatcher Ui => _rt.Ui;
 
@@ -46,7 +55,16 @@ internal sealed class WindowsHostPlatform : IHostPlatform
     /// <summary>Self-test: make the open login page call window.open and describe the popup window that results.</summary>
     internal Task<string> LoginPopupSmokeAsync() => Ui.InvokeAsync(() => _login.PopupSmokeAsync()).Task.Unwrap();
 
-    public Task ClearLoginSessionAsync() => Ui.InvokeAsync(() => _login.ClearSessionAsync()).Task.Unwrap();
+    /// <summary>The Store shares the sign-in profile: close it (and drop its snapshot) before the profile is wiped.</summary>
+    public async Task ClearLoginSessionAsync()
+    {
+        if (_store is { } store)
+        {
+            await store.DestroyAsync();
+        }
+
+        await Ui.InvokeAsync(() => _login.ClearSessionAsync()).Task.Unwrap();
+    }
 
     // ---------------------------------------------------------------- shell
 

@@ -34,8 +34,8 @@ public sealed class GliderService : IGliderRpc, IDisposable
     private readonly CollectionsStore _collections;
     private readonly Saves.SaveService _saves;
     private readonly Overlay.OverlayService _overlay;
-    private readonly Store.StoreService _store = new();
-    private readonly Store.FreeGamesService _freeGames = new();
+    private readonly Store.StoreService _store;
+    private readonly Store.FreeGamesService _freeGames;
     private readonly ShortcutService _shortcuts;
     private readonly LinkService _links;
     private readonly ThirdPartyService _thirdParty;
@@ -96,6 +96,8 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _saves.Launcher = (r, ct) => _launch.LaunchAsync(r, ct);
         _launch.Saves = _saves;
         _c.WhenSavesIdle = _saves.WhenIdleAsync;
+        _freeGames = new Store.FreeGamesService(paths, log, time, () => _c.Library.Games.Values.ToList(), events, options.FreeGames);
+        _store = new Store.StoreService(_c, events, (r, ct) => _launch.LaunchAsync(r, ct));
         _prewarm = new Prewarm(_c, _auth, _egl, _updates, _install, _launch);
         _shortcuts = new ShortcutService(_c);
         _links = new LinkService(_c, _launch.LaunchAsync);
@@ -208,6 +210,10 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _shortcuts.Attach();
         _ = Task.Run(() => ReconcileShellAsync(ct), ct);
         _periodic = RunPeriodicAfterWarmupAsync(ct);
+        if (_c.Options.FreeGamesBackground)
+        {
+            _freeGames.Start();
+        }
         return Task.CompletedTask;
     }
 
@@ -307,6 +313,8 @@ public sealed class GliderService : IGliderRpc, IDisposable
         {
         }
 
+        _store.Dispose();
+        _freeGames.Dispose();
         _shortcuts.Dispose();
         _overlay.Dispose();
         _prereqs.Dispose();
@@ -758,17 +766,25 @@ public sealed class GliderService : IGliderRpc, IDisposable
 
     // ================================================================== store / free games (Phase 2)
 
-    public Task<StoreState> ShowStore(StoreShowRequest request) => Rpc(nameof(ShowStore), _ => Task.FromResult(_store.Show(Require(request, "request"))));
+    public Task<StoreState> ShowStore(StoreShowRequest request) => Rpc(nameof(ShowStore), _ => _store.ShowAsync(Require(request, "request")));
 
     public Task SetStoreBounds(StoreBounds request) => Rpc(nameof(SetStoreBounds), () => _store.SetBounds(Require(request, "request")));
 
-    public Task<StoreState> HideStore() => Rpc(nameof(HideStore), _ => Task.FromResult(_store.Hide()));
+    public Task<StoreState> HideStore() => Rpc(nameof(HideStore), _ => _store.HideAsync());
 
-    public Task<StoreState> StoreBack() => Rpc(nameof(StoreBack), _ => Task.FromResult(_store.Back()));
+    public Task<StoreState> StoreBack() => Rpc(nameof(StoreBack), _ => _store.BackAsync());
 
-    public Task<StoreState> StoreReload() => Rpc(nameof(StoreReload), _ => Task.FromResult(_store.Reload()));
+    public Task<StoreState> StoreReload() => Rpc(nameof(StoreReload), _ => _store.ReloadAsync());
+
+    public Task<StoreState> SetStoreCovered(StoreCoverRequest request) => Rpc(nameof(SetStoreCovered), _ => _store.SetCoveredAsync(Require(request, "request")));
+
+    public Task OpenStoreInBrowser() => Rpc(nameof(OpenStoreInBrowser), () => _store.OpenInBrowser());
+
+    public Task<StoreState> GetStoreState() => Rpc(nameof(GetStoreState), _ => Task.FromResult(_store.GetState()));
 
     public Task<FreeGamesResult> GetFreeGames() => Rpc(nameof(GetFreeGames), _ => Task.FromResult(_freeGames.Get()));
+
+    public Task<FreeGamesResult> RefreshFreeGames() => Rpc(nameof(RefreshFreeGames), ct => _freeGames.RefreshAsync(force: false, ct));
 
     // ================================================================== settings
 

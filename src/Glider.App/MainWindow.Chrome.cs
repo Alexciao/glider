@@ -42,6 +42,7 @@ internal sealed partial class MainWindow
                 Dispatcher.BeginInvoke(() =>
                 {
                     _overlays?.Layout(_maximized);
+                    _rt.Platform.StoreIfCreated?.OnWindowMetricsChanged();
                     ApplyBackdrop(); // DWM can drop the extended frame / tint when the window moves between monitors
                 });
                 break;
@@ -52,6 +53,7 @@ internal sealed partial class MainWindow
                 if (active)
                 {
                     FocusWeb();
+                    _rt.Platform.StoreIfCreated?.OnWindowActivated();
                 }
 
                 if (active != _active)
@@ -148,6 +150,7 @@ internal sealed partial class MainWindow
         if (!_minimized)
         {
             UpdateWebBounds();
+            _rt.Platform.StoreIfCreated?.OnWindowMetricsChanged();
             _overlays?.Layout(_maximized);
             if (_maximized != wasMaximized)
             {

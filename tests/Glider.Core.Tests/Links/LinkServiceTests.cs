@@ -149,7 +149,7 @@ public class LinkServiceTests
     [InlineData("glider://game/Alpha", "game/Alpha")]
     [InlineData("glider://downloads", "downloads")]
     [InlineData("glider://store", "store")]
-    [InlineData("glider://store/p/some-game", "store/p/some-game")]
+    [InlineData("glider://store/p/some-game", "store/product/some-game")]
     [InlineData("glider://library", "library")]
     public async Task PageLinksShowTheWindowAndNavigate(string link, string route)
     {
@@ -254,7 +254,7 @@ public class LinkServiceTests
 
         await Handle(rig, "com.epicgames.launcher://store/p/some-game");
 
-        Assert.Equal(["store/p/some-game"], Routes(rig));
+        Assert.Equal(["store/product/some-game"], Routes(rig));
     }
 
     // ---------------------------------------------------------------- protocol registration through settings

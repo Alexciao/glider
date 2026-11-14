@@ -57,6 +57,7 @@ namespace Glider.Core.Contracts;
 [JsonSerializable(typeof(OverlayState))]
 [JsonSerializable(typeof(StoreShowRequest))]
 [JsonSerializable(typeof(StoreBounds))]
+[JsonSerializable(typeof(StoreCoverRequest))]
 [JsonSerializable(typeof(StoreState))]
 [JsonSerializable(typeof(FreeGamesResult))]
 [JsonSerializable(typeof(ShortcutRequest))]

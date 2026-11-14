@@ -299,6 +299,7 @@ public sealed class MigrationTests : IDisposable
                 ProcessMonitor = new Services.FakeProcesses(),
                 ProcessStarter = new Services.FakeProcesses(),
                 DiskInfo = new Services.FakeDisk(),
+                FreeGamesBackground = false,
                 Legendary = new Glider.Core.Legendary.LegendaryOptions { PinnedVersion = "0.21.1" },
                 OverlayRegistry = new Services.FakeOverlayRegistry(),
                 OverlayEnvironment = new Glider.Core.Overlay.OverlayEnvironment(null),

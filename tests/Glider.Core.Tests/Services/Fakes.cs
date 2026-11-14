@@ -162,6 +162,7 @@ public sealed class FakeHost(CallLog log) : IHostPlatform
     public void Quit() => log.Add("host.quit");
     public bool IsWindows11 => true;
     public BackdropKind Backdrop => BackdropKind.Mica;
+    public Glider.Core.Store.IStoreHost? StoreHost { get; set; }
 }
 
 /// <summary>
@@ -466,6 +467,15 @@ public sealed class FakeLegendary(CallLog log, string config) : ILegendary
         log.Add($"legendary.thirdPartyUri:{appName}:{store}");
         LastThirdPartyOffline = offline;
         return ThirdPartyUriError is { } e ? Task.FromException<string>(new GliderException(e)) : Task.FromResult(ThirdPartyUri);
+    }
+
+    /// <summary>What `get-token --json` returns for the Store's web sign-in (null = none).</summary>
+    public string? WebExchangeCode { get; set; }
+
+    public Task<string?> GetWebExchangeCodeAsync(CancellationToken ct)
+    {
+        log.Add("legendary.getToken");
+        return Task.FromResult(WebExchangeCode);
     }
 
     public Task<LegendaryOutcome> CheckUpdatesAsync(CancellationToken ct)

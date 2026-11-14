@@ -49,6 +49,10 @@ const free = (over: Partial<FreeGame>): FreeGame => ({
   endsAt: "2026-11-20T00:00:00Z",
   status: "freeNow",
   owned: false,
+  tallImageUrl: null,
+  regularPrice: null,
+  seller: null,
+  bundle: false,
   ...over,
 });
 

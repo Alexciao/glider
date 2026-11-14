@@ -124,6 +124,8 @@ public sealed class GliderRuntime : IAsyncDisposable
                 ImageProcessor = options.ImageProcessor,
                 ArtFetcher = options.ArtFetcher,
                 WarmSerializers = options.WarmSerializers,
+                FreeGamesBackground = options.FreeGamesBackground,
+                FreeGames = options.FreeGames,
             });
             Phase("service");
             hooks.Target = service.Hooks;
@@ -179,6 +181,11 @@ public sealed class GliderRuntimeOptions
     public Art.IImageProcessor? ImageProcessor { get; init; }
     public Art.IArtFetcher? ArtFetcher { get; init; }
     public bool WarmSerializers { get; init; }
+
+    /// <summary>Fetch Epic's free-games feed in the background. Defaults to on; tests that run the real runtime turn it off.</summary>
+    public bool FreeGamesBackground { get; init; } = true;
+
+    public Store.FreeGamesOptions? FreeGames { get; init; }
 }
 
 /// <summary>Bridges construction cycles: the queue needs the policy, the policy comes from GliderService (which needs the queue).</summary>

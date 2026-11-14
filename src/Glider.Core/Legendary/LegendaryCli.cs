@@ -606,6 +606,33 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
         return new LegendaryOutcome(error is null, error, null, null);
     }
 
+    // ------------------------------------------------------------------ Store web sign-in
+
+    private static readonly System.Text.RegularExpressions.Regex ExchangeCode = new("^[0-9a-f]{32}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// `get-token --json` (hidden subcommand): the body of Epic's `GET /account/api/oauth/exchange`. Only <c>code</c> is read, and only
+    /// if it is 32 lower-case hex. Never `--bearer` (that prints the access token). stdout is sensitive: not logged, not in the tail.
+    /// </summary>
+    public async Task<string?> GetWebExchangeCodeAsync(CancellationToken ct)
+    {
+        var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Token, ["get-token", "--json"])
+        {
+            CaptureStdout = true,
+            SensitiveStdout = true,
+            UsesLogin = true,
+            Timeout = _options.QuickTimeout,
+        }, null, ct);
+        if (run.ExitCode != 0)
+        {
+            return null;
+        }
+
+        using var doc = LegendaryFiles.JsonFromStdout(run.Stdout);
+        var code = doc is null ? null : LegendaryFiles.Str(doc.RootElement, "code");
+        return code is not null && ExchangeCode.IsMatch(code) ? code : null;
+    }
+
     // ------------------------------------------------------------------ helpers
     internal static IReadOnlyList<string> InstallArguments(InstallArgs args, bool installed, int sharedMemoryMb, bool repairAndUpdate)
     {

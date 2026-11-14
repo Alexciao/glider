@@ -82,14 +82,14 @@ public sealed record GliderLink
         _ => Slug is null ? "glider://store" : "glider://store/p/" + Slug,
     };
 
-    /// <summary>The UI route for the `navigate` event: <c>game/&lt;app&gt;</c>, <c>game/&lt;app&gt;/install</c>, <c>downloads</c>, <c>library</c>, <c>store</c>, <c>store/p/&lt;slug&gt;</c>.</summary>
+    /// <summary>The UI route for the `navigate` event: <c>game/&lt;app&gt;</c>, <c>game/&lt;app&gt;/install</c>, <c>downloads</c>, <c>library</c>, <c>store</c>, <c>store/product/&lt;slug&gt;</c> (the Store's typed route; the UI also reads the legacy <c>store/p/&lt;slug&gt;</c>).</summary>
     public string Route => Kind switch
     {
         GliderLinkKind.Launch or GliderLinkKind.Game => "game/" + AppName,
         GliderLinkKind.Install => "game/" + AppName + "/install",
         GliderLinkKind.Downloads => "downloads",
         GliderLinkKind.Library => "library",
-        _ => Slug is null ? "store" : "store/p/" + Slug,
+        _ => Slug is null ? "store" : "store/product/" + Slug,
     };
 
     private static string Require(string appName) =>

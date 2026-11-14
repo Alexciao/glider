@@ -14,6 +14,7 @@ namespace Glider.Core.Contracts;
 [RpcEvent(RpcEvents.Caption, typeof(CaptionEvent))]
 [RpcEvent(RpcEvents.Navigate, typeof(NavigateEvent))]
 [RpcEvent(RpcEvents.Store, typeof(StoreState))]
+[RpcEvent(RpcEvents.FreeGames, typeof(FreeGamesResult))]
 public interface IGliderRpc
 {
     // ---- app ----
@@ -136,7 +137,16 @@ public interface IGliderRpc
     [RpcMethod("store.hide")] Task<StoreState> HideStore();
     [RpcMethod("store.back")] Task<StoreState> StoreBack();
     [RpcMethod("store.reload")] Task<StoreState> StoreReload();
+    /// <summary>Hide the native view under an HTML modal (snapshot placeholder) / restore it.</summary>
+    [RpcMethod("store.setCovered")] Task<StoreState> SetStoreCovered(StoreCoverRequest request);
+    /// <summary>Open the current Store page (sanitized URL) in the default browser.</summary>
+    [RpcMethod("store.openInBrowser")] Task OpenStoreInBrowser();
+    /// <summary>The current Store state, for late subscribers.</summary>
+    [RpcMethod("store.getState")] Task<StoreState> GetStoreState();
+    /// <summary>Epic's free games (cache first; never waits on the network when a cache exists).</summary>
     [RpcMethod("freeGames.get")] Task<FreeGamesResult> GetFreeGames();
+    /// <summary>Fetch the feed now (rate-limited), then return the result.</summary>
+    [RpcMethod("freeGames.refresh")] Task<FreeGamesResult> RefreshFreeGames();
 
     // ---- settings ----
     [RpcMethod("settings.update")] Task<Settings> UpdateSettings(Settings settings);

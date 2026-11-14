@@ -59,6 +59,9 @@ public static class RpcEvents
 
     /// <summary><see cref="StoreState"/> of the native Store view.</summary>
     public const string Store = "store";
+
+    /// <summary><see cref="FreeGamesResult"/> whenever the feed was refreshed or a promotion window opened/closed.</summary>
+    public const string FreeGames = "freeGames";
 }
 
 /// <summary>Thrown by service code to return a structured, human-readable error to the UI.</summary>
