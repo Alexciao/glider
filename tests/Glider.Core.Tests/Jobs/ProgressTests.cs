@@ -75,12 +75,15 @@ public class ProgressThrottleTests
         Assert.Equal(999, emitted[^1].Percent);          // the last value is never lost
     }
 
-    private static JobProgress P(double pct) => new("j", JobPhase.Downloading, pct, 0, 0, 0, 0, 0, 0, 0, null, 0);
+    private static JobProgress P(double pct) => new("j", "Fortnite", JobPhase.Downloading, pct, pct, 0, null, null, null, null, null, null, DownloadMode.Balanced, Limiter.Unknown);
 }
 
 public class JobProgressTrackerTests
 {
     private const long MiB = 1024 * 1024;
+
+    private static JobProgressTracker Tracker(ProgressBaseline baseline, ManualTimeProvider time, List<JobProgress> emitted, JobSegment? segment = null) =>
+        new("j", "Fortnite", segment ?? JobSegment.Download(0, 100), baseline, time, TimeSpan.Zero, emitted.Add, _ => { });
 
     [Fact]
     public void CombinesRunsSoResumeNeverJumpsBackwards()
@@ -88,48 +91,97 @@ public class JobProgressTrackerTests
         var time = new ManualTimeProvider();
         var emitted = new List<JobProgress>();
         var baseline = new ProgressBaseline();
-        using (var run1 = new JobProgressTracker("j", baseline, time, TimeSpan.Zero, emitted.Add, _ => { }))
+        using (var run1 = Tracker(baseline, time, emitted))
         {
             run1.OnPhase(JobPhase.Downloading);
             run1.OnSizes(new LegendaryRunSizes(1000 * MiB, 1600 * MiB, 0, 0));
             run1.Report(Raw(40, 400 * MiB));
             Assert.Equal(40, emitted[^1].Percent);
-            Assert.Equal(400 * MiB, emitted[^1].DownloadedBytes);
-            Assert.Equal(1000 * MiB, emitted[^1].TotalDownloadBytes);
+            Assert.Equal(400 * MiB, emitted[^1].Network!.DownloadedBytes);
+            Assert.Equal(1000 * MiB, emitted[^1].Network!.TotalBytes);
             time.Advance(TimeSpan.FromSeconds(30));
             baseline = run1.Snapshot();
         }
 
         // paused, resumed: Legendary restarts at 0% of the remaining 650 MiB (some in-flight files were lost)
-        using var run2 = new JobProgressTracker("j", baseline, time, TimeSpan.Zero, emitted.Add, _ => { });
+        using var run2 = Tracker(baseline, time, emitted);
         run2.OnPhase(JobPhase.Downloading);
         run2.OnSizes(new LegendaryRunSizes(650 * MiB, 1600 * MiB, 560 * MiB, 0));
         run2.Report(Raw(0, 0));
         Assert.Equal(40, emitted[^1].Percent);                 // held, not reset to 35% or 0%
-        Assert.Equal(350 * MiB, emitted[^1].DownloadedBytes);
+        Assert.Equal(350 * MiB, emitted[^1].Network!.DownloadedBytes);
         run2.Report(Raw(50, 325 * MiB));
         Assert.Equal(67.5, emitted[^1].Percent);               // 35 + 65 * 0.5
-        Assert.Equal(675 * MiB, emitted[^1].DownloadedBytes);
-        Assert.Equal(1000 * MiB, emitted[^1].TotalDownloadBytes);
+        Assert.Equal(675 * MiB, emitted[^1].Network!.DownloadedBytes);
+        Assert.Equal(1000 * MiB, emitted[^1].Network!.TotalBytes);
         Assert.Equal(30, emitted[^1].ElapsedSeconds);
     }
 
     [Fact]
-    public void VerifyAndDownloadAreSeparateBars()
+    public void VerifyAndDownloadAreSeparatePhaseBars_OnOneMonotonicJobBar()
     {
         var time = new ManualTimeProvider();
         var emitted = new List<JobProgress>();
-        using var t = new JobProgressTracker("j", new ProgressBaseline(), time, TimeSpan.Zero, emitted.Add, _ => { });
+        using var t = Tracker(new ProgressBaseline(), time, emitted, new JobSegment(0, 35, 35, 99, Repairing: true)); // `legendary repair`
         t.OnPhase(JobPhase.Verifying);
         t.Report(new LegendaryProgress(100, 10, 10, 0, null, 0, 0, 0, 0, 0, 500 * MiB));
-        Assert.Equal(100, emitted[^1].Percent);
-        Assert.Equal(500 * MiB, emitted[^1].DiskBytesPerSecond);
-        t.OnPhase(JobPhase.Downloading); // legendary repair: verify first, then download
+        var verify = emitted[^1];
+        Assert.Equal(100, verify.PhasePercent);
+        Assert.Equal(35, verify.Percent);
+        Assert.Null(verify.Network);                            // verifying only reads
+        Assert.Equal(500 * MiB, verify.Verify!.ReadBytesPerSecond);
+        Assert.Equal(10, verify.FilesDone);
+
+        t.OnPhase(JobPhase.Downloading); // the download inside a repair step is "Repairing"
         t.Report(Raw(10, 10 * MiB));
-        Assert.Equal(10, emitted[^1].Percent);
-        Assert.Equal(JobPhase.Downloading, emitted[^1].Phase);
+        var repair = emitted[^1];
+        Assert.Equal(10, repair.PhasePercent);
+        Assert.Equal(JobPhase.Repairing, repair.Phase);
+        Assert.True(repair.Percent > verify.Percent);
+        Assert.NotNull(repair.Network);
+        Assert.NotNull(repair.Disk);
+        Assert.Null(repair.Verify);
+    }
+
+    [Fact]
+    public void TheWriterTailAfterTheNetworkIsInstalling_WithDiskFiguresOnly()
+    {
+        var time = new ManualTimeProvider();
+        var emitted = new List<JobProgress>();
+        var phases = new List<JobPhase>();
+        using var t = new JobProgressTracker("j", "Fortnite", JobSegment.Download(0, 90), new ProgressBaseline(), time, TimeSpan.Zero, emitted.Add, phases.Add);
+        t.OnPhase(JobPhase.Downloading);
+        t.OnSizes(new LegendaryRunSizes(100 * MiB, 200 * MiB, 0, 0));
+        t.Report(Raw(50, 50 * MiB));
+        time.Advance(TimeSpan.FromSeconds(1));
+        t.Report(Raw(80, 100 * MiB)); // everything downloaded, 20% still to write
+        var tail = emitted[^1];
+        Assert.Equal(JobPhase.Installing, tail.Phase);
+        Assert.Contains(JobPhase.Installing, phases);
+        Assert.Null(tail.Network);
+        Assert.NotNull(tail.Disk);
+        Assert.Equal(Limiter.Disk, tail.Limiter);
+        Assert.Equal(72, tail.Percent); // 80% of the 0-90 download slice
+        Assert.True(tail.Disk!.PeakBytesPerSecond > 0);
     }
 
     private static LegendaryProgress Raw(double pct, long downloaded) =>
         new(pct, (long)pct, 100, 1, 60, downloaded, downloaded * 2, 50 * MiB, 80 * MiB, 80 * MiB, 0);
+}
+
+public class JobSamplesTests
+{
+    [Fact]
+    public void KeepsAboutOneSamplePerSecond_AndNeverMoreThanTheCap()
+    {
+        var s = new JobSamples();
+        for (var i = 0; i < 5000; i++)
+        {
+            s.Add(new JobSample(i * 0.5, i, i));
+        }
+
+        var all = s.Snapshot();
+        Assert.InRange(all.Count, 300, JobSamples.Max);
+        Assert.Equal(all.Select(x => x.T).Order(), all.Select(x => x.T));
+    }
 }

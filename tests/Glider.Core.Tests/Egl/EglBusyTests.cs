@@ -29,7 +29,6 @@ public sealed class EglBusyTests
         var game = t.CreateGame(t.Drive("D", "Fortnite"), egstoreGuid: "11111111111111111111111111111111");
         t.WriteItem(game, guid: "11111111111111111111111111111111");
         t.Processes.EglRunning = true;
-        t.Records.Current = Make.For(game, EglTestTree.V3310);
         using var svc = t.CreateService();
 
         Assert.False(svc.IsBusyWith(game));
@@ -167,7 +166,6 @@ public sealed class EglBusyTests
         t.WriteLauncherInstalled((a, EglTestTree.V3310, "Fortnite"));
         StartEglUpdate(b);
         t.Processes.EglRunning = true;
-        t.Records.Current = Make.For(a, EglTestTree.V3300);
         var before = EglTreeHasher.Hash(t.Environment, a, b);
         using var svc = t.CreateService();
 
@@ -177,8 +175,8 @@ public sealed class EglBusyTests
         svc.CheckDrift(Make.For(b, EglTestTree.V3310));
         svc.IsBusyWith(a);
         svc.IsBusyWith(b);
-        svc.InspectForAdoption(a);
-        svc.InspectForAdoption(b);
+        svc.InspectForAdoption(a, "Fortnite");
+        svc.InspectForAdoption(b, "Fortnite");
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => svc.WaitUntilNotBusyAsync(b, _ => { }, cts.Token));
 

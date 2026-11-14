@@ -1,19 +1,36 @@
 using Glider.Core.Contracts;
+using Glider.Core.Game;
+using Glider.Core.Jobs;
 
 namespace Glider.Core.Services;
 
-/// <summary>The service layer's side of every job: gating before it runs and bookkeeping after.</summary>
+/// <summary>The service layer's side of every writer-lane job: per-game gating before it runs and bookkeeping after.</summary>
 internal sealed class JobHooks : IJobHooks
 {
     private readonly ServiceContext _c;
 
     public JobHooks(ServiceContext context) => _c = context;
 
+    /// <summary>Lets hooks replace the default outcome (set by GliderService; null in unit tests of the hooks alone).</summary>
+    public Action<string, JobOutcome>? SetOutcome { get; set; }
+
+    /// <summary>Queues follow-up jobs (import → verify); set by GliderService.</summary>
+    public Func<GameSummary, JobInfo>? EnqueueVerify { get; set; }
+
     public async Task BeforeRunAsync(JobInfo job, Action<string?> setBlockedReason, CancellationToken ct)
     {
-        if (ServiceContext.IsWriteJob(job.Kind) && _c.IsGameRunning())
+        var app = job.AppName;
+        if (ServiceContext.IsWriteJob(job.Kind) && _c.IsGameRunning(app))
         {
-            throw new GliderException(Errors.GameRunning());
+            // Files of a running game can't be replaced: wait for it to close instead of failing the job.
+            var reason = $"Waiting for {_c.TitleOf(app)} to close";
+            setBlockedReason(reason);
+            while (_c.IsGameRunning(app))
+            {
+                await Task.Delay(_c.Options.ProcessPollInterval, _c.Time, ct);
+            }
+
+            setBlockedReason(null);
         }
 
         if (ServiceContext.IsNetworkJob(job.Kind))
@@ -24,103 +41,184 @@ internal sealed class JobHooks : IJobHooks
         var path = TargetFolder(job);
         if (path is not null && _c.Egl.IsBusyWith(path))
         {
-            _c.Log.Info("jobs", $"{job.Kind} {job.Id} waiting: EGL is busy with {path}");
+            _c.Log.Info("jobs", $"{job.Kind} {app} {job.Id} waiting: EGL is busy with {path}");
             setBlockedReason(Errors.EglBusy().Message);
             await _c.Egl.WaitUntilNotBusyAsync(path, reason => setBlockedReason(reason ?? Errors.EglBusy().Message), ct);
             setBlockedReason(null);
-            _c.Log.Info("jobs", $"{job.Kind} {job.Id} continuing: EGL finished");
+            _c.Log.Info("jobs", $"{job.Kind} {app} {job.Id} continuing: EGL finished");
         }
     }
 
-    /// <summary>The folder a job touches: the install, or the planned install folder for a fresh install.</summary>
+    /// <summary>The folder a job touches: the install, the planned folder of a fresh install, or the folder being imported.</summary>
     private string? TargetFolder(JobInfo job)
     {
-        if (_c.Records.Current is { } rec)
+        if (job.Kind == JobKind.Import)
+        {
+            return job.TargetPath;
+        }
+
+        if (_c.Library.Summary(job.AppName)?.InstallPath is { } installed)
+        {
+            return installed;
+        }
+
+        if (_c.Games.Get(job.AppName).Install is { } rec)
         {
             return rec.InstallPath;
         }
 
         return job.Kind == JobKind.Install && !string.IsNullOrEmpty(job.TargetPath)
-            ? Path.Combine(job.TargetPath, _c.LastGameInfo?.FolderName ?? FortniteLayout.AppName)
-            : job.Kind == JobKind.Import ? job.TargetPath : null;
+            ? Path.Combine(job.TargetPath, _c.Library.FolderName(job.AppName))
+            : null;
     }
 
     public async Task OnSucceededAsync(JobInfo job, CancellationToken ct)
     {
-        var before = _c.Records.Current;
+        var app = job.AppName;
+        var title = job.Title;
+        var before = _c.Games.Get(app).Install;
         switch (job.Kind)
         {
             case JobKind.Uninstall:
-                // Never touches EGL: GliderOnly forgets, DeleteFiles was done by Legendary.
-                await _c.SaveRecordAsync(null);
-                _c.Notify(NoticeLevel.Success, "Fortnite removed from Glider", null, toast: false);
-                return;
+                // Never touches EGL: GliderOnly forgets, DeleteFiles was done by Legendary (which also removed installed DLC).
+                await _c.SaveRecordAsync(app, null);
+                await ForgetUninstalledDlcAsync(app, ct);
+                _c.Notify(NoticeLevel.Success, $"{title} removed from Glider", null, toast: false, appName: app, jobId: job.Id);
+                break;
 
             case JobKind.Install:
             case JobKind.Update:
             case JobKind.Repair:
             {
-                var rec = await _c.SyncRecordAsync(ct, keepNeedsVerification: false);
-                _c.Sizes.Request(filesChanged: true);
+                var rec = await _c.SyncRecordAsync(app, ct, keepNeedsVerification: false);
+                _c.Sizes.Request(BaseOf(app), filesChanged: true);
                 if (rec is not null)
                 {
                     await WriteBackIfSharedAsync(rec, ct);
                 }
 
-                var (title, msg) = job.Kind switch
+                var (noticeTitle, msg) = job.Kind switch
                 {
-                    JobKind.Install => ("Fortnite is ready to play", "The download finished."),
-                    JobKind.Update => ("Fortnite is up to date", rec is null ? null : $"Updated to {rec.Version}."),
-                    _ => ("Repair complete", "All game files are OK."),
+                    JobKind.Install => ($"{title} is ready to play", "The download finished."),
+                    JobKind.Update => ($"{title} is up to date", rec is null ? null : $"Updated to {rec.Version}."),
+                    _ => ("Repair complete", $"All files of {title} are OK."),
                 };
-                _c.Notify(NoticeLevel.Success, title, msg);
-                return;
+                _c.Notify(NoticeLevel.Success, noticeTitle, msg, appName: app, jobId: job.Id);
+                break;
             }
 
             case JobKind.Verify:
-                await _c.SyncRecordAsync(ct, r => r with { NeedsVerification = false });
-                _c.Sizes.Request(filesChanged: true);
-                var (vTitle, vMsg) = VerifyNotice(job.Verify);
-                _c.Notify(NoticeLevel.Success, vTitle, vMsg, toast: job.Verify is { FilesBad: > 0 });
-                return;
+                await _c.SyncRecordAsync(app, ct, r => r with { NeedsVerification = false });
+                _c.Sizes.Request(BaseOf(app), filesChanged: true);
+                var (vTitle, vMsg) = VerifyNotice(job.Verify, title);
+                _c.Notify(NoticeLevel.Success, vTitle, vMsg, toast: job.Verify is { FilesBad: > 0 }, appName: app, jobId: job.Id);
+                if (job.Verify is { FilesBad: > 0 } v)
+                {
+                    SetOutcome?.Invoke(job.Id, new JobOutcome(OutcomeKind.Success, $"{N(v.FilesFixed)} of {N(v.FilesBad)} files repaired"));
+                }
+
+                break;
 
             case JobKind.Move:
             {
-                var rec = await _c.SyncRecordAsync(ct);
-                _c.Sizes.Request(filesChanged: true);
+                var rec = await _c.SyncRecordAsync(app, ct);
+                _c.Sizes.Request(app, filesChanged: true);
                 if (rec is not null && before?.EglInstallationGuid is { } guid)
                 {
                     await AfterSharedMoveAsync(rec, guid, ct);
                 }
 
-                _c.Notify(NoticeLevel.Success, "Fortnite moved", rec?.InstallPath);
-                return;
+                _c.Notify(NoticeLevel.Success, $"{title} moved", rec?.InstallPath, appName: app, jobId: job.Id);
+                break;
             }
 
             case JobKind.Import:
-                await _c.SyncRecordAsync(ct);
-                _c.Sizes.Request(filesChanged: false);
-                return;
+                await AfterImportAsync(job, ct);
+                break;
+        }
+
+        await _c.Library.ReloadAsync();
+    }
+
+    /// <summary>
+    /// Import done (zero download): record it (linked to EGL when EGL has an .item there), then decide whether a verify is
+    /// needed (VerifyMode; Auto skips it only for a complete, up-to-date EGL install) and report the per-game outcome.
+    /// </summary>
+    private async Task AfterImportAsync(JobInfo job, CancellationToken ct)
+    {
+        var app = job.AppName;
+        var installed = await _c.Legendary.GetInstalledAsync(app, ct);
+        if (installed is null)
+        {
+            SetOutcome?.Invoke(job.Id, new JobOutcome(OutcomeKind.Failed, "Legendary didn't register the install."));
+            return;
+        }
+
+        var item = _c.Egl.FindByLocation(installed.InstallPath, app) ?? (job.TargetPath is { } t ? _c.Egl.FindByLocation(t, app) : null);
+        await _c.Library.ReloadAsync();
+        var latest = _c.Library.Summary(app)?.LatestVersion;
+        var mode = _c.Jobs.Request(job.Id)?.Options?.Verify ?? VerifyMode.Auto;
+        var verify = InstallService.DecideVerify(mode, item, latest) || installed.NeedsVerification;
+        var old = _c.Games.Get(app).Install;
+        var rec = new InstallRecord(app, installed.InstallPath, installed.Version, installed.InstallSizeBytes, old?.InstalledAt ?? _c.Now,
+            AdoptedFromEgl: item is not null, EglInstallationGuid: item?.InstallationGuid ?? old?.EglInstallationGuid, NeedsVerification: verify);
+        await _c.SaveRecordAsync(app, rec);
+        _c.Sizes.Request(app, filesChanged: false);
+        _c.Log.Info("game", $"imported {app} at {rec.InstallPath} v{rec.Version} (egl={item is not null}, verify={verify}, mode={mode})");
+
+        if (verify)
+        {
+            await _c.Library.ReloadAsync();
+            if (_c.Library.Summary(app) is { } summary && EnqueueVerify is { } enqueue)
+            {
+                enqueue(summary);
+            }
+
+            SetOutcome?.Invoke(job.Id, new JobOutcome(OutcomeKind.NeedsRepair, "Imported; verifying the files."));
+            _c.Notify(NoticeLevel.Info, $"{job.Title} imported", "Glider is checking its files in the background.", toast: false, appName: app, jobId: job.Id);
+        }
+        else
+        {
+            SetOutcome?.Invoke(job.Id, new JobOutcome(OutcomeKind.Success, "Imported"));
+            _c.Notify(NoticeLevel.Success, $"{job.Title} is ready to play", "Imported without downloading anything.", toast: false, appName: app, jobId: job.Id);
+        }
+    }
+
+    private string BaseOf(string app) => _c.Library.Summary(app)?.BaseAppName ?? app;
+
+    /// <summary>Legendary uninstalls a base game's DLC with it: drop their records too.</summary>
+    private async Task ForgetUninstalledDlcAsync(string baseApp, CancellationToken ct)
+    {
+        foreach (var dlc in _c.Library.Games.Values.Where(g => g.BaseAppName == baseApp))
+        {
+            if (_c.Games.Get(dlc.AppName).Install is not null && await _c.Legendary.GetInstalledAsync(dlc.AppName, ct) is null)
+            {
+                await _c.SaveRecordAsync(dlc.AppName, null);
+            }
         }
     }
 
     private static string N(int n) => n.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
 
-    internal static (string Title, string Message) VerifyNotice(VerifyReport? r) => r switch
+    internal static (string Title, string Message) VerifyNotice(VerifyReport? r, string? title = null)
     {
-        null => ("Verification complete", "All game files are OK."),
-        { FilesBad: 0 } => ("Verification complete", $"Checked {N(r.FilesChecked)} files. All game files are OK."),
-        _ => ("Repair complete", $"Checked {N(r.FilesChecked)} files: {N(r.FilesBad)} damaged or missing, {N(r.FilesFixed)} fixed. All game files are OK now."),
-    };
+        var all = title is null ? "All game files are OK." : $"All files of {title} are OK.";
+        return r switch
+        {
+            null => ("Verification complete", all),
+            { FilesBad: 0 } => ("Verification complete", $"Checked {N(r.FilesChecked)} files. {all}"),
+            _ => ("Repair complete", $"Checked {N(r.FilesChecked)} files: {N(r.FilesBad)} damaged or missing, {N(r.FilesFixed)} fixed. All game files are OK now."),
+        };
+    }
 
-    private async Task WriteBackIfSharedAsync(GameRecord rec, CancellationToken ct)
+    private async Task WriteBackIfSharedAsync(InstallRecord rec, CancellationToken ct)
     {
-        if (!_c.Settings.EglSync)
+        if (!_c.Settings.EglSync || _c.Library.Summary(rec.AppName)?.Kind == GameKind.Dlc)
         {
             return;
         }
 
-        var guid = rec.EglInstallationGuid ?? _c.Egl.FindByLocation(rec.InstallPath)?.InstallationGuid;
+        var guid = rec.EglInstallationGuid ?? _c.Egl.FindByLocation(rec.InstallPath, rec.AppName)?.InstallationGuid;
         if (guid is null)
         {
             return;
@@ -129,42 +227,43 @@ internal sealed class JobHooks : IJobHooks
         if (rec.EglInstallationGuid is null)
         {
             rec = rec with { EglInstallationGuid = guid };
-            await _c.SaveRecordAsync(rec);
+            await _c.SaveRecordAsync(rec.AppName, rec);
         }
 
         try
         {
-            var installed = await _c.Legendary.GetInstalledAsync(ServiceContext.App, ct);
-            await _c.Egl.WriteBackAsync(_c.BuildWriteBack(rec, installed, _c.LastGameInfo), ct);
-            _c.Log.Info("egl", $"wrote {rec.Version} back to EGL ({guid})");
+            var installed = await _c.Legendary.GetInstalledAsync(rec.AppName, ct);
+            await _c.Egl.WriteBackAsync(_c.BuildWriteBack(rec, installed), ct);
+            _c.Log.Info("egl", $"wrote {rec.AppName} {rec.Version} back to EGL ({guid})");
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
-            _c.Log.Warn("egl", "EGL write-back failed", e);
+            var title = _c.TitleOf(rec.AppName);
+            _c.Log.Warn("egl", $"EGL write-back of {rec.AppName} failed", e);
             _c.Notify(NoticeLevel.Warning, "Couldn't update Epic Games Launcher",
-                "Fortnite is fine in Glider, but the Epic Games Launcher may want to verify it next time.", FixAction.OpenLogs, toast: false);
+                $"{title} is fine in Glider, but the Epic Games Launcher may want to verify it next time.", FixAction.OpenLogs, toast: false, appName: rec.AppName);
         }
     }
 
-    private async Task AfterSharedMoveAsync(GameRecord rec, string guid, CancellationToken ct)
+    private async Task AfterSharedMoveAsync(InstallRecord rec, string guid, CancellationToken ct)
     {
         if (_c.Settings.EglSync)
         {
             try
             {
-                await _c.Egl.UpdateLocationAsync(guid, rec.InstallPath, ct);
+                await _c.Egl.UpdateLocationAsync(rec.AppName, guid, rec.InstallPath, ct);
                 return;
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
-                _c.Log.Warn("egl", "EGL location update failed", e);
+                _c.Log.Warn("egl", $"EGL location update of {rec.AppName} failed", e);
             }
         }
 
         // EGL still points at the old folder: the link is gone, so stop treating the install as shared.
-        await _c.SaveRecordAsync(rec with { EglInstallationGuid = null });
-        _c.Notify(NoticeLevel.Warning, "Epic Games Launcher will lose track of Fortnite",
-            "It still expects the old folder. Turn on \"Keep Epic Games Launcher in sync\" before moving to avoid this.", toast: false);
+        await _c.SaveRecordAsync(rec.AppName, rec with { EglInstallationGuid = null });
+        _c.Notify(NoticeLevel.Warning, $"Epic Games Launcher will lose track of {_c.TitleOf(rec.AppName)}",
+            "It still expects the old folder. Turn on \"Keep Epic Games Launcher in sync\" before moving to avoid this.", toast: false, appName: rec.AppName);
     }
 
     public async Task OnFailedAsync(JobInfo job, CancellationToken ct)
@@ -175,14 +274,15 @@ internal sealed class JobHooks : IJobHooks
             return;
         }
 
-        if (job.Kind == JobKind.Verify && e.Code == ErrorCode.Corrupted && _c.Records.Current is { } rec)
+        if (job.Kind == JobKind.Verify && e.Code == ErrorCode.Corrupted && _c.Games.Get(job.AppName).Install is { } rec)
         {
-            await _c.SaveRecordAsync(rec with { NeedsVerification = true });
+            await _c.SaveRecordAsync(job.AppName, rec with { NeedsVerification = true });
         }
 
         var message = job.Kind == JobKind.Verify && job.Verify is { FilesBad: > 0 } r && e.Code == ErrorCode.Corrupted
             ? $"Checked {N(r.FilesChecked)} files: {N(r.FilesBad)} damaged or missing, {N(r.FilesFixed)} fixed, {N(r.FilesBad - r.FilesFixed)} still bad. Try again, or check your disk."
             : e.Message;
-        _c.Notify(NoticeLevel.Error, e.Title, message, e.Fix);
+        _c.Notify(NoticeLevel.Error, e.Title, message, e.Fix, appName: job.AppName, jobId: job.Id);
+        await _c.Library.ReloadAsync();
     }
 }

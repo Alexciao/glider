@@ -4,9 +4,11 @@ using Glider.Core.Services;
 namespace Glider.Core.Game;
 
 /// <summary>
-/// Preparing → (InstallingPrerequisites) → Launching → Running → Closing → Idle.
-/// Glider spawns the game from `launch --json` so it owns the process; the watcher follows the
-/// launcher-stub → Shipping chain.
+/// The launch lane (docs/v0.2-design.md §3): Preparing → (InstallingPrerequisites) → Launching → Running → Closing → Idle,
+/// per game. `launch &lt;app&gt; --json --skip-version-check [--offline]` never waits behind a download (it never takes
+/// installed.json.lock and jumps the auth gate); it is refused only when that game or its base game has an unfinished
+/// writer-lane job. Glider spawns the exe from the JSON so it owns the process, then <see cref="SessionTracker"/> follows
+/// the process tree. Playtime accumulates per game (flushed every 30 s and at exit) into games.json.
 /// </summary>
 internal sealed class LaunchService
 {
@@ -20,27 +22,32 @@ internal sealed class LaunchService
     /// <summary>A prepared command younger than this is kept on a repeated hover instead of being fetched again.</summary>
     private static readonly TimeSpan PreparedRefreshAfter = TimeSpan.FromSeconds(60);
 
+    /// <summary>How often a running session is flushed to disk, so a crash or power cut loses at most this much.</summary>
+    internal static readonly TimeSpan PlaytimeFlushInterval = TimeSpan.FromSeconds(30);
+
     private readonly ServiceContext _c;
+    private readonly EacService _eac;
+    private readonly Action<string> _sessionEnded;
     private readonly Lock _prepGate = new();
+    private readonly Lock _gate = new();
+    private readonly HashSet<string> _launching = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (PlaytimeTracker Tracker, CancellationTokenSource Loop)> _playtime = new(StringComparer.Ordinal);
     private PreparedLaunch? _prepared;
     private Task _preparing = Task.CompletedTask;
-    private readonly EacService _eac;
-    private readonly UpdateChecker _updates;
-    private readonly ProcessWatcher _watcher;
-    private int _launching;
     private bool _hidByUs;
     private Task _watchLoop = Task.CompletedTask;
+    private Task _playtimeFlush = Task.CompletedTask;
 
-    public LaunchService(ServiceContext context, EacService eac, UpdateChecker updates)
+    public LaunchService(ServiceContext context, EacService eac, Action<string> sessionEnded)
     {
         _c = context;
         _eac = eac;
-        _updates = updates;
-        _watcher = new ProcessWatcher(context.Options.ProcessMonitor, context.Time, context.Options.LaunchTimeout);
-        _watcher.Changed += OnWatcherChanged;
+        _sessionEnded = sessionEnded;
+        Sessions = new SessionTracker(context.Options.ProcessMonitor, context.Time, context.Options.LaunchTimeout, context.Options.SessionEndGrace);
+        Sessions.Changed += OnSessionChanged;
     }
 
-    internal ProcessWatcher Watcher => _watcher;
+    internal SessionTracker Sessions { get; }
 
     /// <summary>Completes when the current prepare fetch ends (tests).</summary>
     internal Task Preparing
@@ -54,18 +61,26 @@ internal sealed class LaunchService
         }
     }
 
-    /// <summary>What a prepared command must still match when the user clicks Play.</summary>
-    private sealed record LaunchKey(string InstallPath, string Version, string LaunchArgs, string? AccountId);
+    /// <summary>Completes when the current watch loop ends (tests).</summary>
+    internal Task WatchLoop => _watchLoop;
 
-    private sealed record PreparedLaunch(LaunchKey Key, bool SkippedVersionCheck, LaunchCommand Command, DateTimeOffset At);
+    /// <summary>Completes when the latest playtime write ends (tests).</summary>
+    internal Task PlaytimeFlushed => _playtimeFlush;
+
+    /// <summary>What a prepared command must still match when the user clicks Play.</summary>
+    private sealed record LaunchKey(string AppName, string InstallPath, string Version, string LaunchArgs, string? AccountId, bool Offline);
+
+    private sealed record PreparedLaunch(LaunchKey Key, LaunchCommand Command, DateTimeOffset At);
+
+    // ------------------------------------------------------------------ prepare (hover)
 
     /// <summary>
     /// The UI signals intent (Play hovered/focused): resolve `launch --json` now, in the background, so the click spawns
     /// the game without waiting ~1.5-3 s for Legendary. Best effort and idempotent; never throws, never blocks.
     /// </summary>
-    public void Prepare()
+    public void Prepare(string app)
     {
-        if (Key(requireSignedIn: true) is not { } key || !CanLaunchNow(key.InstallPath))
+        if (Key(app, null, requireSignedIn: true) is not { } key || CanLaunch(app, key.InstallPath) is not null)
         {
             return;
         }
@@ -78,20 +93,19 @@ internal sealed class LaunchService
             }
 
             _prepared = null;
-            var skip = _updates.CheckedRecentlyWithoutUpdate();
             var ct = _c.Shutdown;
             _preparing = Task.Run(async () =>
             {
                 var started = _c.Time.GetTimestamp();
                 try
                 {
-                    var cmd = await _c.Legendary.GetLaunchCommandAsync(ServiceContext.App, skip, key.LaunchArgs, ct);
+                    var cmd = await _c.Legendary.GetLaunchCommandAsync(app, skipVersionCheck: true, key.LaunchArgs, key.Offline, ct);
                     lock (_prepGate)
                     {
-                        _prepared = new PreparedLaunch(key, skip, cmd, _c.Now);
+                        _prepared = new PreparedLaunch(key, cmd, _c.Now);
                     }
 
-                    _c.Log.Info("launch", $"launch command prepared in {_c.Time.GetElapsedTime(started).TotalMilliseconds:0} ms (skipVersionCheck={skip})");
+                    _c.Log.Info("launch", $"{app}: launch command prepared in {_c.Time.GetElapsedTime(started).TotalMilliseconds:0} ms");
                 }
                 catch (OperationCanceledException)
                 {
@@ -99,7 +113,7 @@ internal sealed class LaunchService
                 catch (Exception e)
                 {
                     // Launch fetches again and surfaces the real error; the message never carries the exchange code.
-                    _c.Log.Info("launch", $"launch prepare failed: {(e is GliderException g ? g.Error.Code.ToString() : e.GetType().Name)}");
+                    _c.Log.Info("launch", $"{app}: launch prepare failed: {(e is GliderException g ? g.Error.Code.ToString() : e.GetType().Name)}");
                 }
             }, CancellationToken.None);
         }
@@ -114,24 +128,70 @@ internal sealed class LaunchService
         }
     }
 
-    private LaunchKey? Key(bool requireSignedIn)
+    private LaunchKey? Key(string app, bool? offline, bool requireSignedIn)
     {
-        var rec = _c.Records.Current;
+        var summary = _c.Library.Summary(app);
         var auth = _c.Hub.State.Auth;
-        if (rec is null || (requireSignedIn && auth.Status != AuthStatus.SignedIn))
+        if (summary?.InstallPath is not { } path || summary.InstalledVersion is not { } version)
         {
             return null;
         }
 
-        return new LaunchKey(rec.InstallPath, rec.Version, _c.Settings.LaunchArgs ?? "", auth.Account?.AccountId);
+        var off = offline ?? DecideOffline(summary, null);
+        if (requireSignedIn && !off && auth.Status != AuthStatus.SignedIn)
+        {
+            return null;
+        }
+
+        return new LaunchKey(app, path, version, _c.Games.Get(app).Settings.LaunchArgs ?? "", auth.Account?.AccountId, off);
     }
 
-    private bool CanLaunchNow(string installPath) =>
-        _c.Hub.State.RunState == RunState.Idle && !_watcher.IsActive && _c.Hub.FirstActiveJob() is null &&
-        !_c.Hub.BuildGame().UpdateAvailable && !_c.Egl.IsBusyWith(installPath) && FortniteLayout.LooksLikeInstall(installPath);
+    /// <summary>Offline when asked, or (Auto) when Epic is unreachable and the game may run offline.</summary>
+    private bool DecideOffline(GameSummary summary, LaunchMode? requested)
+    {
+        var mode = requested ?? _c.Games.Get(summary.AppName).Settings.LaunchMode;
+        return mode switch
+        {
+            LaunchMode.Offline => true,
+            LaunchMode.Online => false,
+            _ => _c.Hub.State.Connectivity == Connectivity.Offline && summary.CanRunOffline,
+        };
+    }
+
+    /// <summary>Null when the game can launch now; otherwise why not (never because another game downloads).</summary>
+    private GliderError? CanLaunch(string app, string installPath)
+    {
+        var summary = _c.Library.Summary(app);
+        var title = summary?.Title;
+        if (summary is null || summary.InstallStatus is not (InstallStatus.Installed or InstallStatus.Broken) || summary.InstallPath is null)
+        {
+            return Errors.NotInstalled(title, app);
+        }
+
+        if (_c.Hub.State.RunStateOf(app) != RunState.Idle || Sessions.IsActive(app))
+        {
+            return Errors.GameRunning(title, app);
+        }
+
+        // Only this game's (or its base game's) writer jobs block it: half-patched files must not run.
+        var blocking = _c.Hub.ActiveJobs(app) is [var own, ..] ? own
+            : summary.BaseAppName is { } b && _c.Hub.ActiveJobs(b) is [var baseJob, ..] ? baseJob
+            : null;
+        if (blocking is not null)
+        {
+            return Errors.GameBusy(InstallService.JobNoun(blocking.Kind), title, app);
+        }
+
+        if (_c.Egl.IsBusyWith(installPath))
+        {
+            return Errors.EglBusy();
+        }
+
+        return null;
+    }
 
     /// <summary>The prepared command if it is still valid for this exact launch (single use), else a fresh `launch --json`.</summary>
-    private async Task<(LaunchCommand Command, bool Prepared)> TakeLaunchCommandAsync(bool skip, CancellationToken ct)
+    private async Task<(LaunchCommand Command, bool Prepared)> TakeLaunchCommandAsync(LaunchKey key, CancellationToken ct)
     {
         Task inflight;
         lock (_prepGate)
@@ -148,108 +208,135 @@ internal sealed class LaunchService
             _prepared = null; // exchange codes are single use
         }
 
-        var key = Key(requireSignedIn: false);
-        if (p is not null && p.Key == key && _c.Now - p.At < PreparedTtl && (skip || !p.SkippedVersionCheck) && !_c.Hub.BuildGame().UpdateAvailable)
+        if (p is not null && p.Key == key && _c.Now - p.At < PreparedTtl)
         {
             return (p.Command, true);
         }
 
-        return (await _c.Legendary.GetLaunchCommandAsync(ServiceContext.App, skip, _c.Settings.LaunchArgs ?? "", ct), false);
+        return (await _c.Legendary.GetLaunchCommandAsync(key.AppName, skipVersionCheck: true, key.LaunchArgs, key.Offline, ct), false);
     }
 
-    /// <summary>Completes when the current watch loop ends (tests).</summary>
-    internal Task WatchLoop => _watchLoop;
+    // ------------------------------------------------------------------ launch
 
-    public async Task<LaunchResult> LaunchAsync(CancellationToken ct)
+    public async Task<LaunchResult> LaunchAsync(LaunchRequest request, CancellationToken ct)
     {
-        var rec = _c.Records.Current ?? throw new GliderException(Errors.NotInstalled());
-        if (_c.Hub.State.RunState != RunState.Idle)
+        var app = request.AppName;
+        var summary = _c.Library.Summary(app) ?? throw new GliderException(Errors.NotFound(app));
+        if (summary.Kind == GameKind.Dlc)
         {
-            throw new GliderException(Errors.GameRunning());
+            throw new GliderException(Errors.InvalidRequest($"{summary.Title} is DLC; launch its base game instead."));
         }
 
-        if (DetectExisting())
+        if (summary.ThirdParty is ThirdPartyStore.Ea or ThirdPartyStore.Other && summary.InstallStatus == InstallStatus.NotInstallable)
         {
-            throw new GliderException(Errors.GameRunning());
+            throw new GliderException(Errors.ThirdPartyRequired(summary.ThirdPartyName ?? "its own launcher", summary.Title, app)); // Phase 2: hand-off
         }
 
-        if (_c.Hub.FirstActiveJob() is { } job)
+        if (DetectExisting(app))
         {
-            throw new GliderException(Errors.Busy(InstallService.JobNoun(job.Kind)));
+            throw new GliderException(Errors.GameRunning(summary.Title, app));
         }
 
-        if (_c.Egl.IsBusyWith(rec.InstallPath))
+        if (CanLaunch(app, summary.InstallPath ?? "") is { } refusal)
         {
-            throw new GliderException(Errors.EglBusy());
+            throw new GliderException(refusal);
         }
 
-        if (!FortniteLayout.LooksLikeInstall(rec.InstallPath))
+        var installPath = summary.InstallPath!;
+        var executable = _c.Library.Installed(app)?.Executable;
+        if (!GameProfiles.LooksLikeInstall(app, installPath, executable))
         {
-            throw new GliderException(Errors.Corrupted($"{FortniteLayout.ShippingExeRelative} is missing"));
+            var probe = GameProfiles.For(app).LivenessExeRelative ?? executable ?? "the game files";
+            throw new GliderException(Errors.Corrupted($"{probe} is missing") with { AppName = app });
         }
 
-        await _c.RequireSignedInAsync(ct);
-        if (Interlocked.Exchange(ref _launching, 1) == 1)
+        var offline = DecideOffline(summary, request.Mode);
+        if (!offline)
         {
-            throw new GliderException(Errors.GameRunning());
+            await _c.RequireSignedInAsync(ct);
+        }
+
+        lock (_gate)
+        {
+            if (!_launching.Add(app))
+            {
+                throw new GliderException(Errors.GameRunning(summary.Title, app));
+            }
         }
 
         var clicked = _c.Time.GetTimestamp();
         try
         {
-            SetRun(RunState.Preparing, null);
-            var ranEac = await _eac.EnsureInstalledAsync(rec.InstallPath, () => SetRun(RunState.InstallingPrerequisites, null), ct);
+            SetRun(app, summary.Title, RunState.Preparing, null, offline);
+            var ranEac = await _eac.EnsureInstalledAsync(app, installPath, () => SetRun(app, summary.Title, RunState.InstallingPrerequisites, null, offline), ct);
 
-            SetRun(RunState.Launching, null);
-            var skip = _updates.CheckedRecentlyWithoutUpdate();
-            var (cmd, prepared) = await TakeLaunchCommandAsync(skip, ct);
-            _watcher.BeginLaunch();
+            SetRun(app, summary.Title, RunState.Launching, null, offline);
+            var key = Key(app, offline, requireSignedIn: false)!;
+            var (cmd, prepared) = await TakeLaunchCommandAsync(key, ct);
+            Sessions.Begin(app, GameProfiles.For(app));
+            RunningProcess process;
             try
             {
-                _c.Options.ProcessStarter.Start(cmd);
+                process = _c.Options.ProcessStarter.Start(cmd);
             }
             catch (Exception e) when (e is not GliderException)
             {
-                _watcher.Reset();
-                throw new GliderException(Errors.LaunchFailed(e.Message), e);
+                Sessions.Abort(app);
+                throw new GliderException(Errors.LaunchFailed(e.Message, summary.Title, app), e);
             }
 
-            _c.Log.Info("launch", $"started {Path.GetFileName(cmd.Executable)} {_c.Time.GetElapsedTime(clicked).TotalMilliseconds:0} ms after Play (prepared={prepared}, skipVersionCheck={skip}, eacInstalledNow={ranEac})");
+            Sessions.Spawned(app, process);
+            _c.Log.Info("launch", $"{app}: started {Path.GetFileName(cmd.Executable)} (pid {process.Id}) {_c.Time.GetElapsedTime(clicked).TotalMilliseconds:0} ms after Play (prepared={prepared}, offline={offline}, eacInstalledNow={ranEac})");
             StartWatching();
-            return new LaunchResult(true, ranEac);
+            return new LaunchResult(LaunchOutcome.Started, null, offline, null);
         }
         catch (Exception e)
         {
-            SetRun(RunState.Idle, null);
+            Sessions.Abort(app);
+            SetRun(app, summary.Title, RunState.Idle, null, offline);
             if (e is GliderException or OperationCanceledException)
             {
                 throw;
             }
 
-            throw new GliderException(Errors.LaunchFailed(e.Message), e);
+            throw new GliderException(Errors.LaunchFailed(e.Message, summary.Title, app), e);
         }
         finally
         {
-            Volatile.Write(ref _launching, 0);
+            lock (_gate)
+            {
+                _launching.Remove(app);
+            }
         }
     }
 
-    /// <summary>Closes the game (Shipping plus any launcher stubs). The watcher notices the exit and drives the state back to Idle.</summary>
-    public Task CloseGameAsync() => Task.Run(() =>
+    /// <summary>Closes the game: every tracked process of the session plus the profile's named processes. The tracker sees the exit.</summary>
+    public Task CloseGameAsync(string app) => Task.Run(() =>
     {
-        foreach (var name in new[] { FortniteLayout.ShippingProcessName }.Concat(ProcessWatcher.LauncherNames))
+        var monitor = _c.Options.ProcessMonitor;
+        var names = GameProfiles.For(app).AllTrackedNames.ToList();
+        var snapshot = monitor.Snapshot();
+        foreach (var pid in Sessions.TrackedPids(app))
         {
-            foreach (var p in _c.Options.ProcessMonitor.Find(name))
+            if (snapshot.FirstOrDefault(p => p.Id == pid) is { } entry)
             {
-                _c.Options.ProcessMonitor.Close(p);
+                monitor.Close(new RunningProcess(entry.Id, entry.Name, entry.StartTime));
+            }
+        }
+
+        foreach (var name in names)
+        {
+            foreach (var p in monitor.Find(name))
+            {
+                monitor.Close(p);
             }
         }
     });
 
-    /// <summary>Startup / pre-launch: adopt a game that is already running.</summary>
-    public bool DetectExisting()
+    /// <summary>Startup / pre-launch: adopt a game that is already running (games whose profile names their process).</summary>
+    public bool DetectExisting(string app)
     {
-        if (_watcher.IsActive || !_watcher.DetectExisting())
+        if (Sessions.IsActive(app) || !Sessions.DetectExisting(app, GameProfiles.For(app)))
         {
             return false;
         }
@@ -258,15 +345,32 @@ internal sealed class LaunchService
         return true;
     }
 
+    /// <summary>Startup: every installed game with a profile liveness process.</summary>
+    public void DetectAllExisting()
+    {
+        foreach (var g in _c.Library.Games.Values)
+        {
+            if (g.InstallPath is not null && GameProfiles.For(g.AppName).LivenessProcessName is not null)
+            {
+                DetectExisting(g.AppName);
+            }
+        }
+    }
+
     private void StartWatching()
     {
-        if (_watchLoop.IsCompleted)
+        lock (_gate)
         {
+            if (!_watchLoop.IsCompleted)
+            {
+                return;
+            }
+
             _watchLoop = Task.Run(async () =>
             {
                 try
                 {
-                    await _watcher.RunAsync(_c.Options.ProcessPollInterval, _c.Shutdown);
+                    await Sessions.RunAsync(_c.Options.ProcessPollInterval, _c.Shutdown);
                 }
                 catch (OperationCanceledException)
                 {
@@ -274,17 +378,17 @@ internal sealed class LaunchService
                 catch (Exception e)
                 {
                     _c.Log.Error("launch", "process watch failed", e);
-                    SetRun(RunState.Idle, null);
                 }
             });
         }
     }
 
-    private void OnWatcherChanged(RunState state, DateTimeOffset? since, bool failed)
+    private void OnSessionChanged(string app, RunState state, DateTimeOffset? since, bool failed)
     {
-        var previous = _c.Hub.State.RunState;
-        SetRun(state, since);
-        TrackPlaytime(state, since);
+        var title = _c.TitleOf(app);
+        var previous = _c.Hub.State.RunStateOf(app);
+        SetRun(app, title, state, since, _c.Hub.State.Sessions.TryGetValue(app, out var s) && s.Offline);
+        TrackPlaytime(app, state, since);
         if (state == RunState.Running && previous is RunState.Launching && _c.Settings.MinimizeToTrayWhilePlaying)
         {
             _hidByUs = true;
@@ -293,10 +397,11 @@ internal sealed class LaunchService
 
         if (state != RunState.Idle)
         {
+            _c.Jobs.Reevaluate(); // WhilePlaying: hold the writer lane while a game runs
             return;
         }
 
-        if (_hidByUs)
+        if (_hidByUs && !_c.Hub.State.AnySessionActive)
         {
             _hidByUs = false;
             _c.Host.RestoreWindow();
@@ -304,90 +409,93 @@ internal sealed class LaunchService
 
         if (failed)
         {
-            var e = Errors.LaunchFailed("The game process never appeared");
-            _c.Log.Warn("launch", e.Detail!);
-            _c.Notify(NoticeLevel.Error, e.Title, e.Message, e.Fix);
+            var e = Errors.LaunchFailed("The game process never appeared", title, app);
+            _c.Log.Warn("launch", $"{app}: {e.Detail}");
+            _c.Notify(NoticeLevel.Error, e.Title, e.Message, e.Fix, appName: app);
         }
         else if (previous is RunState.Running or RunState.Closing)
         {
-            _c.Log.Info("launch", "game closed");
-            _updates.TryAutoUpdate();
+            _c.Log.Info("launch", $"{app}: game closed");
         }
+
+        _c.Jobs.Reevaluate();
+        _sessionEnded(app);
     }
 
-    /// <summary>How often a running session is flushed to disk, so a crash or power cut loses at most this much.</summary>
-    internal static readonly TimeSpan PlaytimeFlushInterval = TimeSpan.FromSeconds(30);
-
-    private readonly PlaytimeTracker _playtime = new();
-    private readonly Lock _playtimeGate = new();
-    private CancellationTokenSource? _playtimeLoop;
-    private Task _playtimeFlush = Task.CompletedTask;
-
-    /// <summary>Completes when the latest playtime write ends (tests).</summary>
-    internal Task PlaytimeFlushed => _playtimeFlush;
-
-    private void TrackPlaytime(RunState state, DateTimeOffset? since)
+    private void TrackPlaytime(string app, RunState state, DateTimeOffset? since)
     {
-        if (state == RunState.Running && !_playtime.Active)
+        lock (_gate)
         {
-            _playtime.Start(since ?? _c.Now);
-            var cts = CancellationTokenSource.CreateLinkedTokenSource(_c.Shutdown);
-            _playtimeLoop = cts;
-            _ = QueueFlush(final: false);
-            _ = Task.Run(async () =>
+            if (state == RunState.Running && !_playtime.ContainsKey(app))
             {
-                try
+                var tracker = new PlaytimeTracker();
+                tracker.Start(since ?? _c.Now);
+                var cts = CancellationTokenSource.CreateLinkedTokenSource(_c.Shutdown);
+                _playtime[app] = (tracker, cts);
+                _ = QueueFlush(app, tracker, final: false);
+                _ = Task.Run(async () =>
                 {
-                    while (true)
+                    try
                     {
-                        await Task.Delay(PlaytimeFlushInterval, _c.Time, cts.Token);
-                        await QueueFlush(final: false);
+                        while (true)
+                        {
+                            await Task.Delay(PlaytimeFlushInterval, _c.Time, cts.Token);
+                            await QueueFlush(app, tracker, final: false);
+                        }
                     }
-                }
-                catch (OperationCanceledException)
-                {
-                }
-            });
-        }
-        else if (state == RunState.Idle && _playtime.Active)
-        {
-            _playtimeLoop?.Cancel();
-            _playtimeLoop = null;
-            _ = QueueFlush(final: true);
+                    catch (OperationCanceledException)
+                    {
+                    }
+                });
+            }
+            else if (state == RunState.Idle && _playtime.Remove(app, out var entry))
+            {
+                entry.Loop.Cancel();
+                _ = QueueFlush(app, entry.Tracker, final: true);
+            }
         }
     }
 
     /// <summary>Playtime writes run one after another so a periodic flush can never overlap the final one.</summary>
-    private Task QueueFlush(bool final)
+    private Task QueueFlush(string app, PlaytimeTracker tracker, bool final)
     {
-        lock (_playtimeGate)
+        lock (_gate)
         {
-            return _playtimeFlush = _playtimeFlush.ContinueWith(_ => FlushPlaytimeAsync(final), TaskScheduler.Default).Unwrap();
+            return _playtimeFlush = _playtimeFlush.ContinueWith(_ => FlushPlaytimeAsync(app, tracker, final), TaskScheduler.Default).Unwrap();
         }
     }
 
-    private async Task FlushPlaytimeAsync(bool final)
+    private async Task FlushPlaytimeAsync(string app, PlaytimeTracker tracker, bool final)
     {
         try
         {
-            if (!final && !_playtime.Active)
+            if (!final && !tracker.Active)
             {
                 return;
             }
 
             var now = _c.Now;
-            var seconds = _playtime.Take(now, final);
-            if (_c.Records.Current is { } rec)
-            {
-                await _c.SaveRecordAsync(PlaytimeTracker.Apply(rec, seconds, now));
-            }
+            var seconds = tracker.Take(now, final);
+            await _c.Games.UpdateAsync(app, e => PlaytimeTracker.Apply(e, seconds, now));
+            _c.Library.Invalidate();
         }
         catch (Exception e)
         {
-            _c.Log.Warn("launch", "could not save playtime", e);
+            _c.Log.Warn("launch", $"could not save playtime of {app}", e);
         }
     }
 
-    private void SetRun(RunState state, DateTimeOffset? since) =>
-        _c.Hub.Mutate(s => s with { RunState = state, RunningSince = state == RunState.Running ? since ?? s.RunningSince ?? _c.Now : null });
+    private void SetRun(string app, string title, RunState state, DateTimeOffset? since, bool offline) =>
+        _c.Hub.Mutate(s =>
+        {
+            if (state == RunState.Idle)
+            {
+                return s.Sessions.ContainsKey(app) ? s with { Sessions = s.Sessions.Remove(app) } : s;
+            }
+
+            var old = s.Sessions.GetValueOrDefault(app);
+            var runningSince = state == RunState.Running ? since ?? old?.Since ?? _c.Now : (DateTimeOffset?)null;
+            var next = new RunningGame(app, title, state, runningSince, offline, false);
+            return old == next ? s : s with { Sessions = s.Sessions.SetItem(app, next) };
+        });
 }

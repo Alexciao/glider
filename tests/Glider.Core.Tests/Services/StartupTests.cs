@@ -1,9 +1,13 @@
+using System.Text.Json;
 using Glider.Core.Contracts;
+using Glider.Core.Library;
 
 namespace Glider.Core.Tests.Services;
 
 public class StartupTests
 {
+    private const string Fn = FortniteLayout.AppName;
+
     [Fact]
     public async Task StartPublishesSnapshotImmediately_ThenPrewarmsInOrder()
     {
@@ -16,7 +20,6 @@ public class StartupTests
         // First paint: published synchronously from cached state while Legendary is still blocked.
         var first = Assert.Single(rig.Sink.Of<AppSnapshot>(RpcEvents.State));
         Assert.False(first.App.Warm);
-        Assert.Equal(InstallStatus.Installed, first.Game.InstallStatus);
         Assert.Equal(AuthStatus.Unknown, first.Auth.Status);
 
         var snap = await rig.Service.GetSnapshot().WaitAsync(TimeSpan.FromSeconds(1));
@@ -25,41 +28,48 @@ public class StartupTests
 
         rig.Legendary.VersionGate.SetResult();
         await rig.Service.WarmupTask.WaitAsync(TimeSpan.FromSeconds(5));
+        await rig.Service.PrewarmForTests.LibrarySync;
 
-        var order = rig.Calls.All.Where(c => c is "legendary.version" or "legendary.offline" or "egl.scan" or "egl.drift"
-            or "legendary.refresh" or "legendary.info" or "jobs.restore").ToList();
-        Assert.Equal(["legendary.version", "legendary.offline", "egl.scan", "egl.drift", "legendary.refresh", "legendary.info", "jobs.restore"], order);
+        var order = rig.Calls.All.Where(c => c is "legendary.version" or "legendary.offline" or "egl.scan" or "egl.drift:Fortnite"
+            or "jobs.restore" or "legendary.checkUpdates" or "legendary.list").Distinct().ToList();
+        Assert.Equal(["legendary.version", "legendary.offline", "egl.scan", "egl.drift:Fortnite", "jobs.restore", "legendary.checkUpdates", "legendary.list"], order);
+        Assert.DoesNotContain(rig.Calls.All, c => c.StartsWith("legendary.info", StringComparison.Ordinal)); // no per-game `info` at startup
 
         snap = await rig.Service.GetSnapshot();
         Assert.True(snap.App.Warm);
         Assert.Equal("0.21.1", snap.App.LegendaryVersion);
         Assert.Equal(AuthStatus.SignedIn, snap.Auth.Status);
+        Assert.Equal(Connectivity.Online, snap.Connectivity);
         Assert.Null(snap.Auth.Account!.AvatarUrl);
-        Assert.Equal("v2", snap.Game.LatestVersion);
-        Assert.True(snap.Game.UpdateAvailable);
-        Assert.NotNull(snap.Game.Art);
+        Assert.NotNull(snap.Library.LastSyncedAt);
+        var g = (await rig.SummaryAsync())!;
+        Assert.Equal("v2", g.LatestVersion);
+        Assert.True(g.UpdateAvailable);
+        Assert.NotNull(g.Art.Tall);
     }
 
     [Fact]
-    public async Task NetworkFailureDuringRefreshIsNonFatal()
+    public async Task NetworkFailureDuringWarmUpIsNonFatal_AndMarksOffline()
     {
         using var rig = new Rig();
-        rig.Legendary.RefreshError = new HttpRequestException("offline");
-        rig.Legendary.InfoError = new GliderException(Errors.Network());
+        rig.Legendary.SyncError = Errors.Network("offline");
 
         await rig.StartWarmAsync();
 
         var snap = await rig.Service.GetSnapshot();
         Assert.True(snap.App.Warm);
         Assert.Equal(AuthStatus.SignedIn, snap.Auth.Status);
+        Assert.Equal(Connectivity.Offline, snap.Connectivity);
+        Assert.Equal(ErrorCode.Network, snap.Library.SyncError!.Code);
         Assert.True(rig.Calls.Has("jobs.restore"));
+        Assert.Equal(1, snap.Library.GameCount); // the cached files still give the library
     }
 
     [Fact]
     public async Task ExpiredSessionIsReported()
     {
         using var rig = new Rig();
-        rig.Legendary.RefreshError = new GliderException(Errors.AuthExpired());
+        rig.Legendary.SyncError = Errors.AuthExpired();
         await rig.StartWarmAsync();
         Assert.Equal(AuthStatus.Expired, (await rig.Service.GetSnapshot()).Auth.Status);
     }
@@ -74,11 +84,11 @@ public class StartupTests
 
         await rig.StartWarmAsync();
 
-        Assert.True(rig.Calls.Has("legendary.import"));
+        Assert.True(rig.Calls.Has("legendary.import:Fortnite"));
         Assert.DoesNotContain(rig.Jobs.Requests, r => r.Kind is JobKind.Install or JobKind.Update or JobKind.Repair or JobKind.Verify);
-        Assert.Equal("v2", rig.Records.Current!.Version);
-        Assert.Equal("guid-1", rig.Records.Current.EglInstallationGuid);
-        Assert.Equal(rec.InstallPath, rig.Records.Current.InstallPath);
+        Assert.Equal("v2", rig.Games.Record()!.Version);
+        Assert.Equal("guid-1", rig.Games.Record()!.EglInstallationGuid);
+        Assert.Equal(rec.InstallPath, rig.Games.Record()!.InstallPath);
     }
 
     [Theory]
@@ -88,7 +98,7 @@ public class StartupTests
     {
         using var rig = new Rig();
         rig.Install("v2", sharedWithEgl: true);
-        rig.Settings.Set(Settings.Default with { EglSync = sync, AutoUpdate = false });
+        rig.Settings.Set(Settings.Default with { EglSync = sync, AutoUpdate = AutoUpdatePolicy.Never });
         rig.Egl.Drift = new DriftResult(DriftKind.GliderNewer, "v1", "v2", rig.Egl.Item);
 
         await rig.StartWarmAsync();
@@ -98,9 +108,11 @@ public class StartupTests
         {
             Assert.Equal("v2", rig.Egl.WriteBacks[0].Version);
             Assert.Equal("guid-1", rig.Egl.WriteBacks[0].ExistingInstallationGuid);
+            Assert.Equal(Fn, rig.Egl.WriteBacks[0].AppName);
+            Assert.Equal("Fortnite", rig.Egl.WriteBacks[0].Title);
         }
 
-        Assert.False(rig.Calls.Has("legendary.import"));
+        Assert.DoesNotContain(rig.Calls.All, c => c.StartsWith("legendary.import", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -108,17 +120,17 @@ public class StartupTests
     {
         using var rig = new Rig();
         rig.Install("v2", sharedWithEgl: true);
-        rig.Legendary.Info = FakeLegendary.MakeInfo("v2");
         rig.Egl.Drift = new DriftResult(DriftKind.Unreconcilable, "weird", "v2", rig.Egl.Item);
 
         await rig.StartWarmAsync();
 
         var req = Assert.Single(rig.Jobs.Requests);
         Assert.Equal(JobKind.Verify, req.Kind);
-        Assert.False(rig.Calls.Has("legendary.import"));
+        Assert.Equal(Fn, req.AppName);
+        Assert.DoesNotContain(rig.Calls.All, c => c.StartsWith("legendary.import", StringComparison.Ordinal));
         Assert.Empty(rig.Egl.WriteBacks);
         var all = rig.Calls.All.ToList();
-        Assert.True(all.IndexOf("jobs.restore") < all.IndexOf("jobs.enqueue:Verify"));
+        Assert.True(all.IndexOf("jobs.restore") < all.IndexOf("jobs.enqueue:Verify:Fortnite"));
     }
 
     [Fact]
@@ -128,7 +140,7 @@ public class StartupTests
         rig.Install("v2", sharedWithEgl: true);
         rig.Egl.Drift = new DriftResult(DriftKind.EglMissing, null, "v2", null);
         await rig.StartWarmAsync();
-        Assert.Null(rig.Records.Current!.EglInstallationGuid);
+        Assert.Null(rig.Games.Record()!.EglInstallationGuid);
         Assert.Empty(rig.Jobs.Requests);
     }
 
@@ -139,8 +151,9 @@ public class StartupTests
         rig.Install("v1");
         await rig.StartWarmAsync();
 
-        Assert.Equal(JobKind.Update, Assert.Single(rig.Jobs.Requests).Kind);
-        Assert.Contains(rig.Sink.Of<Notice>(RpcEvents.Notice), n => n.Title.Contains("update", StringComparison.OrdinalIgnoreCase));
+        var req = Assert.Single(rig.Jobs.Requests);
+        Assert.Equal((JobKind.Update, Fn), (req.Kind, req.AppName));
+        Assert.Contains(rig.Sink.Of<Notice>(RpcEvents.Notice), n => n.Title.Contains("update", StringComparison.OrdinalIgnoreCase) && n.AppName == Fn);
         Assert.Single(rig.Host.Toasts); // window not focused, notifications on
     }
 
@@ -153,7 +166,7 @@ public class StartupTests
         await rig.StartWarmAsync();
 
         Assert.Empty(rig.Jobs.Requests);
-        Assert.Equal(RunState.Running, (await rig.Service.GetSnapshot()).Game.RunState);
+        Assert.Equal(RunState.Running, (await rig.SummaryAsync())!.RunState);
     }
 
     [Fact]
@@ -166,8 +179,24 @@ public class StartupTests
         Assert.Empty(rig.Jobs.Requests);
 
         rig.Settings.Set(Settings.Default with { AutoUpdateOnlyWhenIdle = false });
-        await rig.Service.CheckForUpdates();
+        rig.Service.UpdatesForTests.Evaluate();
         Assert.Equal(JobKind.Update, Assert.Single(rig.Jobs.Requests).Kind);
+    }
+
+    [Fact]
+    public async Task PerGamePolicy_AskOnlyNotifies_NeverStaysQuiet()
+    {
+        using var rig = new Rig();
+        rig.Install("v1");
+        rig.AddGame("Quiet", "Quiet Game", latest: "2.0", installedVersion: "1.0");
+        rig.Games.Put(Fn, rig.Games.Get(Fn) with { Settings = GameSettings.Default with { AutoUpdate = AutoUpdatePolicy.Ask } });
+        rig.Games.Put("Quiet", rig.Games.Get("Quiet") with { Settings = GameSettings.Default with { AutoUpdate = AutoUpdatePolicy.Never } });
+        await rig.StartWarmAsync();
+
+        Assert.Empty(rig.Jobs.Requests);
+        var notices = rig.Sink.Of<Notice>(RpcEvents.Notice);
+        Assert.Contains(notices, n => n.AppName == Fn);
+        Assert.DoesNotContain(notices, n => n.AppName == "Quiet");
     }
 
     [Fact]
@@ -175,10 +204,42 @@ public class StartupTests
     {
         using var rig = new Rig();
         rig.Install("v1");
-        rig.Settings.Set(Settings.Default with { AutoUpdate = false });
+        rig.Settings.Set(Settings.Default with { AutoUpdate = AutoUpdatePolicy.Ask });
         await rig.StartWarmAsync();
-        rig.Time.Advance(TimeSpan.FromMinutes(11));
         await rig.Service.CheckForUpdates();
+        await rig.Service.LibraryForTests.SyncTask;
+        rig.Service.UpdatesForTests.Evaluate();
         Assert.Single(rig.Sink.Of<Notice>(RpcEvents.Notice));
+    }
+
+    [Fact]
+    public async Task ColdStart_ServesTheLibraryFromCache_WithoutTouchingLegendary()
+    {
+        using var rig = new Rig();
+        var art = new GameArt("https://cdn/t.jpg", "https://cdn/t.jpg", "https://cdn/w.jpg", null, "#123456");
+        var cached = new GameSummary("Cached", "Cached Game", GameKind.Game, null, "ns", "id", null, InstallStatus.Installed, "1", "1", false,
+            @"C:\Games\Cached", 1, null, null, false, SaveSyncStatus.NotSupported, true, ThirdPartyStore.None, null, 0, true, false, null, null, 0,
+            art, RunState.Running, "stale-job", JobKind.Update, false, false);
+        Directory.CreateDirectory(rig.Paths.Cache);
+        File.WriteAllBytes(LibraryService.PathFor(rig.Paths),
+            JsonSerializer.SerializeToUtf8Bytes(new LibraryCacheFile { Games = [cached] }, Glider.Core.Infrastructure.EngineJsonContext.Default.LibraryCacheFile));
+        rig.Legendary.VersionGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); // pre-warm blocked
+
+        await rig.Service.StartAsync();
+        var lib = rig.Service.LibraryForTests.Games; // straight from the cache, no flush, no Legendary file read yet
+        var g = Assert.Single(lib.Values);
+        Assert.Equal("Cached Game", g.Title);
+        Assert.Equal(RunState.Idle, g.RunState); // runtime facts don't survive a restart
+        Assert.Null(g.ActiveJobId);
+        Assert.False(rig.Service.LibraryForTests.FilesRead);
+        Assert.All(rig.Calls.All.Where(c => c.StartsWith("legendary.", StringComparison.Ordinal)), c => Assert.Equal("legendary.version", c));
+
+        rig.Legendary.VersionGate.SetResult();
+        await rig.Service.WarmupTask;
+        await rig.Service.LibraryForTests.FlushAsync();
+        Assert.Contains(Fn, rig.Service.LibraryForTests.Games.Keys); // then the files replace the cache with a delta
+        Assert.DoesNotContain("Cached", rig.Service.LibraryForTests.Games.Keys);
+        Assert.Contains(rig.Sink.Of<LibraryDelta>(RpcEvents.Library), d => d.Removes.Contains("Cached") && d.Upserts.Any(u => u.AppName == Fn));
+        Assert.True(File.Exists(LibraryService.PathFor(rig.Paths)));
     }
 }

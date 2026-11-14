@@ -103,8 +103,8 @@ public class CancelCleanupSafetyTests
             [
                 new PersistedJob
                 {
-                    Info = new JobInfo("x", JobKind.Install, JobStatus.Paused, null, null, DateTimeOffset.UtcNow, null, h.Games, null, null, null),
-                    Request = new JobRequest(JobKind.Install, h.Games, null, null, null),
+                    Info = new JobInfo("x", "Fortnite", "Fortnite", JobKind.Install, JobStatus.Paused, [], null, null, null, DateTimeOffset.UtcNow, null, null, h.Games, null, null, null, null, null),
+                    Request = new JobRequest("Fortnite", JobKind.Install, h.Games, null, null, null),
                     CreatedGameFolder = true,
                     GameFolder = precious,
                 },

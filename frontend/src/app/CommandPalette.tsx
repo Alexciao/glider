@@ -1,227 +1,265 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Dialog } from "radix-ui";
-import {
-  ArrowDownToLine,
-  CornerDownLeft,
-  Download,
-  FolderInput,
-  FolderOpen,
-  Gamepad2,
-  House,
-  LogOut,
-  Moon,
-  Play,
-  RefreshCw,
-  Search,
-  Settings as SettingsIcon,
-  Store,
-  Trash2,
-  Wrench,
-} from "lucide-react";
-import { actions } from "../state/actions";
-import { isBusy } from "../state/derive";
+import { CornerDownLeft, Search } from "lucide-react";
 import { useGame } from "../state/library";
 import { useLibraryIndex } from "../state/libraryIndex";
-import { goGame, useRoute } from "../state/router";
-import { jobForGame, useApp } from "../state/store";
-import { useUi, type SettingsSection } from "../state/ui";
-import { Kbd, cx } from "../ui";
+import { getRecents, pushRecent } from "../state/recents";
+import { useRoute } from "../state/router";
+import { useApp } from "../state/store";
+import { useUi } from "../state/ui";
+import { ArtThumb, Kbd, cx } from "../ui";
+import { GROUP_LABEL, buildCommands, buildSections, gameItem, type ItemAction, type PaletteContext, type PaletteItem, type Ranked } from "./palette/model";
 
-interface Command {
-  id: string;
-  group: "Games" | "Game" | "Go to" | "App";
-  label: string;
-  icon: ReactNode;
-  keywords?: string;
-  shortcut?: string;
-  disabled?: boolean;
-  run: () => void;
+/**
+ * Ctrl+K from anywhere. Search every game and every command, run the top result with Enter, or a game's other
+ * actions with a chord. Instant by design: it opens many times a day, so there is no enter or exit animation.
+ */
+
+/** The label with the matched letters emphasised and the rest quiet. */
+function Highlight({ text, ranges }: { text: string; ranges: [number, number][] }) {
+  if (ranges.length === 0) return <>{text}</>;
+  const out: ReactNode[] = [];
+  let at = 0;
+  ranges.forEach(([a, b], i) => {
+    if (a > at) out.push(<span key={`m${i}`} className="text-fg-muted">{text.slice(at, a)}</span>);
+    out.push(<span key={`h${i}`} className="font-semibold text-fg">{text.slice(a, b)}</span>);
+    at = b;
+  });
+  if (at < text.length) out.push(<span key="tail" className="text-fg-muted">{text.slice(at)}</span>);
+  return <>{out}</>;
 }
 
-const SETTINGS_SECTIONS: [SettingsSection, string][] = [
-  ["general", "General"],
-  ["downloads", "Downloads"],
-  ["library", "Library"],
-  ["egl", "Epic Games Launcher"],
-  ["advanced", "Advanced and logs"],
-  ["about", "About and licenses"],
-];
-
-/** Subsequence match with a bonus for prefixes; enough for ~20 commands without a dependency. */
-function score(query: string, text: string): number {
-  const q = query.toLowerCase();
-  const t = text.toLowerCase();
-  if (!q) return 1;
-  if (t.startsWith(q)) return 100 - t.length;
-  const at = t.indexOf(q);
-  if (at >= 0) return 60 - at;
-  let i = 0;
-  for (const ch of t) if (ch === q[i]) i++;
-  return i === q.length ? 10 : 0;
+/** The one action hint on a row. On the active row it is the button Enter presses. */
+function Chip({ action, active, onRun }: { action: ItemAction; active: boolean; onRun: (a: ItemAction) => void }) {
+  return (
+    <span
+      aria-hidden
+      onClick={(e) => {
+        e.stopPropagation();
+        onRun(action);
+      }}
+      className={cx(
+        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors duration-100",
+        active ? "bg-primary text-primary-fg" : "text-fg-subtle",
+      )}
+    >
+      {action.label}
+      {active && <CornerDownLeft size={11} className="opacity-70" />}
+    </span>
+  );
 }
 
-function PaletteBody({ close }: { close: () => void }) {
-  const go = useUi((s) => s.go);
-  const openDialog = useUi((s) => s.openDialog);
+function Row({ r, index, active, id, onRun, onHover }: { r: Ranked; index: number; active: boolean; id: string; onRun: (item: PaletteItem, a?: ItemAction) => void; onHover: (i: number) => void }) {
+  const { item, match } = r;
+  const primary = item.actions[0];
+  const disabled = !!item.disabled;
+  return (
+    <div
+      id={id}
+      role="option"
+      data-index={index}
+      aria-selected={active}
+      aria-disabled={disabled || undefined}
+      aria-label={`${item.label}${item.hint ? `, ${item.hint}` : ""}${disabled ? `. ${item.disabled}` : item.art && primary ? `. Enter: ${primary.label}` : ""}`}
+      onPointerMove={() => onHover(index)}
+      onClick={() => onRun(item)}
+      className={cx("flex h-10 items-center gap-3 rounded-lg px-3 text-sm", active && "bg-surface-hover", disabled && "opacity-50")}
+    >
+      {item.art ? (
+        <ArtThumb src={item.art.src} title={item.art.title} placeholder={item.art.placeholder} size="xs" />
+      ) : (
+        <span aria-hidden className="grid size-6 shrink-0 place-items-center text-fg-muted">
+          {item.icon}
+        </span>
+      )}
+      <span className="min-w-0 flex-1 truncate text-fg">
+        <Highlight text={item.label} ranges={match.ranges} />
+      </span>
+      {disabled ? (
+        <span className="shrink-0 text-xs text-fg-subtle">{item.disabled}</span>
+      ) : item.art && primary ? (
+        <Chip action={primary} active={active} onRun={(a) => onRun(item, a)} />
+      ) : item.hint ? (
+        <span className="shrink-0 text-xs text-fg-subtle">{item.hint}</span>
+      ) : item.shortcut ? (
+        <Kbd>{item.shortcut}</Kbd>
+      ) : null}
+    </div>
+  );
+}
+
+function usePaletteContext(): PaletteContext | null {
   const snap = useApp((s) => s.snapshot);
   const route = useRoute();
   const currentGame = useGame(route.page === "game" ? route.appName : undefined);
+  const go = useUi((s) => s.go);
+  const openDialog = useUi((s) => s.openDialog);
+  const themePref = snap?.settings.theme;
+  const resolved: "dark" | "light" = themePref === "light" ? "light" : themePref === "dark" ? "dark" : typeof document !== "undefined" && document.documentElement.dataset.theme === "light" ? "light" : "dark";
+  return useMemo(() => (snap ? { snap, currentGame, theme: resolved, go, openDialog } : null), [snap, currentGame, resolved, go, openDialog]);
+}
+
+function PaletteBody({ close }: { close: () => void }) {
+  const ctx = usePaletteContext();
   const index = useLibraryIndex();
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
+  const [recentIds] = useState(getRecents);
   const list = useRef<HTMLDivElement>(null);
+  const uid = useId();
 
-  const commands = useMemo<Command[]>(() => {
-    if (!snap) return [];
-    const signedIn = snap.auth.status === "signedIn";
-    const cmds: Command[] = [];
+  const commands = useMemo(() => (ctx ? buildCommands(ctx) : []), [ctx]);
+  const games = useMemo<PaletteItem[]>(() => {
+    if (!ctx || !query.trim()) return [];
+    // The index does the word/prefix search instantly; the fuzzy pass in `buildSections` then orders and highlights.
+    return index.query({ search: query }).slice(0, 24).map((g) => gameItem(g, ctx));
+  }, [ctx, index, query]);
 
-    if (currentGame) {
-      const g = currentGame;
-      const busy = isBusy(snap, g.appName);
-      const installed = g.installStatus === "installed" || g.installStatus === "broken";
-      const job = jobForGame(snap.queue.jobs, g.appName);
-      if (job?.status === "paused") cmds.push({ id: "primary", group: "Game", label: `Resume ${g.title}`, icon: <Play size={15} />, keywords: "continue", run: () => void actions.resumeJob(job.id) });
-      else if (installed && g.updateAvailable) cmds.push({ id: "primary", group: "Game", label: `Update ${g.title}`, icon: <ArrowDownToLine size={15} />, keywords: "launch start", run: () => void actions.update(g.appName) });
-      else if (installed) cmds.push({ id: "primary", group: "Game", label: `Play ${g.title}`, icon: <Play size={15} />, keywords: "launch start", run: () => void actions.launch(g.appName) });
-      else if (g.installStatus === "notInstalled") cmds.push({ id: "primary", group: "Game", label: `Install ${g.title}`, icon: <Download size={15} />, keywords: "download", run: () => openDialog({ kind: "install", appName: g.appName }) });
-      if (installed) {
-        cmds.push(
-          { id: "verify", group: "Game", label: `Verify and repair ${g.title}`, icon: <Wrench size={15} />, keywords: "check integrity", disabled: busy || !signedIn, run: () => void actions.verify(g.appName) },
-          { id: "move", group: "Game", label: `Move ${g.title}…`, icon: <FolderInput size={15} />, disabled: busy, run: () => openDialog({ kind: "move", appName: g.appName }) },
-          { id: "folder", group: "Game", label: `Open ${g.title}'s install folder`, icon: <FolderOpen size={15} />, run: () => void actions.openInstallFolder(g.appName) },
-          { id: "uninstall", group: "Game", label: `Uninstall ${g.title}…`, icon: <Trash2 size={15} />, disabled: busy, run: () => openDialog({ kind: "uninstall", appName: g.appName }) },
-        );
+  const recents = useMemo<PaletteItem[]>(() => {
+    if (!ctx) return [];
+    const byId = new Map(commands.map((c) => [c.id, c] as const));
+    const out: PaletteItem[] = [];
+    for (const id of recentIds) {
+      if (id.startsWith("game:")) {
+        const g = index.get(id.slice(5));
+        if (g) out.push(gameItem(g, ctx, "recent"));
+      } else {
+        const c = byId.get(id);
+        if (c) out.push({ ...c, group: "recent" });
       }
     }
-    cmds.push(
-      { id: "check", group: "App", label: "Check all games for updates", icon: <RefreshCw size={15} />, disabled: !signedIn, run: () => void actions.checkForUpdates() },
-      { id: "updateAll", group: "App", label: "Update all games", icon: <ArrowDownToLine size={15} />, disabled: !signedIn || snap.library.updatesAvailable === 0, run: () => void actions.updateAll() },
-      { id: "go-home", group: "Go to", label: "Home", icon: <House size={15} />, shortcut: "Ctrl+1", run: () => go("home") },
-      { id: "go-library", group: "Go to", label: "Library", icon: <Gamepad2 size={15} />, shortcut: "Ctrl+2", run: () => go("library") },
-      { id: "go-downloads", group: "Go to", label: "Downloads", icon: <Download size={15} />, shortcut: "Ctrl+3", run: () => go("downloads") },
-      { id: "go-store", group: "Go to", label: "Store", icon: <Store size={15} />, shortcut: "Ctrl+4", run: () => go("store") },
-      { id: "go-settings", group: "Go to", label: "Settings", icon: <SettingsIcon size={15} />, shortcut: "Ctrl+5", run: () => go("settings") },
-      ...SETTINGS_SECTIONS.map<Command>(([id, label]) => ({
-        id: `settings-${id}`,
-        group: "Go to",
-        label: `Settings: ${label}`,
-        icon: <SettingsIcon size={15} />,
-        keywords: label,
-        run: () => go("settings", id),
-      })),
-      {
-        id: "theme",
-        group: "App",
-        label: "Toggle light and dark theme",
-        icon: <Moon size={15} />,
-        keywords: "appearance",
-        run: () => {
-          useUi.getState().touchTheme();
-          const cur = document.documentElement.dataset.theme;
-          void actions.updateSettings({ theme: cur === "light" ? "dark" : "light" });
-        },
-      },
-      { id: "rescan", group: "App", label: "Re-scan for Epic Games Launcher installs", icon: <RefreshCw size={15} />, run: () => void actions.rescanEgl() },
-      { id: "scanDrives", group: "App", label: "Scan all drives for existing installs", icon: <RefreshCw size={15} />, run: () => void actions.rescanEgl(true) },
-      { id: "logs", group: "App", label: "Copy logs for a bug report", icon: <Wrench size={15} />, run: () => void actions.copyLogs() },
-    );
-    if (signedIn) cmds.push({ id: "signout", group: "App", label: "Sign out", icon: <LogOut size={15} />, run: () => void actions.signOut() });
-    return cmds;
-  }, [snap, currentGame, go, openDialog]);
+    return out.slice(0, 5);
+  }, [ctx, commands, index, recentIds]);
 
-  // Typing also searches the library (through the in-memory index): "Open <game>" jumps to its page.
-  const games = useMemo<Command[]>(() => {
-    if (!query.trim()) return [];
-    return index
-      .query({ search: query })
-      .slice(0, 8)
-      .map((g) => ({ id: `game-${g.appName}`, group: "Games" as const, label: g.title, icon: <Gamepad2 size={15} />, run: () => goGame(g.appName) }));
-  }, [index, query]);
+  const suggested = useMemo<PaletteItem[]>(() => {
+    if (!ctx) return [];
+    const out: PaletteItem[] = [];
+    const take = (id: string) => commands.find((c) => c.id === id && !c.disabled);
+    const primary = take("cmd:game-primary");
+    if (primary) out.push({ ...primary, group: "suggested" });
+    if (ctx.snap.queue.paused) {
+      const r = take("cmd:resume-all");
+      if (r) out.push({ ...r, group: "suggested" });
+    }
+    if (ctx.snap.library.updatesAvailable > 0) {
+      const u = take("cmd:update-all");
+      if (u) out.push({ ...u, group: "suggested" });
+    }
+    for (const g of index.recentlyPlayed(3)) if (out.length < 5) out.push(gameItem(g, ctx, "suggested"));
+    return out.slice(0, 5);
+  }, [ctx, commands, index]);
 
-  const results = useMemo(
-    () => [
-      ...games,
-      ...commands
-        .map((c) => ({ c, s: score(query, `${c.label} ${c.keywords ?? ""}`) }))
-        .filter((r) => r.s > 0)
-        .sort((a, b) => (query ? b.s - a.s : 0))
-        .map((r) => r.c),
-    ],
-    [commands, games, query],
-  );
+  const sections = useMemo(() => buildSections(query, games, commands, recents, suggested), [query, games, commands, recents, suggested]);
+  const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
+  const active = flat[Math.min(cursor, flat.length - 1)];
 
   useEffect(() => {
-    list.current?.querySelector<HTMLElement>(`[data-index="${cursor}"]`)?.scrollIntoView({ block: "nearest" });
+    const el = list.current;
+    if (!el) return;
+    if (cursor === 0) el.scrollTop = 0;
+    else el.querySelector<HTMLElement>(`[data-index="${cursor}"]`)?.scrollIntoView({ block: "nearest" });
   }, [cursor]);
 
-  const run = (c: Command | undefined) => {
-    if (!c || c.disabled) return;
+  const run = (item: PaletteItem | undefined, action?: ItemAction) => {
+    if (!item || item.disabled) return;
+    const a = action ?? item.actions[0];
+    if (!a) return;
+    pushRecent(item.id);
     close();
-    c.run();
+    a.run();
   };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    const last = flat.length - 1;
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        setCursor((i) => (i >= last ? 0 : i + 1));
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        setCursor((i) => (i <= 0 ? last : i - 1));
+        break;
+      case "PageDown":
+        e.preventDefault();
+        setCursor((i) => Math.min(last, i + 6));
+        break;
+      case "PageUp":
+        e.preventDefault();
+        setCursor((i) => Math.max(0, i - 6));
+        break;
+      case "Home":
+        if (e.ctrlKey) {
+          e.preventDefault();
+          setCursor(0);
+        }
+        break;
+      case "End":
+        if (e.ctrlKey) {
+          e.preventDefault();
+          setCursor(last);
+        }
+        break;
+      case "Enter": {
+        e.preventDefault();
+        if (!active) return;
+        const keys = e.ctrlKey || e.metaKey ? "Ctrl+Enter" : e.shiftKey ? "Shift+Enter" : "Enter";
+        run(active.item, active.item.actions.find((a) => a.keys === keys));
+        break;
+      }
+    }
+  };
+
+  const optionId = (item: PaletteItem) => `${uid}-${item.id}`;
+  let n = -1;
 
   return (
     <>
-          <div className="flex items-center gap-3 border-b border-border px-4">
-            <Search size={16} className="shrink-0 text-fg-subtle" />
-            <input
-              autoFocus
-              role="combobox"
-              aria-expanded
-              aria-controls="palette-list"
-              aria-activedescendant={results[cursor] ? `cmd-${results[cursor]!.id}` : undefined}
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setCursor(0);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  setCursor((i) => Math.min(results.length - 1, i + 1));
-                } else if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  setCursor((i) => Math.max(0, i - 1));
-                } else if (e.key === "Enter") {
-                  e.preventDefault();
-                  run(results[cursor]);
-                }
-              }}
-              placeholder="Type a command or search…"
-              className="h-12 min-w-0 flex-1 bg-transparent text-base text-fg outline-none placeholder:text-fg-subtle"
-            />
-            <Kbd>Esc</Kbd>
-          </div>
-          <div ref={list} id="palette-list" role="listbox" aria-label="Commands" className="max-h-[340px] overflow-y-auto p-1.5">
-            {results.length === 0 && <p className="px-3 py-8 text-center text-sm text-fg-muted">No commands match “{query}”.</p>}
-            {results.map((c, i) => {
-              const showGroup = !query && (i === 0 || results[i - 1]!.group !== c.group);
-              return (
-                <div key={c.id}>
-                  {showGroup && <p className="px-3 pb-1 pt-2.5 text-xs text-fg-subtle">{c.group}</p>}
-                  <div
-                    id={`cmd-${c.id}`}
-                    role="option"
-                    data-index={i}
-                    aria-selected={i === cursor}
-                    aria-disabled={c.disabled || undefined}
-                    onMouseMove={() => setCursor(i)}
-                    onClick={() => run(c)}
-                    className={cx(
-                      "flex h-9 items-center gap-3 rounded-lg px-3 text-sm",
-                      c.disabled ? "opacity-45" : "text-fg",
-                      i === cursor && "bg-surface-hover",
-                    )}
-                  >
-                    <span className="text-fg-muted">{c.icon}</span>
-                    <span className="min-w-0 flex-1 truncate">{c.label}</span>
-                    {c.shortcut ? <Kbd>{c.shortcut}</Kbd> : i === cursor && !c.disabled ? <CornerDownLeft size={13} className="text-fg-subtle" /> : null}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+      <div className="flex items-center gap-3 border-b border-border px-4">
+        <Search size={16} aria-hidden className="shrink-0 text-fg-subtle" />
+        <input
+          autoFocus
+          role="combobox"
+          aria-expanded={flat.length > 0}
+          aria-controls={`${uid}-list`}
+          aria-autocomplete="list"
+          aria-label="Search games and commands"
+          aria-activedescendant={active ? optionId(active.item) : undefined}
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setCursor(0);
+          }}
+          onKeyDown={onKeyDown}
+          placeholder="Search games, settings and actions…"
+          spellCheck={false}
+          autoComplete="off"
+          className="h-12 min-w-0 flex-1 bg-transparent text-base text-fg outline-none placeholder:text-fg-subtle"
+        />
+        <Kbd>Esc</Kbd>
+      </div>
+
+      {flat.length === 0 && <p className="px-3 py-8 text-center text-sm text-fg-muted">No results for “{query.trim()}”</p>}
+      <div ref={list} id={`${uid}-list`} role="listbox" aria-label="Results" hidden={flat.length === 0} className="max-h-[min(420px,calc(100vh-220px))] overflow-y-auto p-1.5">
+        {sections.map((s) => {
+          const gid = `${uid}-g-${s.group}`;
+          return (
+            <div key={s.group} role="group" aria-labelledby={gid} className="mt-1 first:mt-0">
+              <p id={gid} className="px-3 pb-1 pt-2 text-xs font-medium text-fg-subtle">
+                {GROUP_LABEL[s.group]}
+              </p>
+              {s.rows.map((r) => {
+                n++;
+                return <Row key={r.item.id + s.group} r={r} index={n} active={n === cursor} id={optionId(r.item)} onRun={run} onHover={(i) => i !== cursor && setCursor(i)} />;
+              })}
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="sr-only" role="status" aria-live="polite">
+        {query.trim() ? `${flat.length} ${flat.length === 1 ? "result" : "results"}` : ""}
+      </p>
     </>
   );
 }
@@ -237,7 +275,7 @@ export function CommandPalette() {
         <Dialog.Content
           aria-label="Command palette"
           aria-describedby={undefined}
-          className="fixed left-1/2 top-[14vh] z-50 w-[560px] max-w-[calc(100vw-32px)] -translate-x-1/2 overflow-hidden rounded-xl border border-border-strong bg-popover shadow-lg outline-none"
+          className="fixed left-1/2 top-[12vh] z-50 w-[600px] max-w-[calc(100vw-32px)] -translate-x-1/2 overflow-hidden rounded-xl border border-border-strong bg-popover shadow-lg outline-none"
         >
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
           <PaletteBody close={() => setOpen(false)} />

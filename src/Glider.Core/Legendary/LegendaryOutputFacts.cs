@@ -221,8 +221,9 @@ internal sealed class LegendaryOutputFacts
         }
         else if (msg.StartsWith("Waiting for installation to finish", StringComparison.Ordinal))
         {
+            // The network is done; the file writer is still patching/writing: the disk-only "Installing" tail.
             Finalizing = true;
-            Phase = JobPhase.Finalizing;
+            Phase = JobPhase.Installing;
         }
         else if (msg.StartsWith("Verifying \"", StringComparison.Ordinal))
         {

@@ -4,6 +4,7 @@ import type {
   EglReadiness,
   FixAction,
   FolderValidation,
+  GameSettings,
   GliderError,
   OnboardingStep,
   InstallPlan,
@@ -12,6 +13,10 @@ import type {
   LaunchMode,
   LaunchResult,
   SaveSide,
+  SaveState,
+  ShortcutLocation,
+  ShortcutState,
+  SyncDirection,
   Settings,
   UninstallMode,
   VerifyMode,
@@ -20,6 +25,7 @@ import { rpc } from "../ipc/rpc";
 import { driveOf, dirname } from "./format";
 import { getGame, useLibrary } from "./library";
 import { toast } from "./notices";
+import { useLaunchNotes } from "./launch";
 import { goGame } from "./router";
 import { getSnapshot, historyJobs, useApp } from "./store";
 import { useUi, type ErrorSurface } from "./ui";
@@ -107,17 +113,24 @@ export const actions = {
     if (ok) toast({ level: "info", title: "Signed out", duration: 3500 });
   },
 
-  planInstall(appName: string, basePath: string | null): Promise<InstallPlan | undefined> {
-    return run(pendingKey("plan", appName), () => rpc().call("game.planInstall", { appName, basePath, components: null, dlc: null }), inline("install", undefined, undefined, appName));
+  /** Ask Core what an install would need. `components` / `dlc` of null mean "the defaults"; pass ids to re-plan a selection. */
+  planInstall(appName: string, basePath: string | null, components: string[] | null = null, dlc: string[] | null = null, surface: ErrorSurface = "install"): Promise<InstallPlan | undefined> {
+    return run(pendingKey("plan", appName), () => rpc().call("game.planInstall", { appName, basePath, components, dlc }), inline(surface, undefined, undefined, appName));
   },
 
-  install(appName: string, basePath: string, surface: ErrorSurface = "hero"): Promise<JobInfo | undefined> {
+  install(appName: string, basePath: string, surface: ErrorSurface = "hero", selection: { components?: string[] | null; dlc?: string[] | null; priority?: boolean } = {}): Promise<JobInfo | undefined> {
     clear(surface);
     return run(
       pendingKey("install", appName),
-      () => rpc().call("game.install", { appName, basePath, components: null, dlc: null, priority: false }),
-      inline(surface, () => void actions.install(appName, basePath, surface), undefined, appName),
+      () => rpc().call("game.install", { appName, basePath, components: selection.components ?? null, dlc: selection.dlc ?? null, priority: selection.priority ?? false }),
+      inline(surface, () => void actions.install(appName, basePath, surface, selection), undefined, appName),
     );
+  },
+
+  /** Change which components and DLC of an installed game are on disk (one Modify job). */
+  modifyInstall(appName: string, components: string[], dlc: string[]): Promise<JobInfo | undefined> {
+    clear("hero");
+    return run(pendingKey("modify", appName), () => rpc().call("game.modify", { appName, components, dlc }), inline("hero", () => void actions.modifyInstall(appName, components, dlc), undefined, appName));
   },
 
   update(appName: string): Promise<JobInfo | undefined> {
@@ -153,16 +166,51 @@ export const actions = {
   /** Link a third-party-store game (Ubisoft Connect / EA app) once. */
   async activate(appName: string): Promise<void> {
     const ok = await run(pendingKey("activate", appName), async () => (await rpc().call("game.activate", { appName }), true), inline("hero", undefined, undefined, appName));
-    if (ok) toast({ level: "success", title: `${titleOf(appName)} is linked`, duration: 3500 });
+    if (ok) {
+      useLaunchNotes.getState().clear(appName);
+      toast({ level: "success", title: `${titleOf(appName)} is linked`, duration: 3500 });
+    }
+  },
+
+  async setShortcut(appName: string, location: ShortcutLocation, create: boolean): Promise<ShortcutState | undefined> {
+    return run(pendingKey("shortcut", appName), () => rpc().call("game.setShortcut", { appName, location, create }), asToast());
+  },
+
+  /** Persist one game's launch settings; the caller shows the new value optimistically and rolls back on undefined. */
+  async updateGameSettings(appName: string, settings: GameSettings): Promise<GameSettings | undefined> {
+    return run(pendingKey("gameSettings", appName), () => rpc().call("game.updateSettings", { appName, settings }), asToast());
+  },
+
+  async syncSaves(appName: string, direction: SyncDirection = "auto"): Promise<SaveState | undefined> {
+    return run(pendingKey("sync", appName), () => rpc().call("saves.sync", { appName, direction }), asToast(() => void actions.syncSaves(appName, direction)));
+  },
+
+  async openSaveBackups(appName: string): Promise<void> {
+    await run(pendingKey("backups", appName), () => rpc().call("saves.openBackups", { appName }), asToast());
+  },
+
+  async setCollectionMembership(id: string, appName: string, member: boolean): Promise<void> {
+    await run(pendingKey("collection", appName), () => rpc().call("collections.setMembership", { id, appName, member }), asToast());
   },
 
   async installPrerequisites(appName: string): Promise<void> {
     await run(pendingKey("prereq", appName), async () => (await rpc().call("game.installPrerequisites", { appName }), true), inline("hero", undefined, undefined, appName));
   },
 
-  async resolveSaves(appName: string, keep: SaveSide, thenLaunch: boolean): Promise<void> {
-    const r = await run(pendingKey("saves", appName), () => rpc().call("saves.resolve", { appName, keep, thenLaunch }), inline("hero", undefined, undefined, appName));
+  /** Resolves a save conflict (the other side is backed up first). Resolves to true when Core accepted it. */
+  async resolveSaves(appName: string, keep: SaveSide, thenLaunch: boolean): Promise<boolean> {
+    let ok = false;
+    const r = await run(
+      pendingKey("saves", appName),
+      async () => {
+        const result = await rpc().call("saves.resolve", { appName, keep, thenLaunch });
+        ok = true;
+        return result;
+      },
+      inline("hero", undefined, undefined, appName),
+    );
     if (r) announceLaunch(appName, r);
+    return ok;
   },
 
   async setFavorite(appName: string, value: boolean): Promise<void> {
@@ -378,19 +426,24 @@ export const actions = {
   },
 };
 
-/** What a launch/resolve result means for the user when nothing started. (The real dialogs come with the game page.) */
+/**
+ * What a launch/resolve result means for the user. A conflict opens the conflict dialog (never a silent overwrite);
+ * "needs activation" and "opened a launcher" become a note on that game's page, where the next step lives.
+ */
 function announceLaunch(appName: string, r: LaunchResult): void {
+  const notes = useLaunchNotes.getState();
   switch (r.outcome) {
     case "saveConflict":
-      toast({ level: "warning", title: "Your saves differ", message: `${titleOf(appName)}'s cloud and local saves both changed. Choose which to keep.`, action: "resolveSaves", appName });
+      useUi.getState().openDialog({ kind: "saveConflict", appName, conflict: r.conflict, thenPlay: true });
       return;
     case "needsActivation":
-      toast({ level: "warning", title: "Link your account first", message: r.message ?? undefined, action: "activate", appName });
+      notes.set(appName, { kind: "needsActivation", message: r.message });
       return;
     case "thirdPartyLauncher":
-      toast({ level: "info", title: `Opening ${getGame(appName)?.thirdPartyName ?? "the launcher"}`, message: r.message ?? undefined, duration: 3500 });
+      notes.set(appName, { kind: "thirdPartyLauncher", message: r.message });
       return;
     case "started":
+      notes.clear(appName);
       return;
   }
 }
@@ -444,7 +497,10 @@ export function runFix(fix: FixAction, ctx: FixContext = {}): void {
       if (ctx.appName) void actions.activate(ctx.appName);
       return;
     case "resolveSaves":
-      if (ctx.appName) goGame(ctx.appName);
+      if (ctx.appName) {
+        goGame(ctx.appName);
+        ui.openDialog({ kind: "saveConflict", appName: ctx.appName, thenPlay: false });
+      }
       return;
     case "installPrerequisites":
       if (ctx.appName) void actions.installPrerequisites(ctx.appName);

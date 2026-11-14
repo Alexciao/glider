@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "./tokens.css";
 @import "./ui.css";
+@import "./ui-forms.css";
 
 @utility app-drag {
   -webkit-app-region: drag;

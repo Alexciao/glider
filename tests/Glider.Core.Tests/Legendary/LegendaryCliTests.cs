@@ -298,14 +298,14 @@ public class LegendaryCliTests
         using var cli = Cli(env);
         var ct = TestContext.Current.CancellationToken;
 
-        var cmd = await cli.GetLaunchCommandAsync("Fortnite", skipVersionCheck: true, "-nosplash", ct);
+        var cmd = await cli.GetLaunchCommandAsync("Fortnite", skipVersionCheck: true, "-nosplash", false, ct);
         Assert.EndsWith("FortniteLauncher.exe", cmd.Executable, StringComparison.Ordinal);
         Assert.Equal("-nosplash", cmd.Arguments[0]);
         Assert.Contains("-AUTH_PASSWORD=0123456789abcdef0123456789abcdef", cmd.Arguments);
         Assert.Equal(["launch", "Fortnite", "--json", "--skip-version-check"], env.Invocations()[0].Args);
         Assert.False(env.Log.Contains("0123456789abcdef0123456789abcdef")); // exchange code never logged
 
-        var e = await Assert.ThrowsAsync<GliderException>(() => cli.GetLaunchCommandAsync("Fortnite", false, "", ct));
+        var e = await Assert.ThrowsAsync<GliderException>(() => cli.GetLaunchCommandAsync("Fortnite", false, "", false, ct));
         Assert.Equal(ErrorCode.LaunchFailed, e.Error.Code);
     }
 

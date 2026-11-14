@@ -5,18 +5,16 @@ using Glider.Core.Services;
 namespace Glider.Core.Game;
 
 /// <summary>
-/// Easy Anti-Cheat (EOS) check before the first launch. Fortnite ships its own bootstrapper:
-/// <c>FortniteGame\Binaries\Win64\EasyAntiCheat\EasyAntiCheat_EOS_Setup.exe install prod-fn</c>
-/// (Epic's help article "How do I install Easy Anti-Cheat on my computer to play Fortnite?" — high confidence).
-/// The product id is read from the adjacent <c>Settings.json</c> (<c>productid</c>) when present, which is how
-/// easy.ac documents the generic command; <c>prod-fn</c> is the fallback. If the live manifest lists an EAC
-/// prerequisite (`info --json` → manifest.prerequisites), its path/args win.
+/// Easy Anti-Cheat (EOS) check before a launch. A game that ships EAC carries its bootstrapper in an <c>EasyAntiCheat</c>
+/// folder next to a <c>Settings.json</c> holding the product id (easy.ac's generic command:
+/// <c>EasyAntiCheat_EOS_Setup.exe install &lt;productid&gt;</c>). Profiles pin the path and a fallback id (Fortnite:
+/// <c>FortniteGame\Binaries\Win64\EasyAntiCheat\EasyAntiCheat_EOS_Setup.exe install prod-fn</c>). The setup runs elevated
+/// once, only when the EAC service is missing, only from inside the game folder and only when Epic-signed.
 /// </summary>
 internal sealed partial class EacService
 {
     public static readonly string[] ServiceNames = ["EasyAntiCheat_EOS", "EasyAntiCheat"];
-    public const string SetupRelative = @"FortniteGame\Binaries\Win64\EasyAntiCheat\EasyAntiCheat_EOS_Setup.exe";
-    public const string DefaultProductId = "prod-fn";
+    private static readonly string[] SetupNames = ["EasyAntiCheat_EOS_Setup.exe", "EasyAntiCheat_Setup.exe"];
 
     private readonly ServiceContext _c;
     private bool _knownInstalled;
@@ -43,14 +41,18 @@ internal sealed partial class EacService
     }
 
     /// <summary>Returns true if Glider ran the EAC setup now. Throws EacSetupFailed if UAC was declined or setup failed.</summary>
-    public async Task<bool> EnsureInstalledAsync(string gamePath, Action onInstalling, CancellationToken ct)
+    public async Task<bool> EnsureInstalledAsync(string app, string gamePath, Action onInstalling, CancellationToken ct)
     {
         if (IsInstalled())
         {
             return false;
         }
 
-        var (exe, args) = ResolveSetup(gamePath);
+        if (ResolveSetup(app, gamePath) is not var (exe, args))
+        {
+            return false; // no Easy Anti-Cheat in this game
+        }
+
         if (!File.Exists(exe))
         {
             // Nothing we can run; the game's own bootstrapper will report EAC problems itself.
@@ -69,11 +71,11 @@ internal sealed partial class EacService
         if (_c.Options.PublisherCheck.WhyUntrusted(exe) is { } why)
         {
             _c.Log.Error("eac", $"Not running {exe} elevated: {why}.");
-            throw new GliderException(Errors.EacSetupFailed($"Glider won't run {Path.GetFileName(exe)} as administrator because {why}. Repair Fortnite to restore it."));
+            throw new GliderException(Errors.EacSetupFailed($"Glider won't run {Path.GetFileName(exe)} as administrator because {why}. Repair the game to restore it."));
         }
 
         onInstalling();
-        _c.Log.Info("eac", $"installing Easy Anti-Cheat: {Path.GetFileName(exe)} {args}");
+        _c.Log.Info("eac", $"installing Easy Anti-Cheat for {app}: {Path.GetFileName(exe)} {args}");
         var exit = await _c.Host.RunElevatedAsync(exe, args, ct);
         if (exit is null)
         {
@@ -89,22 +91,32 @@ internal sealed partial class EacService
         return true;
     }
 
-    internal (string Exe, string Args) ResolveSetup(string gamePath)
+    /// <summary>The setup and its arguments, or null when the game ships no Easy Anti-Cheat (or no usable product id).</summary>
+    internal static (string Exe, string Args)? ResolveSetup(string app, string gamePath)
     {
-        if (_c.LastGameInfo?.Prerequisites is { Path: { Length: > 0 } p } pre
-            && p.Contains("EasyAntiCheat", StringComparison.OrdinalIgnoreCase))
+        var profile = GameProfiles.For(app);
+        if (profile.Eac is { } eac)
         {
-            return (Combine(gamePath, p), pre.Args ?? $"install {DefaultProductId}");
+            var exe = Path.Combine(gamePath, GameProfiles.Normalize(eac.SetupRelative));
+            var id = ProductId(Path.GetDirectoryName(exe)!);
+            return (exe, $"install {id ?? eac.DefaultProductId}");
         }
 
-        var exe = Combine(gamePath, SetupRelative);
-        var settings = Path.Combine(Path.GetDirectoryName(exe)!, "Settings.json");
-        var id = JsonFiles.ReadString(settings, "productid");
-        return (exe, $"install {(id is not null && SafeId().IsMatch(id) ? id : DefaultProductId)}");
+        if (GameProfiles.FindAntiCheatFolder(gamePath, "EasyAntiCheat", "Settings.json") is not { } folder)
+        {
+            return null;
+        }
+
+        var setup = SetupNames.Select(n => Path.Combine(folder, n)).FirstOrDefault(File.Exists);
+        var productId = ProductId(folder);
+        return setup is null || productId is null ? null : (setup, $"install {productId}");
     }
 
-    private static string Combine(string root, string relative) =>
-        Path.Combine(root, relative.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar));
+    private static string? ProductId(string folder)
+    {
+        var id = JsonFiles.ReadString(Path.Combine(folder, "Settings.json"), "productid");
+        return id is not null && SafeId().IsMatch(id) ? id : null;
+    }
 
     [GeneratedRegex("^[A-Za-z0-9_-]{1,64}$")]
     private static partial Regex SafeId();

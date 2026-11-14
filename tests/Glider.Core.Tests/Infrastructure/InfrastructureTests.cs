@@ -58,38 +58,37 @@ public class AtomicFileTests
 
 public class JsonFileStoreTests
 {
-    private static GameRecord Record(string version) =>
-        new(@"D:\Games\Fortnite", version, 42, new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero), false, null, false);
+    private static CollectionsFile Record(string version) => new() { Collections = [new Collection(version, version, [])] };
 
     [Fact]
     public async Task RoundTripsAndFallsBackToBackupWhenCorrupt()
     {
         using var dir = new TempDir();
         var ct = TestContext.Current.CancellationToken;
-        using var store = new JsonFileStore<GameRecord>(dir.Combine("game.json"), EngineJsonContext.Default.GameRecord);
+        using var store = new JsonFileStore<CollectionsFile>(dir.Combine("collections.json"), EngineJsonContext.Default.CollectionsFile);
         await store.SaveAsync(Record("1"), ct);
         await store.SaveAsync(Record("2"), ct);
-        Assert.Equal("2", (await store.LoadAsync(ct))!.Version);
+        Assert.Equal("2", (await store.LoadAsync(ct))!.Collections[0].Name);
 
         await File.WriteAllTextAsync(store.FilePath, "{ torn", ct);
-        Assert.Equal("1", (await store.LoadAsync(ct))!.Version);
+        Assert.Equal("1", (await store.LoadAsync(ct))!.Collections[0].Name);
     }
 
     [Fact]
     public async Task ConcurrentSavesAreOrderedAndCoalesced()
     {
         using var dir = new TempDir();
-        using var store = new JsonFileStore<GameRecord>(dir.Combine("game.json"), EngineJsonContext.Default.GameRecord);
+        using var store = new JsonFileStore<CollectionsFile>(dir.Combine("collections.json"), EngineJsonContext.Default.CollectionsFile);
         var saves = Enumerable.Range(0, 50).Select(i => store.SaveAsync(Record(i.ToString()))).ToList();
         await Task.WhenAll(saves);
-        Assert.Equal("49", (await store.LoadAsync(TestContext.Current.CancellationToken))!.Version);
+        Assert.Equal("49", (await store.LoadAsync(TestContext.Current.CancellationToken))!.Collections[0].Name);
     }
 
     [Fact]
     public async Task SavingNullDeletesTheFile()
     {
         using var dir = new TempDir();
-        using var store = new JsonFileStore<GameRecord>(dir.Combine("game.json"), EngineJsonContext.Default.GameRecord);
+        using var store = new JsonFileStore<CollectionsFile>(dir.Combine("collections.json"), EngineJsonContext.Default.CollectionsFile);
         await store.SaveAsync(Record("1"), TestContext.Current.CancellationToken);
         await store.SaveAsync(null, TestContext.Current.CancellationToken);
         Assert.False(File.Exists(store.FilePath));
@@ -206,43 +205,72 @@ public class SettingsStoreTests
         {
             SharedMemoryMb = 1,
             UpdateCheckIntervalMinutes = 0,
-            LaunchArgs = "-a\r\n-b",
             PreferredCdn = "bad host!",
             DefaultInstallBase = "relative\\path",
+            LibraryFolders = [@"D:\Games", "relative", @"D:\Games\"],
+            SpeedLimitBytesPerSecond = -5,
         });
 
         Assert.Equal(AutoTune.MinSharedMemoryMb, result.SharedMemoryMb);
         Assert.Equal(SettingsStore.MinUpdateIntervalMinutes, result.UpdateCheckIntervalMinutes);
-        Assert.Equal("-a  -b", result.LaunchArgs);
+        Assert.Equal("-a  -b", SettingsStore.CleanLaunchArgs("-a\r\n-b"));
         Assert.Null(result.PreferredCdn);
         Assert.Null(result.DefaultInstallBase);
+        Assert.Equal([@"D:\Games"], result.LibraryFolders);
+        Assert.Null(result.SpeedLimitBytesPerSecond);
         Assert.Equal(result, seen);
 
         using var reloaded = await SettingsStore.LoadAsync(paths, new TestLog(), TestContext.Current.CancellationToken);
-        Assert.Equal(result, reloaded.Current);
+        Assert.Equal(result with { LibraryFolders = [] }, reloaded.Current with { LibraryFolders = [] });
+        Assert.Equal(result.LibraryFolders, reloaded.Current.LibraryFolders);
+        Assert.Contains("\"schemaVersion\": 2", await File.ReadAllTextAsync(SettingsStore.PathFor(paths), TestContext.Current.CancellationToken), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheDefaultInstallBaseIsAlwaysALibraryFolder()
+    {
+        var s = SettingsStore.Normalize(Settings.Default with { DefaultInstallBase = @"E:\Games", LibraryFolders = [@"D:\Library"] });
+        Assert.Equal([@"E:\Games", @"D:\Library"], s.LibraryFolders);
     }
 }
 
-public class GameRecordStoreTests
+public class GamesStoreTests
 {
     [Fact]
-    public async Task RoundTripsAndClears()
+    public async Task RoundTripsPerGameEntries_AndDropsEmptyOnes()
     {
         using var dir = new TempDir();
         var paths = new AppPaths(dir.Path, "legendary.exe");
-        var record = new GameRecord(@"D:\Games\Fortnite", "++Fortnite+Release-33.00", 123, DateTimeOffset.UnixEpoch, true, "ABCDEF", false);
-        using (var store = await GameRecordStore.LoadAsync(paths, new TestLog(), TestContext.Current.CancellationToken))
+        var record = new InstallRecord("Fortnite", @"D:\Games\Fortnite", "++Fortnite+Release-33.00", 123, DateTimeOffset.UnixEpoch, true, "ABCDEF", false);
+        using (var store = await GamesStore.LoadAsync(paths, new TestLog(), TestContext.Current.CancellationToken))
         {
-            Assert.Null(store.Current);
-            await store.SaveAsync(record);
+            Assert.Empty(store.Current);
+            await store.UpdateAsync("Fortnite", e => e with { Install = record, PlaytimeSeconds = 42 });
+            await store.UpdateAsync("Other", e => e with { Favorite = true, Settings = e.Settings with { LaunchArgs = "-x" } });
         }
 
-        using (var store = await GameRecordStore.LoadAsync(paths, new TestLog(), TestContext.Current.CancellationToken))
+        using (var store = await GamesStore.LoadAsync(paths, new TestLog(), TestContext.Current.CancellationToken))
         {
-            Assert.Equal(record, store.Current);
-            await store.SaveAsync(null);
-            Assert.False(File.Exists(GameRecordStore.PathFor(paths)));
+            Assert.Equal(record, store.Get("Fortnite").Install);
+            Assert.Equal(42, store.Get("Fortnite").PlaytimeSeconds);
+            Assert.True(store.Get("Other").Favorite);
+            Assert.Equal("-x", store.Get("Other").Settings.LaunchArgs);
+            await store.UpdateAsync("Other", _ => GameEntry.Empty);
+            Assert.False(store.Current.ContainsKey("Other"));
         }
+
+        var json = await File.ReadAllTextAsync(GamesStore.PathFor(paths), TestContext.Current.CancellationToken);
+        Assert.Contains("\"schemaVersion\": 2", json, StringComparison.Ordinal);
+        Assert.Contains("\"appName\": \"Fortnite\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EntriesWithMissingFieldsGetDefaults()
+    {
+        var file = System.Text.Json.JsonSerializer.Deserialize("""{"schemaVersion":2,"games":{"X":{"favorite":true},"Y":{"install":{"installPath":"","version":"1"}}}}""", EngineJsonContext.Default.GamesFile);
+        var map = GamesStore.Normalize(file, null);
+        Assert.Equal(GameSettings.Default, map["X"].Settings);
+        Assert.Null(map["Y"].Install); // an install without a path is dropped
     }
 }
 

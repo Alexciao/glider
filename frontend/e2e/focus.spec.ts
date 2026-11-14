@@ -8,7 +8,7 @@ import { expect, test } from "@playwright/test";
 const PAGES: { name: string; query: string; go?: [string, string?] }[] = [
   { name: "library", query: "scenario=returning" },
   { name: "downloads", query: "scenario=downloading&freeze=1", go: ["downloads"] },
-  { name: "settings", query: "scenario=returning", go: ["settings", "general"] },
+  { name: "settings", query: "scenario=returning", go: ["settings", "startup"] },
   { name: "onboarding", query: "scenario=firstRunSignedIn" },
 ];
 
@@ -30,7 +30,10 @@ for (const theme of ["dark", "light"] as const) {
           const wrapper = el.closest("[class*='focus-within']") as HTMLElement | null;
           const wrapperRing = wrapper ? getComputedStyle(wrapper).boxShadow !== "none" : false;
           const label = el.getAttribute("aria-label") || el.textContent?.trim().slice(0, 24) || el.tagName;
-          return { label, outlined: own.outlineStyle !== "none" && parseFloat(own.outlineWidth) > 0, wrapperRing };
+          // A split button draws one ring around the whole group (each segment stays a tab stop).
+          const group = el.closest("[data-split]") as HTMLElement | null;
+          const groupRing = group ? getComputedStyle(group).outlineStyle !== "none" && parseFloat(getComputedStyle(group).outlineWidth) > 0 : false;
+          return { label, outlined: own.outlineStyle !== "none" && parseFloat(own.outlineWidth) > 0, wrapperRing: wrapperRing || groupRing };
         });
         if (info && !info.outlined && !info.wrapperRing) missing.push(info.label);
       }
