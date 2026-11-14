@@ -17,7 +17,7 @@ namespace FakeLegendary;
 ///   errfile PATH [ms] / outfile PATH [ms]   replay a fixture line by line (leading '#' header lines skipped)
 ///   errbin PATH                  raw bytes to stderr
 ///   sleep MS | hang | exit CODE | child | readstdin
-///   download chunks=N files=F mib=M interval=MS [app=A] [stallat=PCT] [spam] [writefail=K [diskfull|locked]]
+///   download chunks=N files=F mib=M interval=MS [app=A] [stallat=PCT] [spam] [hangat=K] [writefail=K [diskfull|locked]]
 ///   verify files=N interval=MS [app=A] [corrupt=K] [missing=K] [locked=K]
 ///   installed version=V path=P [app=A] [tags=a,b] [needsverify]   |   uninstalled [app=A]
 ///   cloudsaves list | cloudsaves sync [fault=dropupload|failafterdelete|killafterdelete]   a fake Epic cloud under fake/cloud/<app>/<manifest>/
@@ -37,7 +37,10 @@ internal static partial class Program
     {
         if (args.Length == 2 && args[0] == "--fake-child")
         {
-            File.WriteAllText(args[1], Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
+            // Atomic: the file exists only once it is complete, so a test that polls for it can never open it mid-write (a sharing
+            // violation) and the parent's wait for it can never see an empty file.
+            File.WriteAllText(args[1] + ".tmp", Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
+            File.Move(args[1] + ".tmp", args[1], overwrite: true);
             Thread.Sleep(Timeout.Infinite);
             return 0;
         }
@@ -340,7 +343,11 @@ internal static partial class Program
 
     private static int FakeWorker(int port)
     {
-        using var client = new System.Net.Sockets.TcpClient("127.0.0.1", port);
+        // A small receive window, like a real transfer over a WAN: while this process is suspended only a few KiB can pile up, so
+        // the speed limiter's duty cycle bites. With loopback's default autotuned buffers (MBs) a suspended worker would still
+        // drain a burst the moment it resumes and the limiter could not get below about 15 MB/s.
+        using var client = new System.Net.Sockets.TcpClient { ReceiveBufferSize = 16 * 1024 };
+        client.Connect("127.0.0.1", port);
         using var stream = client.GetStream();
         var request = Encoding.ASCII.GetBytes("GET /chunk HTTP/1.1\r\nHost: x\r\n\r\n");
         var buffer = new byte[64 * 1024];
@@ -400,6 +407,7 @@ internal static partial class Program
         var mib = double.Parse(kv["mib"], CultureInfo.InvariantCulture);
         var interval = int.Parse(kv.GetValueOrDefault("interval", "20"), CultureInfo.InvariantCulture);
         var stallAt = kv.TryGetValue("stallat", out var sa) ? double.Parse(sa, CultureInfo.InvariantCulture) : (double?)null;
+        var hangAt = kv.TryGetValue("hangat", out var ha) ? int.Parse(ha, CultureInfo.InvariantCulture) : -1;
         var writeFailAt = kv.TryGetValue("writefail", out var wf) ? int.Parse(wf, CultureInfo.InvariantCulture) : -1;
         var resume = Path.Combine(_config, "tmp", app + ".resume");
         var done = File.Exists(resume) ? File.ReadAllLines(resume).Count(l => l.Length > 0) : 0;
@@ -450,6 +458,11 @@ internal static partial class Program
             {
                 var name = $"FortniteGame/Content/Paks/pakchunk{fileIndex}-WindowsClient.pak";
                 File.AppendAllText(resume, $"{Convert.ToHexStringLower(SHA1.HashData(Encoding.UTF8.GetBytes(name)))}:{name}\n");
+            }
+
+            if (fileIndex + 1 == hangAt)
+            {
+                Thread.Sleep(Timeout.Infinite); // a deterministic mid-download point: K files done and recorded, then nothing until the test pauses or cancels
             }
         }
 
