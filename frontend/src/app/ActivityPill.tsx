@@ -1,7 +1,7 @@
 import { AnimatePresence, m } from "motion/react";
 import { Clock, Pause } from "lucide-react";
 import type { JobInfo } from "../ipc/contract.gen";
-import { JOB_VERB, PHASE_LABEL } from "../state/derive";
+import { PHASE_LABEL, jobVerb } from "../state/derive";
 import { formatPercent, formatSpeed } from "../state/format";
 import { useJobProgress } from "../state/progress";
 import { currentJob, useSnap } from "../state/store";
@@ -14,7 +14,7 @@ function PillBody({ job }: { job: JobInfo }) {
   const running = job.status === "running";
 
   let icon = <Spinner size={13} className="text-accent" />;
-  let text: string = JOB_VERB[job.kind];
+  let text: string = `${jobVerb(job.kind, progress?.phase ?? job.phase)} ${job.title}`;
   let detail: string | null = null;
   if (job.status === "paused") {
     icon = <Pause size={13} className="text-warning-text" />;
@@ -23,12 +23,12 @@ function PillBody({ job }: { job: JobInfo }) {
   } else if (job.status === "waiting") {
     icon = <Clock size={13} className="text-warning-text" />;
     text = "Waiting";
-    detail = "Epic Games Launcher is busy";
+    detail = job.blockedReason ?? "Waiting";
   } else if (job.status === "queued") {
     icon = <Clock size={13} className="text-fg-subtle" />;
     text = "Queued";
   } else if (progress) {
-    detail = progress.phase === "downloading" ? `${formatPercent(percent)}  ·  ${formatSpeed(progress.downloadBytesPerSecond)}` : `${PHASE_LABEL[progress.phase]}  ·  ${formatPercent(percent)}`;
+    detail = progress.network ? `${formatPercent(percent)}  ·  ${formatSpeed(progress.network.bytesPerSecond)}` : `${PHASE_LABEL[progress.phase]}  ·  ${formatPercent(percent)}`;
   }
 
   return (
@@ -48,9 +48,9 @@ function PillBody({ job }: { job: JobInfo }) {
 
 /** Slim, persistent status for the active job; lives in the title bar so it never costs layout. */
 export function ActivityPill() {
-  const job = useSnap((s) => currentJob(s.jobs));
+  const job = useSnap((s) => currentJob(s.queue.jobs));
   const go = useUi((s) => s.go);
-  const label = job ? `${JOB_VERB[job.kind]}, ${job.status}. Open downloads` : "";
+  const label = job ? `${jobVerb(job.kind, job.phase)} ${job.title}, ${job.status}. Open downloads` : "";
   return (
     <AnimatePresence initial={false}>
       {job && (

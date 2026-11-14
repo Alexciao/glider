@@ -125,6 +125,9 @@ export function splitPath(path: string, tailSegments = 2): { head: string; tail:
   return { head, tail };
 }
 
+/** The parent folder of a Windows path. */
+export const dirname = (p: string): string => p.replace(/[\\/][^\\/]*$/, "");
+
 export function joinPath(base: string, leaf: string): string {
   return base.replace(/[\\/]+$/, "") + "\\" + leaf;
 }

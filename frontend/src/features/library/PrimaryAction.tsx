@@ -74,6 +74,7 @@ export const heroButtonTone = (primary: boolean) =>
 export const heroRadius = { outer: 16, inner: 6 } as const;
 
 export interface PrimaryActionProps {
+  appName: string;
   hero: HeroModel;
   runningSince: string | null;
   pending: boolean;
@@ -90,9 +91,8 @@ export interface PrimaryActionProps {
  * while the label crossfades with a hair of blur so the two states read as one object changing.
  */
 /** Warms the launch command on hover/focus so Play starts the game almost instantly. Safe to repeat. */
-const prefetchLaunch = () => void actions.prepareLaunch();
-
-export function PrimaryAction({ hero, runningSince, pending, moment, joined, onPress }: PrimaryActionProps) {
+export function PrimaryAction({ appName, hero, runningSince, pending, moment, joined, onPress }: PrimaryActionProps) {
+  const prefetchLaunch = () => void actions.prepareLaunch(appName);
   const primary = hero.emphasis === "primary";
   const busy = pending && primary;
   // Pending reuses the next state's face, so click → pending → running reads as one continuous morph.

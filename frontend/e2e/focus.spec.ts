@@ -6,16 +6,16 @@ import { expect, test } from "@playwright/test";
  * `outline-none` that silently override the global :focus-visible ring.
  */
 const PAGES: { name: string; query: string; go?: [string, string?] }[] = [
-  { name: "library", query: "scenario=installed" },
+  { name: "library", query: "scenario=returning" },
   { name: "downloads", query: "scenario=downloading&freeze=1", go: ["downloads"] },
-  { name: "settings", query: "scenario=installed", go: ["settings", "general"] },
-  { name: "onboarding", query: "scenario=eglDetected" },
+  { name: "settings", query: "scenario=returning", go: ["settings", "general"] },
+  { name: "onboarding", query: "scenario=firstRunSignedIn" },
 ];
 
 for (const theme of ["dark", "light"] as const) {
   for (const p of PAGES) {
     test(`focus is visible on every Tab stop: ${p.name} (${theme})`, async ({ page }) => {
-      await page.goto(`/?${p.query}&theme=${theme}&dev=0`);
+      await page.goto(`/?${p.query}&theme=${theme}&dev=0${p.name === "library" ? "#/game/Fortnite" : ""}`);
       await page.waitForSelector("html[data-ready='1']");
       if (p.go) await page.evaluate(([pg, sec]) => (window as unknown as { __glider: { ui: { getState(): { go(p: string, s?: string): void } } } }).__glider.ui.getState().go(pg!, sec), p.go);
       await page.waitForTimeout(500);

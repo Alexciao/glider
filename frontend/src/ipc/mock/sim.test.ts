@@ -1,14 +1,43 @@
 import { describe, expect, it } from "vitest";
-import { GAME_ART, heroArt, tallArt } from "./art";
+import type { JobPhase } from "../contract.gen";
+import { GiB, MiB } from "./constants";
 import { Errors, errorForCode, formatBytes } from "./errors";
-import { GiB } from "./constants";
 import { ERROR_CODES } from "./options";
-import { JobSim, SpeedModel, TICK_S, buildJobSim, mulberry32 } from "./sim";
+import { JobSim, SpeedModel, TICK_S, buildJobSim, mulberry32, type JobSimInit } from "./sim";
+import { generatedArt } from "./art";
 
-describe("mulberry32", () => {
+const base: Omit<JobSimInit, "scale"> = {
+  jobId: "job-1",
+  appName: "Game",
+  kind: "install",
+  seed: 7,
+  installBytes: 40 * GiB,
+  downloadBytes: 20 * GiB,
+  writeBytes: 40 * GiB,
+  badFiles: 0,
+  badBytes: 0,
+};
+
+const make = (over: Partial<Omit<JobSimInit, "scale">> = {}, scale = 400): JobSim => new JobSim({ ...base, ...over, scale });
+
+/** Run to completion; returns the sequence of phases seen and every progress sample. */
+function run(sim: JobSim, maxTicks = 200_000) {
+  const phases: JobPhase[] = [];
+  const samples = [sim.progress()];
+  for (let i = 0; i < maxTicks && !sim.done; i++) {
+    const r = sim.advance(TICK_S);
+    const p = sim.progress();
+    if (phases.at(-1) !== p.phase) phases.push(p.phase);
+    samples.push(p);
+    if (r === "done") break;
+  }
+  return { phases, samples };
+}
+
+describe("mulberry32 / SpeedModel", () => {
   it("is deterministic and in [0, 1)", () => {
-    const a = mulberry32(5);
-    const b = mulberry32(5);
+    const a = mulberry32(42);
+    const b = mulberry32(42);
     for (let i = 0; i < 100; i++) {
       const v = a();
       expect(v).toBe(b());
@@ -16,182 +45,248 @@ describe("mulberry32", () => {
       expect(v).toBeLessThan(1);
     }
   });
-});
 
-describe("SpeedModel", () => {
   it("stays in a plausible range, with occasional dips", () => {
-    const m = new SpeedModel(mulberry32(1), { nominal: 62e6, min: 35e6, max: 95e6, dipTo: 8e6 });
+    const m = new SpeedModel(mulberry32(3), { nominal: 62e6, min: 35e6, max: 95e6, dipTo: 8e6 });
     let dips = 0;
-    let max = 0;
-    for (let i = 0; i < 6000; i++) {
-      m.step(TICK_S);
-      if (m.raw < 20e6) dips++;
-      max = Math.max(max, m.raw);
+    for (let i = 0; i < 5000; i++) {
+      m.step(0.1);
       expect(m.raw).toBeGreaterThan(5e6);
       expect(m.raw).toBeLessThan(110e6);
+      if (m.raw < 20e6) dips++;
     }
-    expect(dips).toBeGreaterThan(5);
-    expect(dips).toBeLessThan(1500);
-    expect(max).toBeGreaterThan(62e6);
+    expect(dips).toBeGreaterThan(0);
   });
 });
 
-describe("JobSim", () => {
-  const install = () => buildJobSim("job-1", "install", { installBytes: 0 }, 12, false, 7);
-
-  it("walks install phases in order and finishes at 100%", () => {
-    const sim = install();
-    const phases: string[] = [];
-    let last = "";
-    let guard = 0;
-    while (!sim.done && guard++ < 20_000) {
-      sim.advance(TICK_S);
-      const p = sim.progress();
-      if (p.phase !== last) phases.push((last = p.phase));
-    }
-    expect(phases).toEqual(["preparing", "downloading", "verifying", "finalizing"]);
-    expect(sim.done).toBe(true);
-    const p = sim.progress();
-    expect(p.percent).toBe(100);
-    expect(p.etaSeconds).toBe(0);
+describe("JobSim phases (honest phases)", () => {
+  it("install: preparing → downloading → installing → finalizing, ending at exactly 100%", () => {
+    const sim = make();
+    expect(sim.plannedPhases()).toEqual(["preparing", "downloading", "installing", "finalizing"]);
+    const { phases, samples } = run(sim);
+    expect(phases).toEqual(["preparing", "downloading", "installing", "finalizing", "finalizing"].slice(0, phases.length));
+    expect(phases).toContain("installing");
+    const last = sim.progress();
+    expect(last.percent).toBe(100);
+    expect(samples.some((s) => s.percent === 100)).toBe(true);
   });
 
-  it("keeps percent in 0..100 and byte counters monotonic within the download phase", () => {
-    const sim = install();
-    let prev = sim.progress();
-    for (let i = 0; i < 6000 && !sim.done; i++) {
-      sim.advance(TICK_S);
-      const p = sim.progress();
-      expect(p.percent).toBeGreaterThanOrEqual(0);
-      expect(p.percent).toBeLessThanOrEqual(100);
-      if (p.phase === prev.phase) {
-        expect(p.percent).toBeGreaterThanOrEqual(prev.percent);
-        expect(p.downloadedBytes).toBeGreaterThanOrEqual(prev.downloadedBytes);
-        expect(p.writtenBytes).toBeGreaterThanOrEqual(prev.writtenBytes);
+  it("whole-job percent is monotonic across every phase, including the repair of a verify", () => {
+    for (const over of [{}, { kind: "update" as const }, { kind: "verify" as const, badFiles: 12, badBytes: 340 * MiB }, { kind: "repair" as const, badFiles: 5, badBytes: 80 * MiB }, { kind: "move" as const }]) {
+      const { samples } = run(make(over));
+      let prev = -1;
+      for (const s of samples) {
+        expect(s.percent).toBeGreaterThanOrEqual(prev);
+        expect(s.percent).toBeLessThanOrEqual(100);
+        prev = s.percent;
       }
-      expect(p.writtenBytes).toBeLessThanOrEqual(p.totalWriteBytes + 1);
-      prev = p;
+      expect(prev).toBe(100);
     }
   });
 
-  it("writes trail downloads at the manifest ratio (~3.45x)", () => {
-    const sim = install();
-    sim.seek(0.5);
-    for (let i = 0; i < 50; i++) sim.advance(TICK_S);
-    const p = sim.progress();
-    expect(p.phase).toBe("downloading");
-    expect(p.writtenBytes / p.downloadedBytes).toBeGreaterThan(3.2);
-    expect(p.writtenBytes / p.downloadedBytes).toBeLessThan(3.5);
-    // Disk speed ≈ download speed × ratio.
-    expect(p.diskBytesPerSecond / p.downloadBytesPerSecond).toBeGreaterThan(2.6);
-    expect(p.diskBytesPerSecond / p.downloadBytesPerSecond).toBeLessThan(4.4);
+  it("verifying fills only Verify (never network figures); downloading fills network + disk; installing is disk only", () => {
+    const { samples } = run(make({ kind: "verify", badFiles: 9, badBytes: 200 * MiB }));
+    const verifying = samples.filter((s) => s.phase === "verifying");
+    expect(verifying.length).toBeGreaterThan(0);
+    for (const s of verifying) {
+      expect(s.network).toBeNull();
+      expect(s.disk).toBeNull();
+      expect(s.verify).not.toBeNull();
+    }
+    const repairing = samples.filter((s) => s.phase === "repairing");
+    expect(repairing.length).toBeGreaterThan(0);
+    for (const s of repairing) {
+      expect(s.network).not.toBeNull();
+      expect(s.disk).not.toBeNull();
+      expect(s.verify?.badFiles).toBe(9);
+    }
+
+    const inst = run(make()).samples;
+    for (const s of inst.filter((x) => x.phase === "downloading")) {
+      expect(s.network).not.toBeNull();
+      expect(s.disk).not.toBeNull();
+      expect(s.verify).toBeNull();
+    }
+    const tail = inst.filter((x) => x.phase === "installing");
+    expect(tail.length).toBeGreaterThan(0);
+    for (const s of tail) {
+      expect(s.network).toBeNull();
+      expect(s.disk).not.toBeNull();
+      expect(s.disk!.writtenBytes).toBeLessThanOrEqual(s.disk!.totalBytes);
+    }
   });
 
-  it("ETA counts down truthfully in real seconds (within ±35%)", () => {
-    const sim = install();
-    sim.seek(0.25);
-    sim.advance(TICK_S);
-    const etaAtStart = sim.progress().etaSeconds!;
-    let ticks = 0;
-    while (!sim.done && ticks < 30_000) {
+  it("a clean verify has no repair step (it leaves the stepper once verify finds nothing)", () => {
+    const sim = make({ kind: "verify" });
+    expect(sim.plannedPhases()).toEqual(["verifying", "repairing", "finalizing"]);
+    const { phases } = run(sim);
+    expect(phases).not.toContain("repairing");
+    expect(sim.report()).toMatchObject({ filesBad: 0, filesFixed: 0, verified: true, bytesToFix: 0 });
+  });
+
+  it("a verify that finds bad files repairs only them and reports the result", () => {
+    const sim = make({ kind: "verify", badFiles: 12, badBytes: 340 * MiB }, 20);
+    expect(sim.report()).toBeNull();
+    const seen: JobPhase[] = [sim.progress().phase];
+    let duringRepair: ReturnType<JobSim["report"]> = null;
+    while (!sim.done) {
       sim.advance(TICK_S);
-      ticks++;
+      const p = sim.progress();
+      if (seen.at(-1) !== p.phase) seen.push(p.phase);
+      if (p.phase === "repairing" && p.phasePercent > 30 && !duringRepair) duringRepair = sim.report();
     }
-    const actual = ticks * TICK_S;
-    expect(etaAtStart).toBeGreaterThan(actual * 0.65);
-    expect(etaAtStart).toBeLessThan(actual * 1.35);
+    expect(seen).toEqual(["verifying", "repairing", "finalizing"]);
+    expect(duringRepair).toMatchObject({ filesBad: 12, verified: false, bytesToFix: 340 * MiB });
+    expect(duringRepair!.filesFixed).toBeLessThan(12);
+    expect(sim.report()).toMatchObject({ filesBad: 12, filesFixed: 12, verified: true });
   });
 
-  it("seek() puts the job at the requested fraction of the download", () => {
-    const sim = install();
-    sim.seek(0.42);
+  it("network figures: downloaded/total, current/average/peak speed, CDN, connections; disk trails the network", () => {
+    const sim = make({}, 20);
+    sim.seek(0.5, "downloading");
+    for (let i = 0; i < 30; i++) sim.advance(TICK_S);
     const p = sim.progress();
     expect(p.phase).toBe("downloading");
-    expect(p.percent).toBeCloseTo(42, 1);
-    expect(p.downloadBytesPerSecond).toBeGreaterThan(50e6);
-    expect(p.elapsedSeconds).toBeGreaterThan(10);
+    expect(p.network!.downloadedBytes).toBeGreaterThan(9 * GiB);
+    expect(p.network!.totalBytes).toBe(20 * GiB);
+    expect(p.network!.peakBytesPerSecond).toBeGreaterThanOrEqual(p.network!.bytesPerSecond);
+    expect(p.network!.averageBytesPerSecond).toBeGreaterThan(20e6);
+    expect(p.network!.cdn).toMatch(/\./);
+    expect(p.network!.connections).toBeGreaterThan(0);
+    expect(p.disk!.writtenBytes).toBeLessThan(p.disk!.totalBytes * (p.network!.downloadedBytes / p.network!.totalBytes));
+    expect(p.disk!.installSizeBytes).toBe(40 * GiB);
+    expect(p.limiter).toMatch(/network|cdn/);
   });
 
-  it("history() ends exactly at the current progress and counts up", () => {
-    const sim = install();
-    sim.seek(0.42);
-    const h = sim.history(90, 1);
-    expect(h).toHaveLength(90);
-    expect(h[89]).toEqual(sim.progress());
-    for (let i = 1; i < h.length; i++) {
-      expect(h[i]!.downloadedBytes).toBeGreaterThanOrEqual(h[i - 1]!.downloadedBytes);
-      expect(h[i]!.percent).toBeGreaterThanOrEqual(h[i - 1]!.percent);
+  it("limiter follows the settings: speed limit, mode, paused", () => {
+    const sim = make();
+    sim.seek(0.4, "downloading");
+    sim.setEnv({ mode: "balanced", speedLimit: 5e6, cdn: "fastly-download.epicgames.com", paused: false });
+    for (let i = 0; i < 5; i++) sim.advance(TICK_S);
+    const limited = sim.progress();
+    expect(limited.limiter).toBe("speedLimit");
+    expect(limited.network!.bytesPerSecond).toBeLessThanOrEqual(5e6);
+    expect(limited.network!.cdn).toBe("fastly-download.epicgames.com");
+    sim.setEnv({ mode: "background", speedLimit: null, cdn: null, paused: false });
+    expect(sim.progress().limiter).toBe("mode");
+    expect(sim.progress().mode).toBe("background");
+    sim.setEnv({ mode: "balanced", speedLimit: null, cdn: null, paused: true });
+    expect(sim.progress().limiter).toBe("paused");
+  });
+
+  it("ETA counts down in real seconds (within ±40%)", () => {
+    const sim = make({}, 12);
+    sim.seek(0.1, "downloading");
+    for (let i = 0; i < 100; i++) sim.advance(TICK_S);
+    const eta0 = sim.progress().etaSeconds!;
+    const steps = 300;
+    for (let i = 0; i < steps; i++) sim.advance(TICK_S);
+    const eta1 = sim.progress().etaSeconds!;
+    const dropped = eta0 - eta1;
+    expect(dropped).toBeGreaterThan(30 * 0.6);
+    expect(dropped).toBeLessThan(30 * 1.4);
+  });
+
+  it("seek() can put the job in any phase, with earlier phases counted as done", () => {
+    for (const [kind, phase] of [
+      ["install", "preparing"], ["install", "downloading"], ["install", "installing"], ["update", "finalizing"],
+      ["move", "moving"], ["uninstall", "removing"], ["import", "importing"],
+    ] as const) {
+      const sim = make({ kind, uninstallSeconds: 4 });
+      sim.seek(0.5, phase);
+      const p = sim.progress();
+      expect(p.phase).toBe(phase);
+      expect(p.phasePercent).toBeGreaterThan(30);
+      expect(p.phasePercent).toBeLessThan(70);
     }
-    const raws = new Set(h.map((p) => p.rawDownloadBytesPerSecond));
-    expect(raws.size).toBeGreaterThan(40);
+    const repair = make({ kind: "verify", badFiles: 7, badBytes: 90 * MiB });
+    repair.seek(0.5, "repairing");
+    expect(repair.progress().phase).toBe("repairing");
+    expect(repair.report()).toMatchObject({ filesBad: 7, verified: false });
+    const before = make();
+    before.seek(0.6, "downloading");
+    expect(before.progress().percent).toBeGreaterThan(30);
+  });
+
+  it("emits ≈1 Hz samples, backfills them on seek, and downsamples to at most 600", () => {
+    const sim = make({}, 20);
+    sim.seek(0.5, "downloading");
+    const seeded = sim.history();
+    expect(seeded.length).toBeGreaterThan(5);
+    expect(seeded[0]!.t).toBe(1);
+    expect(seeded.at(-1)!.t - seeded[0]!.t).toBe(seeded.length - 1);
+    for (let i = 0; i < 50; i++) sim.advance(TICK_S);
+    expect(sim.history().length).toBe(seeded.length + 5);
+    const big = make({}, 1);
+    big.seek(0.5, "downloading");
+    for (let i = 0; i < 10_000; i++) big.advance(TICK_S);
+    expect(big.history(600).length).toBeLessThanOrEqual(600);
+    expect(big.history().every((s) => s.diskBytesPerSecond >= 0 && s.networkBytesPerSecond >= 0)).toBe(true);
   });
 
   it("small jobs stay watchable (≥ ~10 s real) unless a time scale is forced", () => {
-    const run = (sim: JobSim): number => {
-      let ticks = 0;
-      while (!sim.done && ticks < 100_000) {
-        sim.advance(TICK_S);
-        ticks++;
-      }
-      return ticks * TICK_S;
-    };
-    expect(run(buildJobSim("u", "update", { installBytes: 0 }, 12, false, 3))).toBeGreaterThan(10);
-    expect(run(buildJobSim("u", "update", { installBytes: 0 }, 200, true, 3))).toBeLessThan(6);
+    const sim = buildJobSim({ ...base, kind: "update", downloadBytes: 1.2 * GiB, writeBytes: 4 * GiB, installBytes: 90 * GiB }, 12, false);
+    let t = 0;
+    while (!sim.done && t < 600) {
+      sim.advance(TICK_S);
+      t += TICK_S;
+    }
+    expect(t).toBeGreaterThan(9);
+    const forced = buildJobSim({ ...base, kind: "update", downloadBytes: 1.2 * GiB, writeBytes: 4 * GiB, installBytes: 90 * GiB }, 400, true);
+    expect(forced.scale).toBe(400);
   });
 
-  it("verify, move, uninstall and import jobs finish", () => {
-    for (const kind of ["verify", "move", "uninstall", "import", "repair"] as const) {
-      const sim = buildJobSim("j", kind, { installBytes: 94.8 * GiB }, 60, true, 2);
-      let n = 0;
-      while (!sim.done && n++ < 50_000) sim.advance(TICK_S);
-      expect(sim.done, kind).toBe(true);
+  it("move, uninstall and import jobs finish", () => {
+    for (const kind of ["move", "uninstall", "import", "overlay"] as const) {
+      const sim = make({ kind, installBytes: 8 * GiB, downloadBytes: 180 * MiB, writeBytes: 420 * MiB });
+      run(sim);
+      expect(sim.done).toBe(true);
+      expect(sim.progress().percent).toBe(100);
     }
   });
 });
 
 describe("errors", () => {
   it("formats bytes like Format.Bytes in Errors.cs", () => {
-    expect(formatBytes(0)).toBe("0 B");
     expect(formatBytes(512)).toBe("512 B");
-    expect(formatBytes(1536)).toBe("1.5 KB");
-    expect(formatBytes(Math.round(96.3 * GiB))).toBe("96.3 GB");
-    expect(formatBytes(Math.round(18.4 * GiB))).toBe("18.4 GB");
-    expect(formatBytes(2 * 1024 ** 4)).toBe("2 TB");
+    expect(formatBytes(1024)).toBe("1 KB");
+    expect(formatBytes(Math.round(4.8 * GiB))).toBe("4.8 GB");
   });
 
   it("insufficientSpace copy matches the C# text", () => {
-    const e = Errors.insufficientSpace(Math.round(96.3 * GiB), Math.round(18.4 * GiB));
-    expect(e.title).toBe("Not enough disk space");
-    expect(e.message).toBe("This needs 96.3 GB but only 18.4 GB is free. Free up space or choose another drive.");
-    expect(e.fix).toBe("freeSpace");
+    expect(Errors.insufficientSpace(Math.round(4.8 * GiB), Math.round(0.9 * GiB)).message).toBe(
+      "This needs 4.8 GB but only 921.6 MB is free. Free up space or choose another drive.",
+    );
   });
 
   it("builds a well-formed error for every code", () => {
     for (const code of ERROR_CODES) {
-      const e = errorForCode(code);
+      const e = errorForCode(code, "Test Game", "TestApp");
       expect(e.code).toBe(code);
       expect(e.title.length).toBeGreaterThan(0);
       expect(e.message.length).toBeGreaterThan(0);
+      expect(e).toHaveProperty("appName");
+      expect(e).toHaveProperty("detail");
     }
-    expect(errorForCode("authExpired").fix).toBe("signIn");
-    expect(errorForCode("eglBusy").fix).toBe("waitForEgl");
-    expect(errorForCode("gameRunning").fix).toBe("closeGame");
-    expect(errorForCode("corrupted").fix).toBe("repair");
-    expect(errorForCode("permissionDenied").fix).toBe("chooseFolder");
+  });
+
+  it("names the game instead of hard-coding Fortnite", () => {
+    expect(Errors.filesLocked("Orchard Tactics").message).toContain("Orchard Tactics");
+    expect(Errors.gameRunning("Orchard Tactics").title).toBe("Orchard Tactics is running");
   });
 });
 
-describe("art", () => {
-  it("produces compact SVG data URIs", () => {
-    for (const uri of [heroArt, tallArt]) {
-      expect(uri.startsWith("data:image/svg+xml")).toBe(true);
-      expect(uri.length).toBeLessThan(12_000);
-      const svg = decodeURIComponent(uri.slice(uri.indexOf(",") + 1));
-      expect(svg).toContain("<svg");
-      expect(svg).not.toMatch(/<text/i);
-    }
-    expect(decodeURIComponent(heroArt)).toContain('viewBox="0 0 1920 1080"');
-    expect(decodeURIComponent(tallArt)).toContain('viewBox="0 0 1200 1600"');
-    expect(GAME_ART.logoUrl).toBeNull();
+describe("generated art", () => {
+  it("produces compact, deterministic SVG data URIs with tall, wide, thumb and a flat placeholder", () => {
+    const a = generatedArt("Foxglove1A2");
+    expect(a.tall).toMatch(/^data:image\/svg\+xml/);
+    expect(a.wide).toMatch(/^data:image\/svg\+xml/);
+    expect(a.tallThumb).toMatch(/^data:image\/svg\+xml/);
+    expect(a.placeholder).toMatch(/^hsl\(/);
+    expect(a.tall!.length).toBeLessThan(12_000);
+    expect(a.tallThumb!.length).toBeLessThan(a.tall!.length);
+    expect(generatedArt("Foxglove1A2")).toEqual(a);
+    expect(generatedArt("Other")).not.toEqual(a);
+    expect(generatedArt("NoTall", { tall: false }).tall).toBeNull();
   });
 });

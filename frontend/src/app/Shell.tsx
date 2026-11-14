@@ -1,23 +1,38 @@
 import { Suspense, lazy, useEffect } from "react";
+import { useRoute, type Route } from "../state/router";
 import { useSnap } from "../state/store";
-import { useUi, type Page } from "../state/ui";
+import { useUi } from "../state/ui";
 import { cx } from "../ui";
-import { Library } from "../features/library/Library";
+import { GameView } from "../features/library/GameView";
+import { Home } from "../features/home/Home";
+import { LibraryPage } from "../features/library/LibraryPage";
 import { Onboarding } from "../features/onboarding/Onboarding";
 import { Rail } from "./Rail";
 import { TitleBar } from "./TitleBar";
 
-// Secondary pages load on demand: the first paint only needs the Library.
+// Secondary pages load on demand: the first paint only needs Home / Library / a game.
 const Downloads = lazy(() => import("../features/downloads/Downloads").then((m) => ({ default: m.Downloads })));
 const Settings = lazy(() => import("../features/settings/Settings").then((m) => ({ default: m.Settings })));
+const StorePage = lazy(() => import("../features/store/StorePage").then((m) => ({ default: m.StorePage })));
 
-function PageHost({ page }: { page: Page }) {
-  if (page === "library") return <Library />;
-  return (
-    <div key={page} className="g-page-in h-full">
-      <Suspense fallback={null}>{page === "downloads" ? <Downloads /> : <Settings />}</Suspense>
-    </div>
-  );
+function PageHost({ route }: { route: Route }) {
+  switch (route.page) {
+    case "game":
+      // Keyed by game so state from one page (scroll, dialogs in flight) never leaks into the next.
+      return <GameView key={route.appName} appName={route.appName} />;
+    case "home":
+      return <Home />;
+    case "library":
+      return <LibraryPage />;
+    case "downloads":
+    case "settings":
+    case "store":
+      return (
+        <div key={route.page} className="g-page-in h-full">
+          <Suspense fallback={null}>{route.page === "downloads" ? <Downloads /> : route.page === "store" ? <StorePage /> : <Settings />}</Suspense>
+        </div>
+      );
+  }
 }
 
 export function useGlobalHotkeys(enabled: boolean): void {
@@ -26,7 +41,14 @@ export function useGlobalHotkeys(enabled: boolean): void {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
       const ui = useUi.getState();
-      const pages: Record<string, Page> = { "1": "library", "2": "downloads", "3": "settings", ",": "settings" };
+      const pages: Record<string, "home" | "library" | "downloads" | "store" | "settings"> = {
+        "1": "home",
+        "2": "library",
+        "3": "downloads",
+        "4": "store",
+        "5": "settings",
+        ",": "settings",
+      };
       if (e.key.toLowerCase() === "k") {
         e.preventDefault();
         ui.setPalette(!ui.palette);
@@ -42,7 +64,7 @@ export function useGlobalHotkeys(enabled: boolean): void {
 
 export function Shell() {
   const onboarded = useSnap((s) => s.onboarding.completed);
-  const page = useUi((s) => s.page);
+  const route = useRoute();
   useGlobalHotkeys(onboarded);
   return (
     <div className="flex h-full flex-col">
@@ -52,7 +74,7 @@ export function Shell() {
         <main
           className={cx("relative min-w-0 flex-1 overflow-hidden border-t bg-bg-elevated", onboarded ? "rounded-tl-xl border-l" : "rounded-t-xl")}
         >
-          {onboarded ? <PageHost page={page} /> : <Onboarding />}
+          {onboarded ? <PageHost route={route} /> : <Onboarding />}
         </main>
       </div>
     </div>

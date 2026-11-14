@@ -27,7 +27,7 @@ export const setSnapshotTransform = (fn: typeof transform): void => void (transf
 
 export const useApp = create<AppStore>((set) => ({
   snapshot: null,
-  window: { maximized: false, focused: true },
+  window: { maximized: false, focused: true, visible: true },
   maxButton: "idle",
   setMaxButton: (maxButton) => set((s) => (s.maxButton === maxButton ? s : { maxButton })),
   setSnapshot: (raw) =>
@@ -36,7 +36,8 @@ export const useApp = create<AppStore>((set) => ({
       return { snapshot: s.snapshot ? share(s.snapshot, next) : next };
     }),
   patch: (fn) => set((s) => (s.snapshot ? { snapshot: share(s.snapshot, fn(s.snapshot)) } : s)),
-  setWindow: (window) => set((s) => (s.window.maximized === window.maximized && s.window.focused === window.focused ? s : { window })),
+  setWindow: (window) =>
+    set((s) => (s.window.maximized === window.maximized && s.window.focused === window.focused && s.window.visible === window.visible ? s : { window })),
 }));
 
 /** Select from a snapshot that is known to exist (the shell renders only after boot). */
@@ -47,20 +48,28 @@ export function useSnap<T>(select: (s: AppSnapshot) => T): T {
 export const getSnapshot = (): AppSnapshot | null => useApp.getState().snapshot;
 
 // ----- Job helpers (pure) -----
+// `queue.jobs` is already in run order: unfinished jobs first (running first), then finished ones, newest first.
 
 export const ACTIVE_STATUSES = ["running", "paused", "waiting", "queued"] as const;
 export const isActiveJob = (j: JobInfo): boolean => (ACTIVE_STATUSES as readonly string[]).includes(j.status);
 
-/** The job the user cares about right now: running first, then waiting, paused, queued. */
+/** Unfinished jobs in run order. */
+export const activeJobs = (jobs: readonly JobInfo[]): JobInfo[] => jobs.filter(isActiveJob);
+
+/** The job the user cares about right now: the running one, else the first parked/queued one. */
 export function currentJob(jobs: readonly JobInfo[]): JobInfo | undefined {
-  const rank = { running: 0, waiting: 1, paused: 2, queued: 3 } as Record<string, number>;
-  return jobs
-    .filter(isActiveJob)
-    .sort((a, b) => (rank[a.status]! - rank[b.status]!) || a.createdAt.localeCompare(b.createdAt))[0];
+  const active = activeJobs(jobs);
+  return active.find((j) => j.status === "running") ?? active[0];
 }
 
-export const queuedJobs = (jobs: readonly JobInfo[], current?: JobInfo): JobInfo[] =>
-  jobs.filter((j) => isActiveJob(j) && j.id !== current?.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+/** Unfinished jobs after the current one, in run order. */
+export const queuedJobs = (jobs: readonly JobInfo[], current?: JobInfo): JobInfo[] => activeJobs(jobs).filter((j) => j.id !== current?.id);
 
-export const historyJobs = (jobs: readonly JobInfo[]): JobInfo[] =>
-  jobs.filter((j) => !isActiveJob(j)).sort((a, b) => (b.finishedAt ?? b.createdAt).localeCompare(a.finishedAt ?? a.createdAt));
+/** The unfinished job of one game (the running one if there are several). */
+export function jobForGame(jobs: readonly JobInfo[], appName: string): JobInfo | undefined {
+  const mine = activeJobs(jobs).filter((j) => j.appName === appName);
+  return mine.find((j) => j.status === "running") ?? mine[0];
+}
+
+/** Finished jobs, newest first. */
+export const historyJobs = (jobs: readonly JobInfo[]): JobInfo[] => jobs.filter((j) => !isActiveJob(j));

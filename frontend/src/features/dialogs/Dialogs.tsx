@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { RadioGroup } from "radix-ui";
 import type { InstallPlan, UninstallMode } from "../../ipc/contract.gen";
-import { actions, runFix } from "../../state/actions";
+import { actions, pendingKey, runFix } from "../../state/actions";
 import { JOB_NOUN } from "../../state/derive";
-import { formatBytes, joinPath } from "../../state/format";
+import { formatBytes } from "../../state/format";
+import { useGame } from "../../state/library";
 import { useApp, useSnap } from "../../state/store";
 import { FIX_LABELS, usePending, useUi, type DialogState } from "../../state/ui";
 import { AlertModal, Button, ErrorCallout, Modal, Switch, cx } from "../../ui";
@@ -13,25 +14,29 @@ import { PathText } from "../common/PathText";
 
 /* ----------------------------------------------------------------- install */
 
-function InstallDialog({ open }: { open: boolean }) {
+function InstallDialog({ appName, open }: { appName: string; open: boolean }) {
   const close = useUi((s) => s.closeDialog);
   const error = useUi((s) => s.errors.install);
-  const starting = usePending("install");
+  const title = useGame(appName)?.title ?? "game";
+  const starting = usePending(pendingKey("install", appName));
   const [plan, setPlan] = useState<InstallPlan | null>(null);
 
   useEffect(() => () => useUi.getState().setError("install", undefined), []);
 
   const install = async () => {
     if (!plan) return;
-    const job = await actions.install(plan.basePath, "install");
+    const job = await actions.install(appName, plan.basePath, "install");
     if (job) {
       close();
       useUi.getState().go("downloads");
     }
   };
-  const adoptExisting = async (path: string) => {
-    const r = await actions.adopt({ candidateId: null, path, verify: "auto" }, "install");
-    if (r) close();
+  const importExisting = async (path: string) => {
+    const job = await actions.importFolder(path, "auto", "install");
+    if (job) {
+      close();
+      useUi.getState().go("downloads");
+    }
   };
 
   return (
@@ -39,7 +44,7 @@ function InstallDialog({ open }: { open: boolean }) {
       open={open}
       onOpenChange={(o) => !o && !starting && close()}
       size="lg"
-      title="Install Fortnite"
+      title={`Install ${title}`}
       description="Pick a drive with enough room. Downloads resume if you pause or lose connection."
       footer={
         <>
@@ -53,7 +58,7 @@ function InstallDialog({ open }: { open: boolean }) {
       }
     >
       <div className="flex flex-col gap-3 pb-1">
-        <InstallPlanner onPlan={setPlan} onUseExisting={(p) => void adoptExisting(p)} />
+        <InstallPlanner appName={appName} onPlan={setPlan} onUseExisting={(p) => void importExisting(p)} />
         {error && <ErrorView error={error.error} retry={error.retry} onDismiss={() => useUi.getState().setError("install", undefined)} />}
       </div>
     </Modal>
@@ -80,17 +85,17 @@ function RadioDot({ checked, danger }: { checked: boolean; danger?: boolean }) {
   );
 }
 
-function UninstallDialog({ open }: { open: boolean }) {
+function UninstallDialog({ appName, open }: { appName: string; open: boolean }) {
   const close = useUi((s) => s.closeDialog);
-  const installed = useSnap((s) => s.game.installed);
-  const title = useSnap((s) => s.game.title);
+  const game = useGame(appName);
   const error = useUi((s) => s.errors.uninstall);
-  const working = usePending("uninstall");
-  const shared = installed?.sharedWithEgl ?? false;
+  const working = usePending(pendingKey("uninstall", appName));
+  const shared = game?.sharedWithEgl ?? false;
   const [mode, setMode] = useState<UninstallMode>(shared ? "gliderOnly" : "deleteFiles");
 
   useEffect(() => () => useUi.getState().setError("uninstall", undefined), []);
-  if (!installed) return null;
+  if (!game || !game.installPath) return null;
+  const title = game.title;
 
   const destructive = mode === "deleteFiles";
   return (
@@ -115,7 +120,7 @@ function UninstallDialog({ open }: { open: boolean }) {
           loading={working}
           onClick={(e) => {
             e.preventDefault();
-            void actions.uninstall(mode);
+            void actions.uninstall(appName, mode);
           }}
         >
           {destructive ? "Uninstall and delete files" : "Remove from Glider"}
@@ -147,7 +152,7 @@ function UninstallDialog({ open }: { open: boolean }) {
           <span className="min-w-0">
             <span className="block text-sm font-medium text-fg">Uninstall and delete files</span>
             <span className="mt-0.5 block text-xs leading-[1.5] text-fg-muted">
-              Deletes {formatBytes(installed.installSizeBytes)} from <PathText path={installed.installPath} className="inline-flex" />.
+              Deletes {formatBytes(game.installedSizeBytes ?? game.installSizeBytes ?? 0)} from <PathText path={game.installPath} className="inline-flex" />.
               {shared && " Epic Games Launcher will lose the game too."}
             </span>
           </span>
@@ -160,12 +165,12 @@ function UninstallDialog({ open }: { open: boolean }) {
 
 /* -------------------------------------------------------------------- move */
 
-function MoveDialog({ open }: { open: boolean }) {
+function MoveDialog({ appName, open }: { appName: string; open: boolean }) {
   const close = useUi((s) => s.closeDialog);
-  const installed = useSnap((s) => s.game.installed);
+  const game = useGame(appName);
   const eglSync = useSnap((s) => s.settings.eglSync);
   const error = useUi((s) => s.errors.move);
-  const moving = usePending("move");
+  const moving = usePending(pendingKey("move", appName));
   const [base, setBase] = useState<string | null>(null);
   const [planned, setPlanned] = useState<{ base: string; plan: InstallPlan | null } | null>(null);
   const plan = planned && planned.base === base ? planned.plan : null;
@@ -174,20 +179,23 @@ function MoveDialog({ open }: { open: boolean }) {
   useEffect(() => {
     if (!base) return;
     let alive = true;
-    void actions.planInstall(base).then((p) => alive && setPlanned({ base, plan: p ?? null }));
+    void actions.planInstall(appName, base).then((p) => alive && setPlanned({ base, plan: p ?? null }));
     return () => {
       alive = false;
     };
-  }, [base]);
+  }, [appName, base]);
 
-  if (!installed) return null;
+  if (!game || !game.installPath) return null;
+  const size = game.installedSizeBytes ?? game.installSizeBytes ?? 0;
   const pick = async () => {
-    const p = await actions.pickFolder(base ?? installed.installPath, "Choose where to move Fortnite");
+    const p = await actions.pickFolder(base ?? game.installPath, `Choose where to move ${game.title}`);
     if (p) setBase(p);
   };
-  const target = base ? joinPath(base, "Fortnite") : null;
-  const enough = plan ? plan.freeBytes >= installed.installSizeBytes : false;
-  const egl = installed.sharedWithEgl && !eglSync;
+  // The destination folder name comes from Core (the plan's game folder), never from a guess.
+  const folderName = plan?.gamePath.split(/[\\/]/).pop() ?? null;
+  const target = base && plan && folderName ? `${base.replace(/[\\/]+$/, "")}\\${folderName}` : null;
+  const enough = plan ? plan.freeBytes >= size : false;
+  const egl = game.sharedWithEgl && !eglSync;
 
   return (
     <Modal
@@ -200,7 +208,7 @@ function MoveDialog({ open }: { open: boolean }) {
           <Button variant="ghost" onClick={close} disabled={moving}>
             Cancel
           </Button>
-          <Button variant="primary" loading={moving} disabled={!target || !enough} onClick={() => target && void actions.move(base!)}>
+          <Button variant="primary" loading={moving} disabled={!target || !enough} onClick={() => target && void actions.move(appName, base!)}>
             Move install
           </Button>
         </>
@@ -209,7 +217,7 @@ function MoveDialog({ open }: { open: boolean }) {
       <div className="flex flex-col gap-3 pb-1">
         <div className="rounded-xl border border-border bg-surface-1 p-3.5">
           <p className="text-xs text-fg-muted">Now in</p>
-          <PathText path={installed.installPath} className="mt-0.5 text-sm font-medium" />
+          <PathText path={game.installPath} className="mt-0.5 text-sm font-medium" />
           <div className="my-3 h-px bg-border" />
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
@@ -225,8 +233,8 @@ function MoveDialog({ open }: { open: boolean }) {
               {!plan
                 ? "Checking free space…"
                 : enough
-                  ? `${formatBytes(installed.installSizeBytes)} to move · ${formatBytes(plan.freeBytes)} free there`
-                  : `Needs ${formatBytes(installed.installSizeBytes)}, but only ${formatBytes(plan.freeBytes)} is free there.`}
+                  ? `${formatBytes(size)} to move · ${formatBytes(plan.freeBytes)} free there`
+                  : `Needs ${formatBytes(size)}, but only ${formatBytes(plan.freeBytes)} is free there.`}
             </p>
           )}
         </div>
@@ -254,16 +262,16 @@ function MoveDialog({ open }: { open: boolean }) {
 
 function CancelJobDialog({ jobId, open }: { jobId: string; open: boolean }) {
   const close = useUi((s) => s.closeDialog);
-  const job = useApp((s) => s.snapshot?.jobs.find((j) => j.id === jobId));
+  const job = useApp((s) => s.snapshot?.queue.jobs.find((j) => j.id === jobId));
   if (!job) return null;
-  const noun = JOB_NOUN[job.kind].toLowerCase();
+  const noun = `${JOB_NOUN[job.kind].toLowerCase()} of ${job.title}`;
   return (
     <AlertModal
       open={open}
       onOpenChange={(o) => !o && close()}
       title={`Cancel ${noun}?`}
       description={
-        job.kind === "install" || job.kind === "update"
+        job.kind === "install" || job.kind === "update" || job.kind === "modify"
           ? "What's already downloaded stays on disk, so starting again picks up where this left off."
           : "The task stops where it is."
       }
@@ -298,7 +306,7 @@ function ErrorDialog({ dialog, open }: { dialog: Extract<DialogState, { kind: "e
               variant="primary"
               onClick={() => {
                 close();
-                runFix(error.fix!, { retry });
+                runFix(error.fix!, { retry, appName: error.appName });
               }}
             >
               {FIX_LABELS[error.fix]}
@@ -328,11 +336,11 @@ export function Dialogs() {
   const open = dialog !== null;
   switch (last?.kind) {
     case "install":
-      return <InstallDialog open={open} />;
+      return <InstallDialog appName={last.appName} open={open} />;
     case "uninstall":
-      return <UninstallDialog open={open} />;
+      return <UninstallDialog appName={last.appName} open={open} />;
     case "move":
-      return <MoveDialog open={open} />;
+      return <MoveDialog appName={last.appName} open={open} />;
     case "cancelJob":
       return <CancelJobDialog jobId={last.jobId} open={open} />;
     case "error":

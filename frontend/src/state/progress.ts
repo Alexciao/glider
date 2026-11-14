@@ -1,34 +1,71 @@
 import { create } from "zustand";
-import type { JobProgress } from "../ipc/contract.gen";
+import type { JobProgress, JobSample } from "../ipc/contract.gen";
+import { rpc } from "../ipc/rpc";
 
 /**
- * 10 Hz progress lives apart from the snapshot so it never re-renders the app:
+ * Progress lives apart from the snapshot so 10 Hz events never re-render the app, and is keyed by jobId:
  *  - `latest` (zustand): the newest JobProgress per job; components select exactly one job's entry.
- *  - the speed history is a mutable ring buffer outside React, read imperatively by sparklines.
+ *  - history: ≈1 Hz `JobSample`s per job (the same shape the backend keeps for `jobs.getHistory`), in a mutable
+ *    buffer outside React that sparklines read imperatively. It is seeded from `jobs.getHistory` when a job's card
+ *    mounts (so graphs survive a UI reload) and then extended from the live events.
  */
 
-/** 60 s of history at 10 Hz. */
+/** Same cap as the backend's ring (≤ 600 points). */
 export const HISTORY_CAPACITY = 600;
 
+export type HistoryChannel = "network" | "disk";
+
 class Track {
-  private readonly buf = new Float32Array(HISTORY_CAPACITY);
-  private head = 0;
-  private count = 0;
+  samples: JobSample[] = [];
+  /** `t` of the newest sample; live events add at most one sample per second of job time. */
+  private lastT = -1;
+  private seeded = false;
   private readonly listeners = new Set<() => void>();
 
-  push(v: number): void {
-    this.buf[this.head] = Number.isFinite(v) && v > 0 ? v : 0;
-    this.head = (this.head + 1) % HISTORY_CAPACITY;
-    if (this.count < HISTORY_CAPACITY) this.count++;
-    this.listeners.forEach((l) => l());
+  private trim(): void {
+    if (this.samples.length > HISTORY_CAPACITY) this.samples.splice(0, this.samples.length - HISTORY_CAPACITY);
   }
 
-  /** Chronological copy, oldest first. */
-  read(): Float32Array {
-    const out = new Float32Array(this.count);
-    const start = (this.head - this.count + HISTORY_CAPACITY) % HISTORY_CAPACITY;
-    for (let i = 0; i < this.count; i++) out[i] = this.buf[(start + i) % HISTORY_CAPACITY]!;
+  /** Live: one sample per whole second of elapsed job time. */
+  ingest(p: JobProgress): void {
+    const t = Math.floor(p.elapsedSeconds);
+    if (t <= this.lastT) return;
+    this.lastT = t;
+    this.samples.push({
+      t,
+      networkBytesPerSecond: p.network?.bytesPerSecond ?? 0,
+      diskBytesPerSecond: p.disk?.bytesPerSecond ?? p.verify?.readBytesPerSecond ?? 0,
+    });
+    this.trim();
+    this.notify();
+  }
+
+  /** Merge the backend's history: its samples first, then any live ones newer than its last. */
+  seed(server: readonly JobSample[]): void {
+    const newest = server.at(-1)?.t ?? -1;
+    const live = this.samples.filter((s) => s.t > newest);
+    this.samples = [...server, ...live];
+    this.lastT = Math.max(this.lastT, newest);
+    this.seeded = true;
+    this.trim();
+    this.notify();
+  }
+
+  get isSeeded(): boolean {
+    return this.seeded;
+  }
+
+  read(channel: HistoryChannel): Float32Array {
+    const out = new Float32Array(this.samples.length);
+    for (let i = 0; i < out.length; i++) {
+      const s = this.samples[i]!;
+      out[i] = channel === "network" ? s.networkBytesPerSecond : s.diskBytesPerSecond;
+    }
     return out;
+  }
+
+  private notify(): void {
+    this.listeners.forEach((l) => l());
   }
 
   subscribe(l: () => void): () => void {
@@ -51,13 +88,37 @@ interface ProgressStore {
 export const useProgress = create<ProgressStore>(() => ({ latest: {} }));
 
 export function ingestProgress(p: JobProgress): void {
-  // The chart shows what the user is waiting on: network while downloading, disk otherwise.
-  track(p.jobId).push(p.phase === "downloading" ? p.rawDownloadBytesPerSecond : p.diskBytesPerSecond);
+  track(p.jobId).ingest(p);
   useProgress.setState((s) => ({ latest: { ...s.latest, [p.jobId]: p } }));
 }
 
-export const readHistory = (jobId: string): Float32Array => track(jobId).read();
+/** Seed `latest` from the progress the snapshot carried, for jobs we have not heard a live event for yet. */
+export function seedProgress(progress: readonly (JobProgress | null | undefined)[]): void {
+  const missing = progress.filter((p): p is JobProgress => !!p && useProgress.getState().latest[p.jobId] === undefined);
+  if (missing.length === 0) return;
+  useProgress.setState((s) => {
+    const latest = { ...s.latest };
+    for (const p of missing) latest[p.jobId] ??= p;
+    return { latest };
+  });
+}
+
+/** Chronological values of one channel (bytes/s), oldest first; 1 sample ≈ 1 second. */
+export const readHistory = (jobId: string, channel: HistoryChannel = "network"): Float32Array => track(jobId).read(channel);
 export const subscribeHistory = (jobId: string, notify: () => void): (() => void) => track(jobId).subscribe(notify);
+export const historySamples = (jobId: string): readonly JobSample[] => track(jobId).samples;
+
+/** Load the backend's history for a job once (idempotent). Failures are silent: the live feed still fills the chart. */
+export async function loadHistory(jobId: string): Promise<void> {
+  const t = track(jobId);
+  if (t.isSeeded) return;
+  try {
+    const h = await rpc().call("jobs.getHistory", { jobId });
+    t.seed(h.samples);
+  } catch {
+    /* the job may have been dismissed meanwhile */
+  }
+}
 
 /** Forget jobs that no longer exist in the snapshot. */
 export function pruneProgress(liveJobIds: ReadonlySet<string>): void {

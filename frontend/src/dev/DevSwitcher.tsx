@@ -20,12 +20,16 @@ const ERRORS: [ErrorCode, string][] = [
   ["filesLocked", "Files locked"],
   ["corrupted", "Corrupted files"],
   ["legendaryFailed", "Task failed"],
+  ["offline", "Went offline"],
 ];
 
 const NEXT_CALL_ERRORS: [ErrorCode, string][] = [
   ["authExpired", "Session expired"],
   ["launchFailed", "Launch fails"],
   ["gameRunning", "Game is running"],
+  ["gameBusy", "Game is busy"],
+  ["activationRequired", "Needs activation"],
+  ["saveConflict", "Saves conflict"],
   ["eglBusy", "Epic Games Launcher busy"],
   ["invalidFolder", "Invalid folder"],
   ["permissionDenied", "Access denied"],
@@ -103,9 +107,14 @@ export function DevSwitcher() {
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => controller.endGame()}>End the game</DropdownMenuItem>
+          <DropdownMenuLabel>Simulate</DropdownMenuLabel>
+          <DropdownMenuItem onSelect={() => controller.endGame()}>End the running game</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => controller.setEglBusy(true)}>Epic Games Launcher: busy</DropdownMenuItem>
           <DropdownMenuItem onSelect={() => controller.setEglBusy(false)}>Epic Games Launcher: not busy</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => controller.emitNotice({ level: "info", title: "Update found", message: "Fortnite 40.20 is ready.", action: null })}>
+          <DropdownMenuItem onSelect={() => controller.setConnectivity("offline")}>Go offline</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => controller.setConnectivity("online")}>Go online</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => controller.dropNextLibraryDelta()}>Drop the next library delta (gap)</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => controller.emitNotice({ level: "info", title: "Update found", message: "An update is ready.", action: null, appName: null, jobId: null })}>
             Emit a notice
           </DropdownMenuItem>
         </DropdownMenuContent>

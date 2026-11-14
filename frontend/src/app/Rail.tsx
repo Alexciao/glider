@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
-import { Download, Settings as SettingsIcon, Gamepad2 } from "lucide-react";
+import { Download, Gamepad2, House, Settings as SettingsIcon, Store } from "lucide-react";
+import { useLibraryCounts } from "../state/libraryIndex";
+import { usePage } from "../state/router";
 import { currentJob, useSnap } from "../state/store";
-import { useUi, type Page } from "../state/ui";
+import { useUi } from "../state/ui";
 import { Tooltip, cx } from "../ui";
 
 function RailItem({
@@ -11,13 +13,15 @@ function RailItem({
   icon,
   badge,
 }: {
-  page: Page;
+  page: "home" | "library" | "downloads" | "store" | "settings";
   label: string;
   shortcut: string;
   icon: ReactNode;
   badge?: ReactNode;
 }) {
-  const active = useUi((s) => s.page === page);
+  const current = usePage();
+  // A game's page belongs to the Library.
+  const active = current === page || (page === "library" && current === "game");
   const go = useUi((s) => s.go);
   return (
     <Tooltip content={label} shortcut={shortcut} side="right">
@@ -51,7 +55,7 @@ function RailItem({
 }
 
 function DownloadsBadge() {
-  const status = useSnap((s) => currentJob(s.jobs)?.status);
+  const status = useSnap((s) => currentJob(s.queue.jobs)?.status);
   if (!status) return null;
   return (
     <span
@@ -64,21 +68,30 @@ function DownloadsBadge() {
   );
 }
 
+/** A quiet dot on Library when installed games have updates waiting. */
+function UpdatesBadge() {
+  const n = useLibraryCounts().updates;
+  if (n === 0) return null;
+  return <span aria-hidden className="absolute -right-1 -top-1 size-2 rounded-full bg-accent ring-2 ring-[var(--g-bg-elevated)]" />;
+}
+
 export function Rail() {
   return (
     <nav aria-label="Main" className="flex w-[var(--sidebar-width)] shrink-0 flex-col items-center pb-3 pt-2">
       <div className="flex flex-col gap-1">
-        <RailItem page="library" label="Library" shortcut="Ctrl+1" icon={<Gamepad2 size={20} strokeWidth={1.75} />} />
+        <RailItem page="home" label="Home" shortcut="Ctrl+1" icon={<House size={20} strokeWidth={1.75} />} />
+        <RailItem page="library" label="Library" shortcut="Ctrl+2" icon={<Gamepad2 size={20} strokeWidth={1.75} />} badge={<UpdatesBadge />} />
         <RailItem
           page="downloads"
           label="Downloads"
-          shortcut="Ctrl+2"
+          shortcut="Ctrl+3"
           icon={<Download size={20} strokeWidth={1.75} />}
           badge={<DownloadsBadge />}
         />
+        <RailItem page="store" label="Store" shortcut="Ctrl+4" icon={<Store size={20} strokeWidth={1.75} />} />
       </div>
       <div className="mt-auto">
-        <RailItem page="settings" label="Settings" shortcut="Ctrl+3" icon={<SettingsIcon size={20} strokeWidth={1.75} />} />
+        <RailItem page="settings" label="Settings" shortcut="Ctrl+5" icon={<SettingsIcon size={20} strokeWidth={1.75} />} />
       </div>
     </nav>
   );

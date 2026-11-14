@@ -89,7 +89,7 @@ function AccountMenu() {
 
   if (auth.status !== "signedIn" && auth.status !== "expired") {
     return (
-      <Button size="sm" variant="ghost" icon={<LogIn size={14} />} className="app-no-drag" onClick={() => void actions.signIn(useUi.getState().page === "library" ? "hero" : "settings")}>
+      <Button size="sm" variant="ghost" icon={<LogIn size={14} />} className="app-no-drag" onClick={() => void actions.signIn("settings")}>
         Sign in
       </Button>
     );

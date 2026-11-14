@@ -1,6 +1,6 @@
 import { vi } from "vitest";
 import { RpcClient, RpcError } from "../client";
-import type { AppSnapshot, JobInfo, JobProgress, Notice, RpcMethodName, RpcMethods, WindowInfo } from "../contract.gen";
+import type { AppSnapshot, JobInfo, JobProgress, LibraryDelta, Notice, RpcMethodName, RpcMethods, StoreState, WindowInfo } from "../contract.gen";
 import { createMockTransport } from "./index";
 import type { MockController, MockOptions } from "./options";
 
@@ -17,10 +17,14 @@ export function setup(opts: MockOptions = {}) {
   const progress: JobProgress[] = [];
   const notices: Notice[] = [];
   const windows: WindowInfo[] = [];
+  const deltas: LibraryDelta[] = [];
+  const stores: StoreState[] = [];
   client.on("state", (s) => states.push(s));
   client.on("progress", (p) => progress.push(p));
   client.on("notice", (n) => notices.push(n));
   client.on("window", (w) => windows.push(w));
+  client.on("library", (d) => deltas.push(d));
+  client.on("store", (s) => stores.push(s));
 
   const advance = async (ms: number): Promise<void> => {
     await vi.advanceTimersByTimeAsync(ms);
@@ -63,9 +67,9 @@ export function setup(opts: MockOptions = {}) {
   }
 
   const snapshot = (): Promise<AppSnapshot> => call("app.getSnapshot");
-  const job = async (id: string): Promise<JobInfo | undefined> => (await snapshot()).jobs.find((j) => j.id === id);
+  const job = async (id: string): Promise<JobInfo | undefined> => (await snapshot()).queue.jobs.find((j) => j.id === id);
 
-  return { client, controller, states, progress, notices, windows, advance, settle, call, callError, snapshot, job };
+  return { client, controller, states, progress, notices, windows, deltas, stores, advance, settle, call, callError, snapshot, job };
 }
 
 export function disposeAll(): void {

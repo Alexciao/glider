@@ -1,9 +1,9 @@
 import type { FixAction, GliderError } from "../../ipc/contract.gen";
-import { actions, runFix } from "../../state/actions";
+import { actions, pendingKey, runFix } from "../../state/actions";
 import { FIX_LABELS, usePending } from "../../state/ui";
 import { Button, ErrorCallout } from "../../ui";
 
-const PENDING_KEY: Partial<Record<FixAction, string>> = { signIn: "signIn", repair: "verify" };
+const PENDING_KEY: Partial<Record<FixAction, string>> = { signIn: "signIn" };
 
 /** A GliderError rendered with its one-click fix wired up. */
 export function ErrorView({
@@ -20,7 +20,7 @@ export function ErrorView({
   className?: string;
 }) {
   const fix = error.fix;
-  const loading = usePending(fix ? (PENDING_KEY[fix] ?? "_") : "_");
+  const loading = usePending(fix ? (fix === "repair" && error.appName ? pendingKey("verify", error.appName) : (PENDING_KEY[fix] ?? "_")) : "_");
   const waiting = error.code === "eglBusy";
   // A closed sign-in window is not silent: Epic may have shown its own error that the user never reported.
   const cancelled = error.code === "authCancelled";
@@ -33,7 +33,7 @@ export function ErrorView({
       detail={error.detail}
       fixLabel={fix ? FIX_LABELS[fix] : undefined}
       fixLoading={loading}
-      onFix={fix ? () => runFix(fix, { retry, path }) : undefined}
+      onFix={fix ? () => runFix(fix, { retry, path, appName: error.appName }) : undefined}
       onDismiss={onDismiss}
       secondary={
         cancelled ? (

@@ -9,10 +9,12 @@ import { GliderMark } from "../../ui";
  */
 export function HeroArt({ art }: { art: GameArt | null }) {
   const [loaded, setLoaded] = useState(false);
-  const url = art?.heroUrl ?? null;
+  // Wide art is the hero; a tall box is a fine stand-in (cropped); nothing at all falls back to the composition below.
+  const url = art?.wide ?? art?.tall ?? null;
   return (
     <div aria-hidden className="absolute inset-0 overflow-hidden bg-[oklch(0.16_0.012_265)]">
       <FallbackArt />
+      {art?.placeholder && !loaded && <div className="absolute inset-0 opacity-70" style={{ backgroundColor: art.placeholder }} />}
       {url && (
         <img
           src={url}
