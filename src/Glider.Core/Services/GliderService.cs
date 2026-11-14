@@ -175,9 +175,35 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _c.Hub.PublishNow();
 
         var ct = _shutdown.Token;
+        if (_c.Options.WarmSerializers)
+        {
+            _ = Task.Run(WarmSerializers, ct);
+        }
+
         WarmupTask = Task.Run(() => _prewarm.RunAsync(ct), ct);
         _periodic = RunPeriodicAfterWarmupAsync(ct);
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// First use of the contract's JSON metadata and of the snapshot's sources (drives, EGL, queue) costs 100–300 ms; the UI's first two
+    /// requests (app.getSnapshot, library.get) gate its first paint. Doing the same work once here, while WebView2 is still starting,
+    /// moves that cost off the critical path (docs/perf.md). Results are discarded; nothing is mutated.
+    /// </summary>
+    internal void WarmSerializers()
+    {
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            _ = System.Text.Json.JsonSerializer.Serialize(_c.Hub.BuildSnapshot(), GliderJsonContext.Default.AppSnapshot);
+            var sample = _c.Library.Games.Values.Take(64).ToList();
+            _ = System.Text.Json.JsonSerializer.Serialize(new LibraryDelta(0, true, sample, []), GliderJsonContext.Default.LibraryDelta);
+            _c.Log.Debug("startup", $"serializers warmed in {sw.ElapsedMilliseconds} ms");
+        }
+        catch (Exception e)
+        {
+            _c.Log.Warn("startup", "serializer warm-up failed", e);
+        }
     }
 
     private async Task RunPeriodicAfterWarmupAsync(CancellationToken ct)

@@ -16,6 +16,9 @@ internal sealed class HostRuntime
         Sink = new ForwardingEventSink();
         Platform = new WindowsHostPlatform(this);
 
+        // 0) The RPC route table (reflection over IGliderRpc + every contract type's JSON metadata) is built on a pool thread at once.
+        _ = Task.Run(() => RpcDispatcher.MethodNames.Count);
+
         // 1) Browser-process startup is the long pole, so it starts first and overlaps everything below.
         EnvTask = StartEnvironment(paths);
 
@@ -24,7 +27,7 @@ internal sealed class HostRuntime
         Bridge.Dispatcher = RpcTask.ContinueWith(
             t =>
             {
-                var dispatcher = new RpcDispatcher(t.Result, Bridge, (method, ex) => HostLog.Error($"RPC {method} failed", ex));
+                var dispatcher = new RpcDispatcher(t.Result, Bridge, (method, ex) => HostLog.Error($"RPC {method} failed", ex), OnRpcHandled);
                 Sink.Attach(dispatcher);
                 StartupTimeline.Mark("rpc-ready");
                 return dispatcher;
@@ -32,6 +35,20 @@ internal sealed class HostRuntime
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnRanToCompletion,
             TaskScheduler.Default);
+    }
+
+    /// <summary>Startup diagnostics: a milestone when each startup-critical response left Core, and a log line for anything slow.</summary>
+    private static void OnRpcHandled(string method, double ms, int chars)
+    {
+        if (method is "app.getSnapshot" or "library.get")
+        {
+            StartupTimeline.Mark($"rpc-sent:{method}");
+            HostLog.Info($"RPC {method}: {ms:0.0} ms in Core, {chars / 1024} KiB");
+        }
+        else if (ms > 250)
+        {
+            HostLog.Warn($"RPC {method} took {ms:0} ms");
+        }
     }
 
     public AppPaths Paths { get; }

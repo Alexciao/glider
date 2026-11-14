@@ -30,12 +30,15 @@ public sealed class RpcDispatcher : IEventSink
     private readonly IGliderRpc _impl;
     private readonly IRpcTransport _transport;
     private readonly Action<string, Exception>? _onError;
+    private readonly Action<string, double, int>? _onHandled;
 
-    public RpcDispatcher(IGliderRpc impl, IRpcTransport transport, Action<string, Exception>? onError = null)
+    /// <param name="onHandled">Diagnostics: (method, milliseconds from receipt to the response being handed to the transport, response characters).</param>
+    public RpcDispatcher(IGliderRpc impl, IRpcTransport transport, Action<string, Exception>? onError = null, Action<string, double, int>? onHandled = null)
     {
         _impl = impl;
         _transport = transport;
         _onError = onError;
+        _onHandled = onHandled;
     }
 
     public static IReadOnlyCollection<string> MethodNames => Routes.Keys;
@@ -82,6 +85,7 @@ public sealed class RpcDispatcher : IEventSink
     {
         int id = -1;
         string method = "?";
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
             using var doc = JsonDocument.Parse(json);
@@ -121,7 +125,9 @@ public sealed class RpcDispatcher : IEventSink
                 resultJson = JsonSerializer.Serialize(result, route.ResultType);
             }
 
-            _transport.Send($"{{\"type\":\"response\",\"id\":{id},\"result\":{resultJson},\"error\":null}}");
+            var response = $"{{\"type\":\"response\",\"id\":{id},\"result\":{resultJson},\"error\":null}}";
+            _transport.Send(response);
+            _onHandled?.Invoke(method, System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, response.Length);
         }
         catch (Exception ex)
         {

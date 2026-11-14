@@ -91,6 +91,9 @@ public sealed class GliderServiceOptions
     /// <summary>An auto-update that had to wait (user active, game running, not signed in) is tried again this often.</summary>
     public TimeSpan AutoUpdateRetryInterval { get; init; } = TimeSpan.FromSeconds(60);
 
+    /// <summary>Host: serialize a throw-away snapshot + library on the thread pool at start, so the UI's first two requests (which gate the first paint) hit a warm serializer. Off in tests.</summary>
+    public bool WarmSerializers { get; init; }
+
     private static string DefaultAppVersion()
     {
         var v = typeof(GliderServiceOptions).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0";
