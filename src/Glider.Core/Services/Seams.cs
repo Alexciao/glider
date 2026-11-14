@@ -47,7 +47,7 @@ public interface IPublisherCheck
     string? WhyUntrusted(string path);
 }
 
-public sealed record FixedDrive(string RootPath, long FreeBytes, long TotalBytes);
+public sealed record FixedDrive(string RootPath, long FreeBytes, long TotalBytes, bool? IsSsd = null);
 
 public interface IDiskInfo
 {
@@ -169,7 +169,7 @@ public sealed class SystemDiskInfo : IDiskInfo
             {
                 if (d.DriveType == DriveType.Fixed && d.IsReady)
                 {
-                    list.Add(new FixedDrive(d.RootDirectory.FullName, d.AvailableFreeSpace, d.TotalSize));
+                    list.Add(new FixedDrive(d.RootDirectory.FullName, d.AvailableFreeSpace, d.TotalSize, DriveMedia.IsSsd(d.RootDirectory.FullName)));
                 }
             }
             catch (IOException)

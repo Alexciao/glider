@@ -52,6 +52,7 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
     private bool _cdnSlow;
     private double _lastWriteRate;
     private double _lastRawRate;
+    private double _diskBoundWriteRate;
 
     public JobProgressTracker(
         string jobId,
@@ -214,6 +215,18 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
         }
     }
 
+    /// <summary>Smoothed write speed while the drive was the limit (0 if it never was): what a drive really sustains.</summary>
+    public double DiskBoundWriteBytesPerSecond
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _diskBoundWriteRate;
+            }
+        }
+    }
+
     public void OnSizes(LegendaryRunSizes sizes)
     {
         lock (_lock)
@@ -342,6 +355,10 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
                 Limiter.Unknown);
             _lastRawRate = rawDownload;
             _lastWriteRate = rawDisk;
+            if (_diskBound && rawDisk > 0)
+            {
+                _diskBoundWriteRate = _diskBoundWriteRate == 0 ? rawDisk : 0.9 * _diskBoundWriteRate + 0.1 * rawDisk;
+            }
             progress = Groups(full, phase);
             _last = full;
             _samples.Add(new JobSample(Math.Round(elapsed, 1),

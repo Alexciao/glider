@@ -593,7 +593,14 @@ public sealed record StorageState(IReadOnlyList<LibraryFolder> Folders, IReadOnl
 
 public sealed record LibraryFolder(string Path, bool IsDefault, bool Exists, string Drive, long FreeBytes, int GameCount);
 
-public sealed record DriveInfoDto(string Root, string? Label, long FreeBytes, long TotalBytes, bool IsSsd);
+public sealed record DriveInfoDto(
+    string Root,
+    string? Label,
+    long FreeBytes,
+    long TotalBytes,
+    bool IsSsd,
+    /// <summary>A plain-language warning for the install picker (hard disk, nearly full, or slow in practice); null when the drive looks fine.</summary>
+    string? Hint = null);
 
 // ===================================== EGL =====================================
 

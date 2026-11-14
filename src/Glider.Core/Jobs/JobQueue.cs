@@ -783,6 +783,12 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
 
         tracker.Flush();
+        if (tracker.DiskBoundWriteBytesPerSecond is > 0 and var diskRate && DriveOf(job) is { } drive)
+        {
+            Services.DriveSpeeds.Record(_paths, drive + "\\", diskRate); // the install picker warns about drives that proved slow
+            _log.Info("jobs", $"{job.Info.AppName}: the drive {drive} was the limit; it sustained about {diskRate / 1e6:0.0} MB/s.");
+        }
+
         var baseline = tracker.Snapshot();
         JobInfo final;
         lock (_lock)

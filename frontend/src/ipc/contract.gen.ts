@@ -117,6 +117,7 @@ export interface DriveInfoDto {
   freeBytes: number;
   totalBytes: number;
   isSsd: boolean;
+  hint: string | null;
 }
 
 export type EglDrift = "none" | "eglNewer" | "gliderNewer" | "unknown";
