@@ -148,7 +148,8 @@ internal static class SaveSyncPlanner
 
     /// <summary>
     /// Was an upload accepted? A manifest that was not listed before the upload now exists, or the one the local mtime would
-    /// have produced is listed (a re-upload of the same second replaces a manifest of the same name).
+    /// have produced is listed (a re-upload of the same second replaces a manifest of the same name). A manifest that was already
+    /// listed before the upload proves nothing unless it carries exactly that name.
     /// </summary>
     public static bool UploadLanded(IReadOnlyList<string> before, IReadOnlyList<string> after, DateTimeOffset latestMtime)
     {
@@ -158,8 +159,9 @@ internal static class SaveSyncPlanner
             return true;
         }
 
-        var expected = ExpectedUploadNames(latestMtime);
-        return after.Any(m => expected.Contains(m, StringComparer.Ordinal));
+        // No new manifest: only the exact name of the same second counts (a re-upload replaces it). The DST-shifted names are
+        // never evidence here, or an older save an hour earlier would make a dropped upload look like it landed.
+        return after.Contains(ExpectedUploadNames(latestMtime)[0], StringComparer.Ordinal);
     }
 
     /// <summary>

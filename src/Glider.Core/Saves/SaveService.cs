@@ -281,8 +281,9 @@ internal sealed class SaveService : IDisposable
             {
                 await PostExitAsync(app).ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException e)
             {
+                _c.Log.Info("saves", $"{app}: post-exit sync cancelled: {e.Message}");
             }
             catch (Exception e)
             {

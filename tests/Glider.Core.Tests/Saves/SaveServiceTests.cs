@@ -596,11 +596,9 @@ public class SaveServiceTests
         s.Write("slot1.sav", "unsynced progress", T0.AddHours(1));
 
         s.Saves.AfterExit(App);
-        var idle = s.Saves.PostExitIdle;
-        await idle;
-        await Task.Delay(300, TestContext.Current.CancellationToken);
+        await s.Saves.PostExitIdle;
 
-        Assert.True(s.Notices().Any(n => n.Level == NoticeLevel.Warning && n.Title.Contains("upload", StringComparison.OrdinalIgnoreCase)), string.Join(" / ", s.Rig.Log.Lines.Where(l => l.Contains("[saves]", StringComparison.Ordinal))));
+        Assert.Contains(s.Notices(), n => n.Level == NoticeLevel.Warning && n.Title.Contains("upload", StringComparison.OrdinalIgnoreCase));
         Assert.Equal("unsynced progress", s.Read("slot1.sav"));
         Assert.Equal(SaveSyncStatus.Error, s.State().Status);
     }
@@ -618,8 +616,12 @@ public class SaveServiceTests
         s.Saves.AfterExit(App);
         await WaitUntil(() => s.Cloud.SyncCalls(SyncMode.Upload) == 2); // 1 baseline + the first attempt
         s.Cloud.DropUploads = false;
-        s.Rig.Time.Advance(TimeSpan.FromSeconds(31));
-        await s.Saves.PostExitIdle;
+        var idle = s.Saves.PostExitIdle;
+        while (!idle.IsCompleted) // the retry timer is registered a moment after the first attempt failed
+        {
+            s.Rig.Time.Advance(TimeSpan.FromSeconds(31));
+            await Task.Delay(20, TestContext.Current.CancellationToken);
+        }
 
         Assert.Equal(3, s.Cloud.SyncCalls(SyncMode.Upload));
         Assert.Equal(SaveSyncStatus.InSync, s.State().Status);
