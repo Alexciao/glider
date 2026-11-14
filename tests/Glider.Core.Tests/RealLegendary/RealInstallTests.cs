@@ -8,6 +8,7 @@ namespace Glider.Core.Tests.RealLegendary;
 /// The writer-lane commands that work without Epic, run by Core's <see cref="LegendaryCli"/> against the real exe on a fixture install:
 /// verify (ok / corrupted / missing / no manifest / no folder), uninstall, move and import. What they leave on disk is checked too.
 /// </summary>
+[Collection(RealLegendaryCollection.Name)]
 public sealed class RealInstallTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

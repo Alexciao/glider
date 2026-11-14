@@ -8,6 +8,7 @@ namespace Glider.Core.Tests.RealLegendary;
 /// Launch, resolved by the real exe (<c>launch &lt;app&gt; --json --offline</c>, which only prints the command) and turned into a process
 /// start by Core. Nothing is spawned: the host's process starter is a recorder.
 /// </summary>
+[Collection(RealLegendaryCollection.Name)]
 public sealed class RealLaunchTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

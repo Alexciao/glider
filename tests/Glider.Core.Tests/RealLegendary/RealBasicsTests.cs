@@ -11,6 +11,7 @@ namespace Glider.Core.Tests.RealLegendary;
 /// Core's reading side against the real legendary.exe: version and account parsing, the files the exe writes and reads
 /// (installed.json, metadata, assets), and the read-only EOS overlay report. Offline, no sign-in, temp config only.
 /// </summary>
+[Collection(RealLegendaryCollection.Name)]
 public sealed class RealBasicsTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;

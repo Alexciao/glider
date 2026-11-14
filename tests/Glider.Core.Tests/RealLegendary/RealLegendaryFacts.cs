@@ -45,6 +45,16 @@ internal static class RealLegendary
     }
 }
 
+/// <summary>
+/// Every real-exe test class joins this collection. It is not parallelized: xUnit runs it alone, after the parallel collections have finished,
+/// so the dozens of PyInstaller start-ups never starve the timing-sensitive tests (stall timeouts, CDN probes) of CPU.
+/// </summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class RealLegendaryCollection
+{
+    public const string Name = "Real Legendary";
+}
+
 /// <summary>A test that needs the real legendary.exe (skipped when <see cref="RealLegendary.ExePath"/> is unset).</summary>
 internal sealed class RealLegendaryFactAttribute : FactAttribute
 {
