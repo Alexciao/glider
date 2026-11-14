@@ -59,6 +59,17 @@ internal static class ErrorClassifier
             return null;
         }
 
+        if (kind == LegendaryCommandKind.Launch && f.ExceptionLine is { } launchException &&
+            launchException.StartsWith("ValueError: Executable path is invalid", StringComparison.Ordinal))
+        {
+            // The game's "Executable" setting points at a file that isn't in the install folder (core.py:850-855).
+            return Errors.LaunchFailed("The executable chosen in the game's settings doesn't exist in its install folder. Choose another one or reset it.") with
+            {
+                Fix = FixAction.ChooseFolder,
+                Detail = launchException,
+            };
+        }
+
         if (Common(kind, run, freeBytes) is { } common)
         {
             return common;
