@@ -1,0 +1,47 @@
+/*
+ * Motion for the form-level primitives added with onboarding/Settings (Checkbox, Disclosure, Callout…).
+ * Kept apart from ui.css so the base primitives stay a stable file. Same rules: transform/opacity, ease-out, short.
+ */
+
+@keyframes g-tick {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* Disclosure: Radix measures the content, we animate the box open/closed. Height is the one layout property we allow,
+   because an accordion has no transform equivalent; the content is short and the motion is 200 ms. */
+@keyframes g-collapse-down {
+  from { height: 0; opacity: 0; }
+  to { height: var(--radix-collapsible-content-height); opacity: 1; }
+}
+@keyframes g-collapse-up {
+  from { height: var(--radix-collapsible-content-height); opacity: 1; }
+  to { height: 0; opacity: 0; }
+}
+.g-collapse[data-state="open"] {
+  animation: g-collapse-down 220ms var(--ease-out);
+}
+.g-collapse[data-state="closed"] {
+  animation: g-collapse-up 160ms var(--ease-out);
+}
+
+/* Settings search: rows that don't match render nothing; a group or section left without a row is hidden. */
+[data-searching] :is([data-block], [data-group]):not(:has([data-setting])) {
+  display: none;
+}
+
+/* A step's content arriving: rise + fade, no blur (the stepper already says where you are). */
+@keyframes g-step-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.g-step-in {
+  animation: g-step-in 320ms var(--ease-out) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes g-tick { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes g-collapse-down { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes g-collapse-up { from { opacity: 1; } to { opacity: 0; } }
+  @keyframes g-step-in { from { opacity: 0; } to { opacity: 1; } }
+}
