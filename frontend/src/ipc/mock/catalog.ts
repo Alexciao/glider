@@ -186,13 +186,13 @@ export function generateCatalog(opts: CatalogOptions): MockGame[] {
   const ubisoftOnly = take(scaleTo(count, 5, 1));
   const eaOnly = take(scaleTo(count, 7, 1));
   const otherThirdParty = take(scaleTo(count, 2, 1));
-  const offlineNo = take(scaleTo(count, 30, 2));
-  const noCloud = take(Math.round(count * 0.32));
+  const offlineNo = new Set([...take(scaleTo(count, 26, 2)), ...[...installed].slice(-scaleTo(count, 6, 2))]);
+  const noCloud = new Set([...take(Math.round(count * 0.3)), ...[...installed].slice(-scaleTo(count, 8, 2))]);
   const hiddenSet = take(scaleTo(count, 6, 1));
   const unmeasured = new Set([...installed].slice(2, 2 + scaleTo(count, 2, 1)));
   const missingTall = take(scaleTo(count, 4, 1));
   const missingWide = take(scaleTo(count, 4, 1));
-  const dlcHosts = take(Math.round(count * 0.17));
+  const dlcHosts = new Set([...take(Math.round(count * 0.14)), ...[...installed].slice(0, scaleTo(count, 14, 3))]);
   const addonHosts = new Set([...dlcHosts].slice(0, scaleTo(count, 3, 1)));
   const needsPrereq = new Set([...installed].slice(scaleTo(count, 20, 3), scaleTo(count, 20, 3) + scaleTo(count, 2, 1)));
   const everPlayedUninstalled = take(scaleTo(count, 7, 1));

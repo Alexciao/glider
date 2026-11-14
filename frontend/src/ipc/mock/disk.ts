@@ -21,9 +21,9 @@ export interface MockDrive {
 /** The mock PC: a small system SSD, a fast games SSD, a big HDD and a nearly full external drive. */
 export function defaultDrives(diskFull = false): MockDrive[] {
   return [
-    { letter: "C", label: "Windows", totalBytes: Math.round(0.93 * TiB), freeBytes: Math.round((diskFull ? 3 : 212) * GiB), isSsd: true },
-    { letter: "D", label: "Games", totalBytes: Math.round(1.82 * TiB), freeBytes: Math.round((diskFull ? 12.6 : 640) * GiB), isSsd: true },
-    { letter: "E", label: "Archive", totalBytes: Math.round(3.64 * TiB), freeBytes: Math.round((diskFull ? 18.4 : 1.9 * 1024) * GiB), isSsd: false },
-    { letter: "F", label: "Backup", totalBytes: Math.round(0.93 * TiB), freeBytes: Math.round(18.4 * GiB), isSsd: false },
+    { letter: "C", label: "Windows", totalBytes: Math.round(0.93 * TiB), freeBytes: Math.round((diskFull ? 1.1 : 212) * GiB), isSsd: true },
+    { letter: "D", label: "Games", totalBytes: Math.round(1.82 * TiB), freeBytes: Math.round((diskFull ? 2.1 : 640) * GiB), isSsd: true },
+    { letter: "E", label: "Archive", totalBytes: Math.round(3.64 * TiB), freeBytes: Math.round((diskFull ? 3.4 : 1.9 * 1024) * GiB), isSsd: false },
+    { letter: "F", label: "Backup", totalBytes: Math.round(0.93 * TiB), freeBytes: Math.round((diskFull ? 0.9 : 18.4) * GiB), isSsd: false },
   ];
 }
