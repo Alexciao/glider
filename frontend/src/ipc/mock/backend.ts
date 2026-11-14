@@ -74,11 +74,8 @@ interface JobMeta {
   destinationBase?: string;
   basePath?: string;
   components?: string[];
-  dlc?: string[];
   eglInstallId?: string;
   verifyMode?: VerifyMode;
-  /** Set by "resume" on a waiting job: run anyway. */
-  forced?: boolean;
 }
 
 interface JobEntry {
@@ -104,16 +101,23 @@ interface Resolved {
 const MAX_FINISHED_JOBS = 20;
 const EGL_AUTO_RESUME_MS = 14_000;
 const GAME_AUTO_EXIT_MS = 120_000;
-const INSTALL_MARGIN_BYTES = 1 * GiB;
-const WRITE_KINDS: readonly JobKind[] = ["install", "update", "repair", "verify", "modify", "move", "uninstall", "import", "overlay"];
+/** `InstallService.SpaceMargin`: head-room on top of the install size, max(2 GiB, 3%). */
+const spaceMargin = (installBytes: number): number => Math.max(2 * GiB, Math.floor((installBytes * 3) / 100));
+/** Jobs that wait for their game to close and for its saves to sync (`ServiceContext.IsWriteJob`: everything but import; the overlay has its own gate). */
+const GAME_GATED_KINDS: readonly JobKind[] = ["install", "update", "repair", "verify", "modify", "move", "uninstall"];
+/** Jobs whose Legendary run needs Epic's servers: with no connection they fail with `network`. */
 const NETWORK_KINDS: readonly JobKind[] = ["install", "update", "repair", "modify", "overlay"];
-const PAUSABLE: readonly JobKind[] = ["install", "update", "repair", "verify", "modify", "overlay"];
-
-/** Core's `JobInfo.cancellable`: a running uninstall can't be stopped (the mock's moves have no copy phase to tell apart). */
-const withCancellable = (info: JobInfo): JobInfo => {
-  const cancellable = !(info.status === "running" && info.kind === "uninstall");
-  return info.cancellable === cancellable ? info : { ...info, cancellable };
+/** `JobPlan.CanPause`. */
+const PAUSABLE: readonly JobKind[] = ["install", "update", "repair", "verify", "modify"];
+/** Session states `QueuePolicy.Playing` counts as "a game is running". */
+const PLAYING_STATES: readonly RunState[] = ["launching", "running", "closing", "preparing", "installingPrerequisites"];
+/** What `InstallService.JobNoun` says in a gameBusy error. */
+const JOB_NOUN: Partial<Record<JobKind, string>> = {
+  install: "the download", update: "the update", repair: "the repair", verify: "the verification", move: "the move", uninstall: "the uninstall", import: "the import",
 };
+const ONBOARDING_STEPS: readonly OnboardingState["step"][] = ["welcome", "signIn", "scan", "folders", "mode", "done"];
+const isFullPath = (p: string): boolean => /^(?:[A-Za-z]:[\\/]|\\\\[^\\/])/.test(p.trim());
+const isInstalledish = (s: GameSummary): boolean => (s.installStatus === "installed" || s.installStatus === "broken") && s.installPath !== null;
 
 /** Calls that only read: they never consume an injected failure. */
 const READ_ONLY = new Set<string>([
@@ -177,6 +181,8 @@ export class MockBackend {
 
   private queue: JobEntry[] = [];
   private finished: JobInfo[] = [];
+  /** The sim and meta of failed jobs, so "resume" can retry them like Core does. */
+  private failedEntries = new Map<string, JobEntry>();
   private histories = new Map<string, JobSample[]>();
   private queuePaused = false;
 
@@ -338,6 +344,7 @@ export class MockBackend {
     this.store = idleStore();
     this.queue = [];
     this.finished = [];
+    this.failedEntries = new Map();
     this.histories = new Map();
     this.queuePaused = false;
     this.dirty.clear();
@@ -497,16 +504,49 @@ export class MockBackend {
     };
   }
 
+  /** `QueuePolicy.Playing`: the session that holds or throttles downloads (the oldest one that isn't idle). */
+  private playing(): RunningGame | undefined {
+    return this.sessions
+      .filter((s) => PLAYING_STATES.includes(s.state))
+      .sort((a, b) => (a.since ? Date.parse(a.since) : Infinity) - (b.since ? Date.parse(b.since) : Infinity))[0];
+  }
+
+  /** `QueuePolicy.HoldReason`: while a game runs and "while playing" is Pause, pausable jobs don't run. */
+  private holdReason(): string | null {
+    const p = this.playing();
+    return p && this.settings.whilePlaying === "pause" ? `Paused while ${p.title} is running` : null;
+  }
+
   private effectiveMode(): { mode: DownloadMode; reason: string | null } {
-    const running = this.sessions.find((s) => s.state === "running");
+    const running = this.playing();
     if (running && this.settings.whilePlaying === "throttle") return { mode: "background", reason: `Throttled while ${running.title} is running` };
     if (running && this.settings.whilePlaying === "pause") return { mode: this.settings.downloadMode, reason: `Paused while ${running.title} is running` };
     return { mode: this.settings.downloadMode, reason: null };
   }
 
+  /**
+   * `JobInfo.cancellable` as Core computes it (`JobPlan.CanCancel`): anything that hasn't started can be cancelled; once running, an
+   * uninstall can't (killing Legendary mid-delete leaves a half-deleted game), and a move only while it copies across volumes.
+   */
+  private cancellableNow(info: JobInfo): boolean {
+    if (info.status !== "running") return true;
+    if (info.kind === "uninstall") return false;
+    if (info.kind === "move") {
+      const from = this.games.get(info.appName)?.summary.installPath;
+      const crossVolume = !!from && !!info.targetPath && driveLetter(from) !== driveLetter(info.targetPath);
+      return crossVolume && info.phase === "moving";
+    }
+    return true;
+  }
+
+  private view(e: JobEntry): JobInfo {
+    const cancellable = this.cancellableNow(e.info);
+    return e.info.cancellable === cancellable ? e.info : { ...e.info, cancellable };
+  }
+
   private queueState(): QueueState {
     const { mode, reason } = this.effectiveMode();
-    return { jobs: [...this.queue.map((e) => withCancellable(e.info)), ...this.finished.slice(0, MAX_FINISHED_JOBS)], paused: this.queuePaused, effectiveMode: mode, modeReason: reason };
+    return { jobs: [...this.queue.map((e) => this.view(e)), ...this.finished.slice(0, MAX_FINISHED_JOBS)], paused: this.queuePaused, effectiveMode: mode, modeReason: reason };
   }
 
   private eglState(): EglState {
@@ -562,10 +602,6 @@ export class MockBackend {
     if (this.auth.status !== "signedIn") throw fail(Errors.notSignedIn());
   }
 
-  private requireOnline(what: string): void {
-    if (this.connectivity === "offline") throw fail(Errors.offline(what));
-  }
-
   private isRunning(appName: string): boolean {
     const base = this.baseOf(appName);
     return this.sessions.some((s) => s.appName === appName || s.appName === base);
@@ -576,9 +612,42 @@ export class MockBackend {
     return this.queue.find((e) => e.info.appName === appName || e.info.appName === base);
   }
 
+  /** `InstallService.RequireGameClosed`. */
   private requireIdle(appName: string): void {
     const g = this.rec(appName);
     if (this.isRunning(appName)) throw fail(Errors.gameRunning(g.summary.title, appName));
+  }
+
+  /** `InstallService.RequireInstalled`: installed or broken, with a path. */
+  private requireInstalled(appName: string): MockGame {
+    const g = this.rec(appName);
+    if (!isInstalledish(g.summary)) throw fail(Errors.notInstalled(g.summary.title, g.summary.appName));
+    return g;
+  }
+
+  /** `InstallService.RequireNoOtherJobOn`: another unfinished job of any kind on this very game refuses new work on it. */
+  private requireNoOtherJob(appName: string): void {
+    const other = this.queue.find((e) => e.info.appName === appName);
+    if (other) throw fail(Errors.gameBusy(this.titleOf(appName), appName, JOB_NOUN[other.info.kind] ?? "the current task"));
+  }
+
+  private activeJob(appName: string, kind: JobKind): JobEntry | undefined {
+    return this.queue.find((e) => e.info.appName === appName && e.info.kind === kind);
+  }
+
+  /** `InstallService.RequireFullPath`. */
+  private requireFullPath(path: string | null | undefined, name: string): string {
+    if (!path || !isFullPath(path)) throw fail(Errors.invalidRequest(`${name} must be a full path`));
+    return path;
+  }
+
+  /** The Core job lookup behind pause/resume/cancel/dismiss/reorder/history: unfinished and finished jobs alike; anything else is unknown. */
+  private findJob(jobId: string): { entry?: JobEntry; finished?: JobInfo } {
+    const entry = this.entry(jobId);
+    if (entry) return { entry };
+    const finished = this.finished.find((j) => j.id === jobId);
+    if (finished) return { finished };
+    throw fail(Errors.invalidRequest(`Unknown job '${jobId}'`));
   }
 
   // ───────────────────────────── jobs ─────────────────────────────
@@ -603,10 +672,9 @@ export class MockBackend {
     };
     switch (kind) {
       case "install": {
-        const extra = (meta.dlc ?? []).reduce((s, a) => s + (this.games.get(a)?.fullDownloadBytes ?? 0), 0);
-        const dl = (g?.fullDownloadBytes ?? 0) + extra;
-        const wr = (g?.fullInstallBytes ?? 0) + (meta.dlc ?? []).reduce((s, a) => s + (this.games.get(a)?.fullInstallBytes ?? 0), 0);
-        return { ...base, installBytes: wr, downloadBytes: dl, writeBytes: wr };
+        // Each selected DLC is its own job after the base game, as in Core.
+        const wr = g?.fullInstallBytes ?? 0;
+        return { ...base, installBytes: wr, downloadBytes: g?.fullDownloadBytes ?? 0, writeBytes: wr };
       }
       case "update":
         return { ...base, downloadBytes: g?.updateDownloadBytes ?? 0, writeBytes: g?.updateWriteBytes ?? 0 };
@@ -672,6 +740,8 @@ export class MockBackend {
     if (!g) return null;
     switch (kind) {
       case "install":
+        // A DLC lands in its base game's folder.
+        if (g.summary.kind === "dlc") return this.games.get(g.summary.baseAppName ?? "")?.summary.installPath ?? null;
         return joinPath(meta.basePath ?? this.settings.defaultInstallBase ?? "D:\\Games", g.folderName);
       case "move":
         return joinPath(meta.destinationBase ?? "D:\\Games", g.folderName);
@@ -682,13 +752,10 @@ export class MockBackend {
     }
   }
 
-  /** Create (or return the existing, for idempotency) unfinished job keyed by (appName, kind). */
+  /** Create (or return the existing, for idempotency) unfinished job keyed by (appName, kind). Like Core's `Enqueue`, a repeat changes nothing. */
   private createJob(kind: JobKind, appName: string, meta: JobMeta = {}, opts: { front?: boolean } = {}): JobInfo {
     const existing = this.queue.find((e) => e.info.appName === appName && e.info.kind === kind);
-    if (existing) {
-      if (opts.front) this.moveJob(existing.info.id, this.queue[0]?.info.status === "running" ? 1 : 0);
-      return existing.info;
-    }
+    if (existing) return this.view(existing);
     const id = `job-${++this.jobSeq}`;
     const init = this.simInit(kind, appName, id, meta, null);
     const sim = buildJobSim(init, this.cfg.timeScale, this.cfg.timeScaleExplicit);
@@ -702,18 +769,21 @@ export class MockBackend {
     }
     this.refreshActive(appName);
     this.reconcile();
-    return entry.info;
+    return this.view(entry);
   }
 
   private entry(jobId: string): JobEntry | undefined {
     return this.queue.find((e) => e.info.id === jobId);
   }
 
+  /** `JobQueue.ReorderAsync`: the index counts the unfinished jobs; the running job stays first unless it is the one moved. */
   private moveJob(jobId: string, toIndex: number): void {
     const from = this.queue.findIndex((e) => e.info.id === jobId);
     if (from < 0) return;
     const [e] = this.queue.splice(from, 1);
-    this.queue.splice(Math.max(0, Math.min(this.queue.length, toIndex)), 0, e!);
+    const otherRuns = this.queue[0]?.info.status === "running";
+    const min = otherRuns ? 1 : 0;
+    this.queue.splice(Math.max(min, Math.min(this.queue.length, toIndex)), 0, e!);
     this.emitState();
   }
 
@@ -727,23 +797,35 @@ export class MockBackend {
     if (g.summary.activeJobId !== id || g.summary.activeJobKind !== kind) this.patch(appName, { activeJobId: id, activeJobKind: kind });
   }
 
-  private blockReason(e: JobEntry): string | null {
-    if (e.meta.forced) return null;
+  /** Why a job that hasn't started can't (`JobHooks.ReasonNotToStart`): the writer slot goes to the next eligible job meanwhile. */
+  private gateReason(e: JobEntry): string | null {
     const { info } = e;
-    if (this.connectivity === "offline" && NETWORK_KINDS.includes(info.kind)) return "You're offline. Glider continues when you're back online.";
+    if (info.kind === "overlay") return this.sessions.some((s) => s.state !== "idle") ? "Waiting for games to close" : null;
+    if (this.games.get(info.appName)?.saves?.status === "syncing") return `Waiting for ${info.title}'s cloud saves to sync`;
+    if (GAME_GATED_KINDS.includes(info.kind) && this.isRunning(info.appName)) return `Waiting for ${info.title} to close`;
     if (this.egl.busyApps.includes(info.appName)) return `Epic Games Launcher is updating ${info.title}`;
-    const playing = this.sessions.find((s) => s.state === "running");
-    if (playing && this.settings.whilePlaying === "pause" && WRITE_KINDS.includes(info.kind) && info.kind !== "uninstall") return `Paused while ${playing.title} is running`;
     return null;
   }
 
-  /** Re-evaluate external blockers for every unfinished job, then start whatever can start. */
+  /**
+   * Re-evaluate what blocks each unfinished job, then start whatever can start. A running pausable job is stopped by the hold
+   * ("Paused while X is running"); queued ones just stay queued under a hold. Everything else a job waits for is its own gate.
+   */
   private reconcile(emit = true): void {
     let changed = false;
-    for (const e of this.queue) {
+    const hold = this.holdReason();
+    for (const e of [...this.queue]) {
       const s = e.info.status;
       if (s === "paused") continue;
-      const reason = this.blockReason(e);
+      let reason: string | null;
+      if (s === "running") {
+        // Epic's own install lock can appear mid-run; a hold stops the run.
+        reason = hold && PAUSABLE.includes(e.info.kind) ? hold : this.egl.busyApps.includes(e.info.appName) ? `Epic Games Launcher is updating ${e.info.title}` : null;
+      } else {
+        reason = this.gateReason(e);
+        // A job the hold stopped stays waiting until the hold lifts.
+        if (!reason && hold && s === "waiting" && PAUSABLE.includes(e.info.kind) && e.info.blockedReason === hold) reason = hold;
+      }
       if (reason && s !== "waiting") {
         e.info = { ...e.info, status: "waiting", blockedReason: reason };
         changed = true;
@@ -763,13 +845,20 @@ export class MockBackend {
     if (changed || emit) this.emitState();
   }
 
-  /** Start the next runnable job (one writer at a time). A paused/waiting job blocks only its own game. */
+  /** Start the next runnable job (one writer at a time). A paused/waiting job blocks only the later jobs of its own game. */
   private pump(): void {
     if (this.queuePaused) return;
     if (this.queue.some((e) => e.info.status === "running")) return;
-    const blocked = new Set(this.queue.filter((e) => e.info.status === "paused" || e.info.status === "waiting").map((e) => e.info.appName));
-    const next = this.queue.find((e) => e.info.status === "queued" && !blocked.has(e.info.appName));
-    if (next) this.startJob(next);
+    const hold = this.holdReason();
+    const blocked = new Set<string>();
+    for (const e of this.queue) {
+      const group = this.baseOf(e.info.appName);
+      if (e.info.status === "paused" || e.info.status === "waiting") blocked.add(group);
+      else if (e.info.status === "queued" && !blocked.has(group) && !(hold && PAUSABLE.includes(e.info.kind))) {
+        this.startJob(e);
+        return;
+      }
+    }
   }
 
   private startJob(e: JobEntry): void {
@@ -793,6 +882,11 @@ export class MockBackend {
     if (!e) {
       if (this.ticker !== null) clearInterval(this.ticker);
       this.ticker = null;
+      return;
+    }
+    // Core has no offline gate: Legendary can't reach Epic and the job fails (Retry resumes it).
+    if (this.connectivity === "offline" && NETWORK_KINDS.includes(e.info.kind)) {
+      this.failJob(e, Errors.network("Couldn't connect to Epic's servers.", e.info.appName));
       return;
     }
     if (!this.cfg.freeze) {
@@ -830,6 +924,7 @@ export class MockBackend {
   private retire(e: JobEntry, info: JobInfo): void {
     this.queue = this.queue.filter((x) => x !== e);
     this.finished = [info, ...this.finished].slice(0, MAX_FINISHED_JOBS);
+    if (info.status === "failed") this.failedEntries.set(info.id, { ...e, info });
     this.histories.set(info.id, e.sim.history());
     this.refreshActive(info.appName);
   }
@@ -868,7 +963,18 @@ export class MockBackend {
     switch (kind) {
       case "install": {
         if (!g) break;
-        const dlcApps = e.meta.dlc ?? [];
+        if (g.summary.kind === "dlc") {
+          const host = this.games.get(g.summary.baseAppName ?? "")?.summary;
+          this.patch(appName, {
+            installStatus: "installed",
+            installedVersion: host?.installedVersion ?? g.summary.latestVersion,
+            installPath: host?.installPath ?? null,
+            installedSizeBytes: Math.round(g.fullInstallBytes * 0.99),
+            downloadSizeBytes: null,
+            updateAvailable: false,
+          });
+          break;
+        }
         this.patch(appName, {
           installStatus: "installed",
           installedVersion: g.summary.latestVersion,
@@ -881,7 +987,6 @@ export class MockBackend {
         });
         g.installedAt = iso();
         g.executable = `${g.folderName}\\Binaries\\Win64\\${g.folderName}.exe`;
-        for (const d of dlcApps) this.patch(d, { installStatus: "installed", installPath: info.targetPath, installedVersion: g.summary.latestVersion });
         if (g.saves && g.saves.status === "unknown") this.setSaveStatus(appName, "inSync");
         break;
       }
@@ -934,18 +1039,8 @@ export class MockBackend {
         break;
       }
       case "modify":
-        if (g) {
-          g.components = g.components.map((c) => ({ ...c, selected: c.required || (e.meta.components ?? []).includes(c.id) }));
-          // The chosen DLC are on disk afterwards, the others are not (entitlement-only content never changes).
-          const wanted = e.meta.dlc ?? [];
-          for (const d of g.dlc) {
-            const rec = this.games.get(d);
-            if (!rec || rec.summary.installStatus === "notInstallable") continue;
-            const on = wanted.includes(d);
-            this.patch(d, { installStatus: on ? "installed" : "notInstalled", installedVersion: on ? g.summary.installedVersion : null, installedSizeBytes: on ? rec.fullInstallBytes : null });
-          }
-          this.patch(appName, { installedSizeBytes: Math.round(g.fullInstallBytes * 0.99) });
-        }
+        // Core has no Modify executor (component changes are "not available yet"); only history scenarios carry one.
+        if (g) this.patch(appName, { installedSizeBytes: Math.round(g.fullInstallBytes * 0.99) });
         break;
       case "overlay":
         this.overlay = { ...this.overlay, installed: true, enabled: true, version: OVERLAY_LATEST, updateAvailable: false, installPath: "C:\\ProgramData\\Glider\\EOSOverlay", managed: true };
@@ -1000,6 +1095,7 @@ export class MockBackend {
         outcome: seed.outcome ?? (seed.kind === "import" && seed.status === "completed" ? { kind: "success", message: "Imported without downloading anything." } : null),
       };
       this.finished.push(info);
+      if (info.status === "failed") this.failedEntries.set(id, { info, sim, meta });
       this.histories.set(id, this.syntheticHistory(id, Math.min(600, Math.round(dur / 1000))));
       return;
     }
@@ -1072,27 +1168,25 @@ export class MockBackend {
   private async launch(req: LaunchRequest): Promise<LaunchResult> {
     const g = this.rec(req.appName);
     const s = g.summary;
-    if (s.kind === "dlc") throw fail(Errors.invalidRequest("Content DLC can't be launched"));
-    if (s.installStatus === "broken") throw fail(Errors.corrupted(s.title, null, s.appName));
+    if (s.kind === "dlc") throw fail(Errors.invalidRequest(`${s.title} is DLC; launch its base game instead.`));
     if (s.thirdParty !== "none" && s.installStatus === "installed" && g.needsActivation && !this.activated.has(s.appName)) {
       return { outcome: "needsActivation", conflict: null, offline: false, message: `Link ${s.title} with ${s.thirdPartyName ?? "its store"} once, then Play starts it.` };
     }
     if (s.installStatus === "notInstallable" && s.thirdParty !== "none") {
-      this.requireOnline("Opening " + (s.thirdPartyName ?? "the launcher"));
       return { outcome: "thirdPartyLauncher", conflict: null, offline: false, message: `Opened ${s.thirdPartyName ?? "the launcher"}.` };
     }
-    if (s.installStatus !== "installed") throw fail(Errors.notInstalled(s.title, s.appName));
+    if (s.installStatus !== "installed" && s.installStatus !== "broken") throw fail(Errors.notInstalled(s.title, s.appName));
     if (this.isRunning(s.appName)) throw fail(Errors.gameRunning(s.title, s.appName));
-    if (this.unfinishedFor(s.appName)) throw fail(Errors.gameBusy(s.title, s.appName));
-    if (this.egl.busyApps.includes(s.appName)) throw fail(Errors.eglBusy(s.title, null, s.appName));
-    if (s.thirdParty === "none") {
-      if (this.auth.status === "signedOut") throw fail(Errors.notSignedIn());
+    if (this.unfinishedFor(s.appName)) {
+      const own = this.unfinishedFor(s.appName)!;
+      throw fail(Errors.gameBusy(s.title, s.appName, JOB_NOUN[own.info.kind] ?? "the current task"));
     }
+    if (this.egl.busyApps.includes(s.appName)) throw fail(Errors.eglBusy(s.title, null, s.appName));
+    if (s.installStatus === "broken") throw fail(Errors.corrupted(s.title, null, s.appName));
+    // Core decides offline from the mode and the connection, then tries: it never refuses up front for being offline.
     const mode = req.mode ?? g.settings.launchMode;
-    const wantOffline = mode === "offline" || (mode === "auto" && this.connectivity === "offline");
-    if (mode === "online" && this.connectivity === "offline") throw fail(Errors.offline("Playing online"));
-    if (wantOffline && !s.canRunOffline) throw fail(Errors.offline(`${s.title} can't run offline, so it`));
-    if (!wantOffline && this.auth.status === "expired" && s.thirdParty === "none") throw fail(Errors.authExpired());
+    const wantOffline = mode === "offline" || (mode === "auto" && this.connectivity === "offline" && s.canRunOffline);
+    if (!wantOffline) this.requireAuth();
 
     const cloud = g.saves?.supported && g.saves.enabled && this.settings.cloudSaves && g.settings.cloudSaves && !wantOffline;
     if (cloud && s.saveStatus === "conflict" && !req.skipSaveSync) {
@@ -1100,20 +1194,28 @@ export class MockBackend {
     }
 
     this.setRun(s.appName, "preparing");
-    await this.sleep(400);
-    if (cloud && !req.skipSaveSync && (s.saveStatus === "localNewer" || s.saveStatus === "cloudNewer" || s.saveStatus === "unknown")) {
-      this.setRun(s.appName, "syncingSaves");
-      await this.sleep(700);
-      this.setSaveStatus(s.appName, "inSync", { lastSyncedAt: iso() });
+    try {
+      await this.sleep(400);
+      // Legendary is asked to start it anyway; the refusal comes back from the run.
+      if (!wantOffline && this.connectivity === "offline") throw fail(Errors.network("Couldn't connect to Epic's servers.", s.appName));
+      if (wantOffline && !s.canRunOffline) throw fail(Errors.launchFailed(s.title, `${s.title} can't run offline.`, s.appName));
+      if (cloud && !req.skipSaveSync && (s.saveStatus === "localNewer" || s.saveStatus === "cloudNewer" || s.saveStatus === "unknown")) {
+        this.setRun(s.appName, "syncingSaves");
+        await this.sleep(700);
+        this.setSaveStatus(s.appName, "inSync", { lastSyncedAt: iso() });
+      }
+      if (g.prerequisites.some((p) => !p.installed)) {
+        this.setRun(s.appName, "installingPrerequisites");
+        await this.sleep(1800);
+        g.prerequisites = g.prerequisites.map((p) => ({ ...p, installed: true }));
+      }
+      this.setRun(s.appName, "launching");
+      await this.sleep(900);
+      await this.holdWhileFrozen();
+    } catch (e) {
+      this.setRun(s.appName, "idle");
+      throw e;
     }
-    if (g.prerequisites.some((p) => !p.installed)) {
-      this.setRun(s.appName, "installingPrerequisites");
-      await this.sleep(1800);
-      g.prerequisites = g.prerequisites.map((p) => ({ ...p, installed: true }));
-    }
-    this.setRun(s.appName, "launching");
-    await this.sleep(900);
-    await this.holdWhileFrozen();
     if (s.thirdParty !== "none") {
       this.setRun(s.appName, "running", { since: iso(), offline: wantOffline, untracked: true });
     } else {
@@ -1185,7 +1287,7 @@ export class MockBackend {
   }
 
   setEglBusy(busy: boolean): void {
-    const target = this.queue.find((e) => WRITE_KINDS.includes(e.info.kind) && e.info.kind !== "overlay");
+    const target = this.queue.find((e) => e.info.kind !== "overlay");
     if (busy) {
       if (target) this.egl.busyApps = [target.info.appName];
     } else {
@@ -1196,28 +1298,30 @@ export class MockBackend {
 
   // ───────────────────────────── install planning ─────────────────────────────
 
-  private planFor(appName: string, basePath: string | null, componentIds: readonly string[] | null, dlcIds: readonly string[] | null): InstallPlan {
+  /**
+   * Core plans no components (changing them is "not available yet"), so neither does the mock; the request's `components` are ignored
+   * like Core ignores them. Prerequisites are not part of a plan either: the detail carries them.
+   */
+  private planFor(appName: string, basePath: string | null, dlcIds: readonly string[] | null): InstallPlan {
     const g = this.rec(appName);
     const s = g.summary;
     const base = basePath ?? this.settings.defaultInstallBase ?? this.settings.libraryFolders[0] ?? "D:\\Games";
     const gamePath = joinPath(base, g.folderName);
-    const comps = g.components.map((c) => ({ ...c, selected: c.required || (componentIds ? componentIds.includes(c.id) : c.selected) }));
     const dlcOptions = g.dlc.map((a) => {
       const d = this.rec(a);
       const installable = d.summary.installStatus !== "notInstallable";
       return {
         appName: a,
         title: d.summary.title,
-        downloadSizeBytes: installable ? d.fullDownloadBytes : null,
+        downloadSizeBytes: null,
         installSizeBytes: installable ? d.fullInstallBytes : null,
         installable,
         selected: installable && (dlcIds ? dlcIds.includes(a) : true),
       };
     });
-    const unselected = comps.filter((c) => !c.selected).reduce((n, c) => n + (c.sizeBytes ?? 0), 0);
     const selDlc = dlcOptions.filter((d) => d.selected);
-    const install = Math.max(0, g.fullInstallBytes - unselected) + selDlc.reduce((n, d) => n + (d.installSizeBytes ?? 0), 0);
-    const download = Math.max(0, Math.round(g.fullDownloadBytes * (install / Math.max(1, g.fullInstallBytes + selDlc.reduce((n, d) => n + (d.installSizeBytes ?? 0), 0))))) + selDlc.reduce((n, d) => n + (d.downloadSizeBytes ?? 0), 0);
+    const install = g.fullInstallBytes + selDlc.reduce((n, d) => n + (d.installSizeBytes ?? 0), 0);
+    const download = g.fullDownloadBytes + selDlc.reduce((n, d) => n + (this.games.get(d.appName)?.fullDownloadBytes ?? 0), 0);
     const free = this.free(base);
     const existing = this.egl.installs.some((i) => samePath(i.installPath, gamePath) && i.status === "importable") || (s.installStatus === "installed" && samePath(s.installPath ?? "", gamePath));
     return {
@@ -1229,11 +1333,11 @@ export class MockBackend {
       downloadSizeBytes: download,
       installSizeBytes: install,
       freeBytes: free,
-      hasEnoughSpace: free >= install + INSTALL_MARGIN_BYTES,
+      hasEnoughSpace: free >= install + spaceMargin(install),
       existingInstallFound: existing,
-      components: comps,
+      components: [],
       dlc: dlcOptions,
-      prerequisites: g.prerequisites,
+      prerequisites: [],
       thirdParty: s.thirdParty,
       thirdPartyName: s.thirdPartyName,
     };
@@ -1263,7 +1367,7 @@ export class MockBackend {
       publisher: g.publisher,
       releaseDate: g.releaseDate,
       dlc: g.dlc,
-      components: g.components,
+      components: [],
       prerequisites: g.prerequisites,
       saves: g.saves,
       settings: g.settings,
@@ -1298,6 +1402,32 @@ export class MockBackend {
     return null;
   }
 
+  /** `InstallService.EnqueueImport`. */
+  private enqueueImport(appName: string, gamePath: string, eglInstallId: string, verify: VerifyMode): JobInfo {
+    const s = this.games.get(appName)?.summary;
+    if (s?.installStatus === "installed" && s.installPath && samePath(s.installPath, gamePath)) throw fail(Errors.alreadyInstalled(s.title, appName));
+    if (this.egl.busyApps.includes(appName)) throw fail(Errors.eglBusy(s?.title, null, appName));
+    const same = this.activeJob(appName, "import");
+    if (same) return this.view(same);
+    if (s) this.requireNoOtherJob(appName);
+    return this.createJob("import", appName, { eglInstallId, verifyMode: verify });
+  }
+
+  /** `SaveService.RequireSupported`. */
+  private requireSavesSupported(appName: string): MockGame {
+    const g = this.rec(appName);
+    if (!g.saves?.supported) throw fail(Errors.invalidRequest(`${g.summary.title} has no cloud saves.`));
+    return g;
+  }
+
+  /** What a manual save sync checks first (`SyncCoreAsync`): the game is installed, and Epic can be reached. */
+  private requireSavesReachable(g: MockGame): void {
+    if (!isInstalledish(g.summary)) throw fail(Errors.notInstalled(g.summary.title, g.summary.appName));
+    if (this.connectivity === "offline" || this.auth.status !== "signedIn") {
+      throw fail(this.auth.status === "signedOut" ? Errors.notSignedIn() : Errors.network("Cloud saves need a connection to Epic."));
+    }
+  }
+
   private readonly handlers: Handlers = {
     // ---- app ----
     "app.getSnapshot": async () => {
@@ -1328,9 +1458,11 @@ export class MockBackend {
 
     // ---- onboarding ----
     "onboarding.setStep": async (r) => {
+      if (!ONBOARDING_STEPS.includes(r.step)) throw fail(Errors.invalidRequest("Unknown onboarding step"));
       const prev = this.onboarding.step;
-      const skipped = r.skipped && !this.onboarding.skipped.includes(prev) ? [...this.onboarding.skipped, prev] : this.onboarding.skipped;
-      this.onboarding = { ...this.onboarding, step: r.step, skipped };
+      // Like Core: skipping marks the step being left, and only when the step really changes; reaching "done" completes onboarding.
+      const skipped = r.skipped && prev !== r.step && !this.onboarding.skipped.includes(prev) ? [...this.onboarding.skipped, prev] : this.onboarding.skipped;
+      this.onboarding = { completed: r.step === "done" || this.onboarding.completed, step: r.step, skipped };
       this.emitState();
       return clone(this.onboarding);
     },
@@ -1440,7 +1572,6 @@ export class MockBackend {
     },
     "library.updateAll": async () => {
       this.requireAuth();
-      this.requireOnline("Updating");
       const jobs = [...this.games.values()]
         .filter((g) => g.summary.kind === "game" && g.summary.installStatus === "installed" && g.summary.updateAvailable && g.settings.autoUpdate !== "never" && !this.isRunning(g.summary.appName))
         .map((g) => this.createJob("update", g.summary.appName));
@@ -1466,21 +1597,24 @@ export class MockBackend {
     },
     "collections.rename": async (r) => {
       const c = this.collections.find((x) => x.id === r.id);
-      if (!c) throw fail(Errors.invalidRequest("Unknown collection"));
-      const next = { ...c, name: r.name.trim() || c.name };
+      if (!c) throw fail(Errors.invalidRequest(`Unknown collection '${r.id}'`));
+      const name = r.name.replace(/[\r\n]/g, " ").trim();
+      if (name.length === 0 || name.length > 64) throw fail(Errors.invalidRequest("Collection names are 1–64 characters"));
+      const next = { ...c, name };
       this.collections = this.collections.map((x) => (x.id === r.id ? next : x));
       this.emitState();
       return clone(next);
     },
     "collections.delete": async (r) => {
+      if (!this.collections.some((x) => x.id === r.id)) throw fail(Errors.invalidRequest(`Unknown collection '${r.id}'`));
       this.collections = this.collections.filter((x) => x.id !== r.id);
       this.emitState();
     },
     "collections.setMembership": async (r) => {
       const c = this.collections.find((x) => x.id === r.id);
-      if (!c) throw fail(Errors.invalidRequest("Unknown collection"));
-      this.rec(r.appName);
-      const appNames = r.member ? (c.appNames.includes(r.appName) ? c.appNames : [...c.appNames, r.appName]) : c.appNames.filter((a) => a !== r.appName);
+      if (!c) throw fail(Errors.invalidRequest(`Unknown collection '${r.id}'`));
+      // Core doesn't look the game up: a membership is just a name in the list.
+      const appNames = r.member ? [...c.appNames.filter((a) => a !== r.appName), r.appName] : c.appNames.filter((a) => a !== r.appName);
       const next = { ...c, appNames };
       this.collections = this.collections.map((x) => (x.id === r.id ? next : x));
       this.emitState();
@@ -1508,78 +1642,104 @@ export class MockBackend {
     "game.planInstall": async (r) => {
       this.requireAuth();
       await this.sleep(150);
-      return this.planFor(r.appName, r.basePath, r.components, r.dlc);
+      if (r.basePath !== null && r.basePath.trim() !== "") this.requireFullPath(r.basePath, "basePath");
+      return this.planFor(r.appName, r.basePath, r.dlc);
     },
     "game.install": async (r) => {
-      this.requireAuth();
       const g = this.rec(r.appName);
       const s = g.summary;
       if (s.installStatus === "installed" || s.installStatus === "broken") throw fail(Errors.alreadyInstalled(s.title, s.appName));
-      if (s.installStatus === "notInstallable") throw fail(Errors.invalidRequest(`${s.title} can't be installed through Epic`));
-      if (s.kind !== "game") {
-        const base = this.rec(s.baseAppName ?? "");
-        if (base.summary.installStatus !== "installed") throw fail(Errors.notInstalled(base.summary.title, base.summary.appName));
+      if (s.installStatus === "notInstallable") {
+        throw fail(s.thirdPartyName ? Errors.thirdPartyRequired(s.thirdPartyName, s.appName, s.title) : Errors.invalidRequest(`${s.title} has nothing to install through Epic.`));
       }
-      this.requireOnline("Installing");
-      const plan = this.planFor(r.appName, r.basePath, r.components, r.dlc);
-      const target = r.basePath || plan.basePath;
-      if (this.free(target) < plan.installSizeBytes + INSTALL_MARGIN_BYTES) {
-        throw fail(Errors.insufficientSpace(plan.installSizeBytes + INSTALL_MARGIN_BYTES, this.free(target), null, s.appName));
+      const same = this.activeJob(s.appName, "install");
+      if (same) return clone(this.view(same));
+      this.requireNoOtherJob(s.appName);
+      if (s.kind !== "game") {
+        // DLC: its base game must be installed (or installing).
+        const host = this.games.get(s.baseAppName ?? "");
+        if (!host || (!isInstalledish(host.summary) && !this.activeJob(host.summary.appName, "install"))) {
+          throw fail({ ...Errors.notInstalled(host?.summary.title, host?.summary.appName), message: `Install ${host?.summary.title ?? "the base game"} first.` });
+        }
+        this.requireAuth();
+        return clone(this.createJob("install", s.appName, {}, { front: r.priority }));
+      }
+      const target = this.requireFullPath(r.basePath, "basePath");
+      this.requireAuth();
+      const plan = this.planFor(r.appName, target, r.dlc);
+      if (!plan.hasEnoughSpace) {
+        throw fail(Errors.insufficientSpace(plan.installSizeBytes + spaceMargin(plan.installSizeBytes), plan.freeBytes, null, s.appName));
       }
       await this.sleep(200);
-      const dlc = plan.dlc.filter((d) => d.selected).map((d) => d.appName);
-      return clone(this.createJob("install", r.appName, { basePath: target, components: plan.components.filter((c) => c.selected).map((c) => c.id), dlc }, { front: r.priority }));
+      const job = this.createJob("install", r.appName, { basePath: plan.basePath }, { front: r.priority });
+      // Each wanted DLC is its own job after the base game.
+      for (const d of plan.dlc.filter((x) => x.selected && x.installable)) this.createJob("install", d.appName);
+      return clone(job);
     },
     "game.modify": async (r) => {
-      this.requireAuth();
-      const g = this.rec(r.appName);
-      if (g.summary.installStatus !== "installed") throw fail(Errors.notInstalled(g.summary.title, g.summary.appName));
-      this.requireIdle(r.appName);
-      this.requireOnline("Changing components");
-      await this.sleep(150);
-      return clone(this.createJob("modify", r.appName, { components: [...r.components], dlc: [...r.dlc] }));
+      const g = this.requireInstalled(r.appName);
+      // Core can't change the components of an installed game yet; the UI doesn't offer it.
+      if (r.components.length > 0) throw fail(Errors.notAvailableYet("changing installed components"));
+      const wanted = new Set(r.dlc);
+      let first: JobInfo | null = null;
+      for (const d of [...this.games.values()].filter((x) => x.summary.baseAppName === g.summary.appName && x.summary.kind === "dlc")) {
+        const installed = d.summary.installStatus === "installed" || d.summary.installStatus === "broken";
+        if (wanted.has(d.summary.appName) && !installed && d.summary.installStatus !== "notInstallable") {
+          this.requireAuth();
+          first ??= this.createJob("install", d.summary.appName);
+        } else if (!wanted.has(d.summary.appName) && installed) {
+          const j = this.createJob("uninstall", d.summary.appName, { uninstallMode: "deleteFiles" });
+          first ??= j;
+        }
+      }
+      if (!first) throw fail(Errors.invalidRequest("Nothing to change."));
+      return clone(first);
     },
     "game.update": async (r) => {
-      this.requireAuth();
-      const g = this.rec(r.appName);
-      const s = g.summary;
-      if (s.installStatus !== "installed" && s.installStatus !== "broken") throw fail(Errors.notInstalled(s.title, s.appName));
-      if (!s.updateAvailable) throw fail(Errors.invalidRequest(`${s.title} is up to date`));
+      const g = this.requireInstalled(r.appName);
+      const same = this.activeJob(r.appName, "update");
+      if (same) return clone(this.view(same));
+      this.requireNoOtherJob(r.appName);
       this.requireIdle(r.appName);
-      this.requireOnline("Updating");
-      const need = g.updateWriteBytes + Math.round(0.7 * GiB);
-      const where = s.installPath ?? "D:\\";
-      if (this.free(where) < need) throw fail(Errors.insufficientSpace(need, this.free(where), null, s.appName));
+      this.requireAuth();
       await this.sleep(150);
-      return clone(this.createJob("update", r.appName));
+      return clone(this.createJob("update", g.summary.appName));
     },
     "game.verify": async (r) => {
-      const g = this.rec(r.appName);
-      const s = g.summary;
-      if (s.installStatus !== "installed" && s.installStatus !== "broken") throw fail(Errors.notInstalled(s.title, s.appName));
+      const g = this.requireInstalled(r.appName);
+      const same = this.activeJob(r.appName, "verify");
+      if (same) return clone(this.view(same));
+      this.requireNoOtherJob(r.appName);
       this.requireIdle(r.appName);
       await this.sleep(120);
-      return clone(this.createJob("verify", r.appName));
+      return clone(this.createJob("verify", g.summary.appName));
     },
     "game.move": async (r) => {
-      const g = this.rec(r.appName);
+      this.requireFullPath(r.destinationBase, "destinationBase");
+      const g = this.requireInstalled(r.appName);
       const s = g.summary;
-      if (s.installStatus !== "installed") throw fail(Errors.notInstalled(s.title, s.appName));
-      this.requireIdle(r.appName);
-      const dest = joinPath(r.destinationBase, g.folderName);
-      if (samePath(dest, s.installPath ?? "")) throw fail(Errors.invalidFolder(`${s.title} is already in this folder.`));
+      if (s.kind !== "game") throw fail(Errors.invalidRequest("DLC move with their base game."));
+      const from = s.installPath ?? "";
+      const dest = trimSlashes(r.destinationBase);
+      if (samePath(dest, dirname(from))) throw fail(Errors.invalidRequest(`${s.title} is already in that folder`));
+      if (dest.toLowerCase().startsWith(`${trimSlashes(from).toLowerCase()}\\`)) throw fail(Errors.invalidFolder(`Choose a folder outside the current ${s.title} folder.`));
+      this.requireNoOtherJob(s.appName);
+      this.requireIdle(s.appName);
       const size = s.installedSizeBytes ?? g.fullInstallBytes;
-      if (this.free(r.destinationBase) < size) throw fail(Errors.insufficientSpace(size, this.free(r.destinationBase), null, s.appName));
+      const crossVolume = driveLetter(dest) !== driveLetter(from);
+      if (crossVolume && this.free(dest) < size + spaceMargin(size)) throw fail(Errors.insufficientSpace(size + spaceMargin(size), this.free(dest), null, s.appName));
       await this.sleep(150);
-      return clone(this.createJob("move", r.appName, { destinationBase: r.destinationBase }));
+      return clone(this.createJob("move", s.appName, { destinationBase: r.destinationBase }));
     },
     "game.uninstall": async (r) => {
-      const g = this.rec(r.appName);
-      const s = g.summary;
-      if (s.installStatus !== "installed" && s.installStatus !== "broken") throw fail(Errors.notInstalled(s.title, s.appName));
+      if (r.mode !== "gliderOnly" && r.mode !== "deleteFiles") throw fail(Errors.invalidRequest("Unknown uninstall mode"));
+      const g = this.requireInstalled(r.appName);
+      const same = this.activeJob(r.appName, "uninstall");
+      if (same) return clone(this.view(same));
+      this.requireNoOtherJob(r.appName);
       this.requireIdle(r.appName);
       await this.sleep(120);
-      return clone(this.createJob("uninstall", r.appName, { uninstallMode: r.mode }));
+      return clone(this.createJob("uninstall", g.summary.appName, { uninstallMode: r.mode }));
     },
     "game.launch": async (r) => this.launch(r),
     "game.prepareLaunch": async () => {},
@@ -1593,8 +1753,8 @@ export class MockBackend {
     "game.activate": async (r) => {
       const g = this.rec(r.appName);
       if (g.summary.thirdParty === "none") throw fail(Errors.invalidRequest(`${g.summary.title} doesn't need activation`));
-      this.requireOnline("Linking your account");
       await this.sleep(1500);
+      if (this.connectivity === "offline") throw fail(Errors.network("Couldn't connect to Epic's servers.", r.appName));
       this.activated.add(r.appName);
       g.needsActivation = false;
       this.notice({ level: "success", title: `${g.summary.title} is linked`, message: `Linked with ${g.summary.thirdPartyName ?? "its store"}.`, action: null, appName: r.appName, jobId: null });
@@ -1635,11 +1795,10 @@ export class MockBackend {
       return clone(g.saves.status === "conflict" ? { ...g.saves, conflict: g.conflict ?? this.conflictFor(g) } : g.saves);
     },
     "saves.sync": async (r) => {
-      const g = this.rec(r.appName);
-      if (!g.saves) throw fail(Errors.invalidRequest(`${g.summary.title} has no cloud saves`));
-      if (!g.saves.enabled) return clone(g.saves);
-      this.requireOnline("Syncing saves");
-      const before = g.saves.status;
+      const g = this.requireSavesSupported(r.appName);
+      if (!g.saves!.enabled) return clone(g.saves!);
+      this.requireSavesReachable(g);
+      const before = g.saves!.status;
       this.setSaveStatus(r.appName, "syncing");
       await this.sleep(900);
       if (before === "conflict" && r.direction === "auto") {
@@ -1651,9 +1810,9 @@ export class MockBackend {
       return clone(g.saves!);
     },
     "saves.resolve": async (r) => {
-      const g = this.rec(r.appName);
-      if (!g.saves) throw fail(Errors.invalidRequest(`${g.summary.title} has no cloud saves`));
-      this.requireOnline("Resolving saves");
+      const g = this.requireSavesSupported(r.appName);
+      if (!g.saves!.enabled) throw fail(Errors.invalidRequest(`Cloud saves are switched off for ${g.summary.title}.`));
+      this.requireSavesReachable(g);
       this.setSaveStatus(r.appName, "syncing");
       await this.sleep(900);
       this.setSaveStatus(r.appName, "inSync", { lastSyncedAt: iso(), lastError: null, backups: g.saves!.backups + 1 });
@@ -1661,73 +1820,106 @@ export class MockBackend {
       return this.launch({ appName: r.appName, mode: null, skipSaveSync: true });
     },
     "saves.openBackups": async (r) => {
-      this.rec(r.appName);
+      this.requireSavesSupported(r.appName);
     },
 
     // ---- jobs / queue ----
     "jobs.pause": async (r) => {
-      const e = this.entry(r.jobId);
-      if (!e) throw fail(Errors.invalidRequest("That task has already finished"));
-      if (!PAUSABLE.includes(e.info.kind)) throw fail(Errors.invalidRequest(`${e.info.kind} can't be paused`));
-      if (e.info.status === "paused") return clone(e.info);
-      e.info = { ...e.info, status: "paused", blockedReason: null };
+      const { entry: e, finished } = this.findJob(r.jobId);
+      if (finished) throw fail(Errors.invalidRequest(`The ${finished.kind} task has already finished.`));
+      if (e!.info.status === "paused") return clone(this.view(e!));
+      if (!PAUSABLE.includes(e!.info.kind)) throw fail(Errors.invalidRequest(`A ${e!.info.kind} task can't be paused.`));
+      e!.info = { ...e!.info, status: "paused", blockedReason: null };
       this.reconcile();
-      return clone(e.info);
+      return clone(this.view(e!));
     },
     "jobs.resume": async (r) => {
-      const e = this.entry(r.jobId);
-      if (!e) throw fail(Errors.invalidRequest("That task has already finished"));
-      if (e.info.status === "waiting") e.meta.forced = true;
-      e.info = { ...e.info, status: "queued", blockedReason: null };
-      this.queuePaused = false;
+      const { entry: e, finished } = this.findJob(r.jobId);
+      if (finished) {
+        // A failed job is retried (Resume is its Retry); a completed or cancelled one can't be.
+        const failed = finished.status === "failed" ? this.failedEntries.get(finished.id) : undefined;
+        if (!failed) throw fail(Errors.invalidRequest(`A ${finished.status} task can't be resumed.`));
+        this.failedEntries.delete(finished.id);
+        this.finished = this.finished.filter((j) => j.id !== finished.id);
+        failed.info = { ...finished, status: "queued", error: null, finishedAt: null, blockedReason: null, outcome: null };
+        this.queue.push(failed);
+        this.queuePaused = false;
+        this.refreshActive(failed.info.appName);
+        this.reconcile();
+        return clone(this.view(failed));
+      }
+      if (e!.info.status === "queued" || e!.info.status === "running") {
+        this.queuePaused = false;
+        this.reconcile();
+        return clone(this.view(e!));
+      }
+      // Paused or waiting: back in line. If its blocker is still there the gate puts it straight back to waiting.
+      e!.info = { ...e!.info, status: "queued", blockedReason: null };
+      this.queuePaused = false; // resuming one job resumes the queue
       this.reconcile();
-      return clone(e.info);
+      return clone(this.view(e!));
     },
     "jobs.cancel": async (r) => {
-      const e = this.entry(r.jobId);
-      if (!e) throw fail(Errors.invalidRequest("That task has already finished"));
-      if (e.info.kind === "uninstall" && e.info.status === "running") throw fail(Errors.invalidRequest("Removal can't be canceled once it started"));
-      return clone(this.cancelEntry(e));
+      const { entry: e, finished } = this.findJob(r.jobId);
+      if (finished) {
+        if (finished.status !== "failed") return clone(finished);
+        const cancelled: JobInfo = { ...finished, status: "cancelled", finishedAt: iso(), blockedReason: null, outcome: null };
+        this.failedEntries.delete(finished.id);
+        this.finished = this.finished.map((j) => (j.id === finished.id ? cancelled : j));
+        this.emitState();
+        return clone(cancelled);
+      }
+      if (!this.cancellableNow(e!.info)) {
+        throw fail(Errors.invalidRequest(e!.info.kind === "uninstall" ? `Removing ${e!.info.title} can't be stopped once it has started.` : `Moving ${e!.info.title} can't be stopped while Legendary records the new folder.`));
+      }
+      return clone(this.cancelEntry(e!));
     },
     "jobs.dismiss": async (r) => {
-      if (this.entry(r.jobId)) throw fail(Errors.invalidRequest("Cancel the task before removing it"));
+      const { finished } = this.findJob(r.jobId);
+      if (!finished) return; // unfinished jobs are ignored, like Core
       this.finished = this.finished.filter((j) => j.id !== r.jobId);
+      this.failedEntries.delete(r.jobId);
       this.histories.delete(r.jobId);
       this.emitState();
     },
     "jobs.reorder": async (r) => {
-      if (!this.entry(r.jobId)) throw fail(Errors.invalidRequest("That task has already finished"));
-      const running = this.queue[0]?.info.status === "running";
-      this.moveJob(r.jobId, running ? Math.max(1, r.toIndex) : r.toIndex);
+      const { finished } = this.findJob(r.jobId);
+      if (finished) throw fail(Errors.invalidRequest("Finished tasks can't be reordered."));
+      this.moveJob(r.jobId, r.toIndex);
       this.reconcile();
       return this.queueState();
     },
     "jobs.moveToTop": async (r) => {
-      if (!this.entry(r.jobId)) throw fail(Errors.invalidRequest("That task has already finished"));
-      this.moveJob(r.jobId, this.queue[0]?.info.status === "running" && this.queue[0].info.id !== r.jobId ? 1 : 0);
+      const { finished } = this.findJob(r.jobId);
+      if (finished) throw fail(Errors.invalidRequest("Finished tasks can't be reordered."));
+      this.moveJob(r.jobId, 0);
       this.reconcile();
       return this.queueState();
     },
     "jobs.getHistory": async (r) => {
-      const e = this.entry(r.jobId);
-      const samples = e ? e.sim.history() : this.histories.get(r.jobId);
-      if (!samples) throw fail(Errors.invalidRequest("Unknown task"));
-      return { jobId: r.jobId, samples } satisfies JobHistory;
+      const { entry: e } = this.findJob(r.jobId);
+      return { jobId: r.jobId, samples: e ? e.sim.history() : (this.histories.get(r.jobId) ?? []) } satisfies JobHistory;
     },
     "queue.pauseAll": async () => {
+      // Nothing starts until resume-all; every job that can pause (running, queued or waiting) pauses. Moves, uninstalls and imports can't.
       this.queuePaused = true;
-      for (const e of this.queue) if (e.info.status === "running") e.info = { ...e.info, status: "queued" };
+      for (const e of this.queue) {
+        if (PAUSABLE.includes(e.info.kind) && (e.info.status === "running" || e.info.status === "queued" || e.info.status === "waiting")) {
+          e.info = { ...e.info, status: "paused", blockedReason: null };
+        }
+      }
       this.reconcile();
       return this.queueState();
     },
     "queue.resumeAll": async () => {
       this.queuePaused = false;
-      for (const e of this.queue) if (e.info.status === "paused") e.info = { ...e.info, status: "queued" };
+      for (const e of this.queue) if (e.info.status === "paused") e.info = { ...e.info, status: "queued", blockedReason: null };
       this.reconcile();
       return this.queueState();
     },
     "queue.clearFinished": async () => {
       this.finished = [];
+      this.failedEntries = new Map();
       this.emitState();
       return this.queueState();
     },
@@ -1783,22 +1975,22 @@ export class MockBackend {
       return v;
     },
     "egl.import": async (r) => {
+      if (r.ids.length === 0) throw fail(Errors.invalidRequest("Select at least one install"));
       this.requireAuth();
-      const picked = this.egl.installs.filter((i) => r.ids.includes(i.id));
-      if (picked.length === 0) throw fail(Errors.invalidRequest("Nothing selected to import"));
-      const blocked = picked.find((i) => i.status === "busy");
-      const importable = picked.filter((i) => i.status === "importable");
-      if (importable.length === 0) {
-        throw fail(blocked ? Errors.eglBusy(blocked.title, null, blocked.appName) : Errors.invalidRequest(picked[0]?.reason ?? "These installs can't be imported"));
-      }
       await this.sleep(150);
-      const jobs = importable.map((i) => this.createJob("import", i.appName, { eglInstallId: i.id, verifyMode: r.verify }));
+      const jobs: JobInfo[] = [];
+      for (const id of new Set(r.ids)) {
+        const i = this.egl.installs.find((x) => x.id === id);
+        // Unknown ids and installs that can't be imported (busy, stale, not owned, already imported) are skipped, not errors.
+        if (!i || i.status !== "importable") continue;
+        jobs.push(this.enqueueImport(i.appName, i.installPath, i.id, r.verify));
+      }
       return { jobs: clone(jobs) };
     },
     "egl.importFolder": async (r) => {
-      this.requireAuth();
       const hit = this.folderGame(r.path);
       if (!hit) throw fail(Errors.invalidFolder("This folder doesn't contain a game from your library. Choose the folder that holds the game's files."));
+      this.requireAuth();
       const g = this.rec(hit.appName);
       const id = `manual:${hit.appName}`;
       if (!this.egl.installs.some((i) => i.id === id)) {
@@ -1808,7 +2000,7 @@ export class MockBackend {
         ];
       }
       await this.sleep(150);
-      return clone(this.createJob("import", hit.appName, { eglInstallId: id, verifyMode: r.verify }));
+      return clone(this.enqueueImport(hit.appName, hit.gamePath, id, r.verify));
     },
     "egl.checkReadiness": async () => {
       await this.sleep(400);
@@ -1829,11 +2021,11 @@ export class MockBackend {
     // ---- EOS overlay ----
     "overlay.install": async () => {
       this.requireAuth();
-      this.requireOnline("Installing the overlay");
       await this.sleep(150);
       return clone(this.createJob("overlay", OVERLAY_APP));
     },
     "overlay.setEnabled": async (r) => {
+      if (r.appName !== OVERLAY_APP) throw fail(Errors.invalidRequest(`The overlay is switched with appName "${OVERLAY_APP}".`));
       if (!this.overlay.installed) throw fail(Errors.invalidRequest("The overlay isn't installed"));
       this.overlay = { ...this.overlay, enabled: r.value };
       this.emitState();
@@ -1847,8 +2039,7 @@ export class MockBackend {
 
     // ---- store / free games ----
     "store.show": async (r) => {
-      // Like the host: no connection, no page. A session that ended lands on the Store's own sign-in, which the page reports as signedOut.
-      this.requireOnline("The Store");
+      // Like the host: the Store always opens; with no connection the page fails to load (phase "error"). A session that ended lands on the Store's own sign-in, which the page reports as signedOut.
       const loc = r.target || !this.store.url ? mockStoreLocation(r.target) : null;
       this.store = {
         ...this.store,
@@ -1863,7 +2054,7 @@ export class MockBackend {
       this.event("store", { ...this.store });
       this.timer(700, () => {
         if (this.store.phase !== "loading") return;
-        this.store = { ...this.store, loading: false, phase: this.auth.status === "signedIn" ? "ready" : "signedOut" };
+        this.store = { ...this.store, loading: false, phase: this.connectivity === "offline" ? "error" : this.auth.status === "signedIn" ? "ready" : "signedOut" };
         this.event("store", { ...this.store });
       });
       return { ...this.store };
@@ -1897,13 +2088,11 @@ export class MockBackend {
     "store.openInBrowser": async () => {},
     "store.getState": async () => ({ ...this.store }),
     "freeGames.get": async () => {
-      this.requireOnline("Loading free games");
       await this.sleep(250);
       const owned = [...this.games.values()].find((g) => g.summary.kind === "game" && g.summary.installStatus !== "notInstallable");
       return mockFreeGames(Date.now(), iso, owned?.summary.title ?? null);
     },
     "freeGames.refresh": async () => {
-      this.requireOnline("Refreshing free games");
       await this.sleep(400);
       const owned = [...this.games.values()].find((g) => g.summary.kind === "game" && g.summary.installStatus !== "notInstallable");
       const r = mockFreeGames(Date.now(), iso, owned?.summary.title ?? null);

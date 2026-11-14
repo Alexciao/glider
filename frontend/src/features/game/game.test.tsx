@@ -235,15 +235,16 @@ describe("Game page: only what the game has", () => {
     await waitFor(async () => expect((await rpc().call("game.getDetail", { appName: app })).settings.launchArgs).toBe("-windowed"));
   });
 
-  it("DLC: installing one starts a Modify job for the base game", async () => {
+  it("DLC: installing one queues an install job for that DLC (Core's Modify makes one job per DLC)", async () => {
+    let host!: GameSummary;
     const { user } = await mount("returning", (b) => {
       const games = useLibrary.getState().games;
-      const host = b.find((g) => g.kind === "game" && g.installStatus === "installed" && g.thirdParty === "none" && g.dlcCount > 0 && [...games.values()].some((d) => d.baseAppName === g.appName && d.installStatus === "notInstalled"));
+      host = b.find((g) => g.kind === "game" && g.installStatus === "installed" && g.thirdParty === "none" && g.dlcCount > 0 && [...games.values()].some((d) => d.baseAppName === g.appName && d.installStatus === "notInstalled"));
       return <GameView appName={host.appName} />;
     });
     const install = await screen.findAllByRole("button", { name: /^Install / });
     await user.click(install[0]!);
-    await waitFor(() => expect(useApp.getState().snapshot!.queue.jobs.some((j) => j.kind === "modify")).toBe(true));
+    await waitFor(() => expect(useApp.getState().snapshot!.queue.jobs.some((j) => j.kind === "install" && j.appName !== host.appName && j.status !== "completed")).toBe(true));
   });
 
   it("Cloud saves: the switch in Game settings turns them off for this game only", async () => {
@@ -350,7 +351,7 @@ describe("Install dialog", () => {
     expect(screen.getByRole("button", { name: "Install" })).toBeDisabled();
   });
 
-  it("toggling a component or DLC re-plans: the totals come from Core", async () => {
+  it("toggling a DLC re-plans: the totals come from Core", async () => {
     const { user } = await mount("returning", (b) => open(b, (g) => fresh(g) && g.dlcCount > 0));
     const disk = async () => (await screen.findByText("On disk")).nextElementSibling!.textContent;
     const before = await disk();
@@ -359,11 +360,11 @@ describe("Install dialog", () => {
     await waitFor(async () => expect(await disk()).not.toBe(before), { timeout: 3000 });
   });
 
-  it("required components are locked on", async () => {
+  it("offers no components: Core can't plan or change them yet", async () => {
     await mount("returning", (b) => open(b, (g) => fresh(g) && g.dlcCount > 0 && g.appName !== "Fortnite"));
-    const locked = (await screen.findAllByRole("checkbox", { name: /\(required\)/ }))[0]!;
-    expect(locked).toBeDisabled();
-    expect(locked).toBeChecked();
+    await screen.findByText("Fits, with", { exact: false });
+    expect(screen.queryByText("Components")).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /\(required\)/ })).not.toBeInTheDocument();
   });
 
   it("starts the install into the chosen folder and goes to Downloads", async () => {

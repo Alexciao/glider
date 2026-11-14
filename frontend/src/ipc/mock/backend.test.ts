@@ -521,7 +521,7 @@ describe("small calls", () => {
     expect((await h.call("store.reload")).loading).toBe(true);
   });
 
-  it("freeGames lists free now (one owned) and upcoming; fails offline", async () => {
+  it("freeGames lists free now (one owned) and upcoming; offline it still answers (Core serves its cache)", async () => {
     const h = setup();
     const r = await h.call("freeGames.get");
     expect(r.items.filter((i) => i.status === "freeNow")).toHaveLength(2);
@@ -529,7 +529,7 @@ describe("small calls", () => {
     expect(r.items.some((i) => i.owned)).toBe(true);
     expect(r.items.every((i) => i.imageUrl)).toBe(true);
     const off = setup({ scenario: "offline" });
-    expect((await off.callError("freeGames.get")).error.code).toBe("offline");
+    expect((await off.call("freeGames.get")).items.length).toBeGreaterThan(0);
   });
 
   it("game detail carries description, DLC, components, prerequisites, saves, settings, shortcuts", async () => {
@@ -585,22 +585,16 @@ describe("planning and space", () => {
     expect(without.dlc.every((x: { selected: boolean }) => !x.selected)).toBe(true);
   });
 
-  it("deselecting an optional component shrinks the plan", async () => {
+  it("plans no components or prerequisites, like Core: changing components isn't available yet", async () => {
     const h = setup();
     const lib = await library(h);
-    const g = find(lib, (x) => x.kind === "game" && x.installStatus === "notInstalled" && x.thirdParty === "none");
-    const plans = [];
-    for (const app of [...lib.values()].filter((x) => x.kind === "game" && x.installStatus === "notInstalled" && x.thirdParty === "none").slice(0, 30)) {
+    for (const app of [...lib.values()].filter((x) => x.kind === "game" && x.installStatus === "notInstalled" && x.thirdParty === "none").slice(0, 12)) {
       const p = await h.call("game.planInstall", { appName: app.appName, basePath: null, components: null, dlc: null });
-      if (p.components.some((c: { required: boolean }) => !c.required)) plans.push(p);
+      expect(p.components).toEqual([]);
+      expect(p.prerequisites).toEqual([]);
     }
-    expect(plans.length).toBeGreaterThan(0);
-    const p = plans[0]!;
-    const all = await h.call("game.planInstall", { appName: p.appName, basePath: null, components: p.components.map((c: { id: string }) => c.id), dlc: null });
-    const min = await h.call("game.planInstall", { appName: p.appName, basePath: null, components: [], dlc: null });
-    expect(min.installSizeBytes).toBeLessThan(all.installSizeBytes);
-    expect(min.components.filter((c: { selected: boolean }) => c.selected).every((c: { required: boolean }) => c.required)).toBe(true);
-    void g;
+    const installed = find(lib, (x) => x.kind === "game" && x.installStatus === "installed");
+    expect((await h.call("game.getDetail", { appName: installed.appName })).components).toEqual([]);
   });
 
   it("flags an existing EGL install at the target folder", async () => {
@@ -623,13 +617,10 @@ describe("planning and space", () => {
     expect(e.error.message).toContain("18.4 GB is free");
   });
 
-  it("update without headroom fails when the drive is full", async () => {
+  it("update doesn't pre-check free space (Core leaves that to the run)", async () => {
     const h = setup({ scenario: "diskFull" });
-    const lib = await library(h);
-    const e = await h.callError("game.update", { appName: "Fortnite" });
-    expect(e.error).toMatchObject({ code: "insufficientSpace", fix: "freeSpace", appName: "Fortnite" });
-    expect(e.error.message).toMatch(/^This needs 4.8 GB but only 2.1 GB is free/);
-    void lib;
+    const job = await h.call("game.update", { appName: "Fortnite" });
+    expect(job).toMatchObject({ kind: "update", appName: "Fortnite" });
   });
 });
 
@@ -655,15 +646,17 @@ describe("guards", () => {
     expect((await h.callError("game.verify", { appName: not.appName })).error.code).toBe("notInstalled");
     expect((await h.callError("game.move", { appName: not.appName, destinationBase: "E:\\Epic Games" })).error.code).toBe("notInstalled");
     expect((await h.callError("game.uninstall", { appName: not.appName, mode: "deleteFiles" })).error.code).toBe("notInstalled");
-    expect((await h.callError("game.install", { appName: tp.appName, basePath: "D:\\Games", components: null, dlc: null, priority: false })).error.code).toBe("invalidRequest");
+    expect((await h.callError("game.install", { appName: tp.appName, basePath: "D:\\Games", components: null, dlc: null, priority: false })).error.code).toBe("thirdPartyRequired");
     expect((await h.callError("game.verify", { appName: "nope" })).error.code).toBe("notFound");
   });
 
-  it("offline: installs refused with an offline error; cached library still there", async () => {
-    const h = setup({ scenario: "offline" });
+  it("offline: installs are accepted and then fail with a network error, like Core (there is no offline gate); the cached library is still there", async () => {
+    const h = setup({ scenario: "offline", ...fast });
     const lib = await library(h);
     const g = find(lib, (x) => x.kind === "game" && x.installStatus === "notInstalled" && x.thirdParty === "none");
-    expect((await h.callError("game.install", { appName: g.appName, basePath: "D:\\Games", components: null, dlc: null, priority: false })).error.code).toBe("offline");
+    const job = await h.call("game.install", { appName: g.appName, basePath: "D:\\Games", components: null, dlc: [], priority: false });
+    await until(h, async () => (await h.job(job.id))?.status === "failed");
+    expect((await h.job(job.id))!.error?.code).toBe("network");
   });
 
   it("blocks verify, move and uninstall while the game runs", async () => {
@@ -736,7 +729,7 @@ describe("jobs: lifecycle and queue", () => {
     return [...lib.values()].filter((x) => x.kind === "game" && x.installStatus === "notInstalled" && x.thirdParty === "none" && !x.hidden)[n]!;
   };
   const install = (h: H, appName: string, priority = false) =>
-    h.call("game.install", { appName, basePath: "D:\\Games", components: null, dlc: null, priority });
+    h.call("game.install", { appName, basePath: "D:\\Games", components: null, dlc: [], priority });
 
   it("runs an install through every phase to completion and updates the library", async () => {
     const h = setup({ scenario: "returning", ...fast });
@@ -870,12 +863,13 @@ describe("jobs: lifecycle and queue", () => {
     const j = active(await h.snapshot())[0]!;
     let q = await h.call("queue.pauseAll");
     expect(q.paused).toBe(true);
-    expect(q.jobs.find((x) => x.id === j.id)!.status).toBe("queued");
+    expect(q.jobs.find((x) => x.id === j.id)!.status).toBe("paused"); // every pausable job pauses, as in Core
     const n = h.progress.length;
     await h.advance(1500);
     expect(h.progress.length).toBe(n);
     q = await h.call("queue.resumeAll");
     expect(q.paused).toBe(false);
+    expect(["queued", "running"]).toContain(q.jobs.find((x) => x.id === j.id)!.status);
     await h.advance(500);
     expect((await h.job(j.id))!.status).toBe("running");
 
@@ -884,15 +878,16 @@ describe("jobs: lifecycle and queue", () => {
     expect((await mv.callError("jobs.pause", { jobId: m.id })).error.code).toBe("invalidRequest");
   });
 
-  it("pausing or cancelling a finished job is an error; dismiss removes history; active jobs can't be dismissed", async () => {
+  it("pausing a finished job is an error; dismiss removes history and ignores active jobs", async () => {
     const h = setup({ scenario: "downloading" });
     const s = await h.snapshot();
     const fin = s.queue.jobs.find((j) => j.status === "completed")!;
     expect((await h.callError("jobs.pause", { jobId: fin.id })).error.code).toBe("invalidRequest");
-    expect((await h.callError("jobs.cancel", { jobId: fin.id })).error.code).toBe("invalidRequest");
+    expect((await h.call("jobs.cancel", { jobId: fin.id })).status).toBe("completed"); // cancelling a finished job changes nothing
     await h.call("jobs.dismiss", { jobId: fin.id });
     expect((await h.snapshot()).queue.jobs.some((j) => j.id === fin.id)).toBe(false);
-    expect((await h.callError("jobs.dismiss", { jobId: active(s)[0]!.id })).error.code).toBe("invalidRequest");
+    await h.call("jobs.dismiss", { jobId: active(s)[0]!.id }); // an unfinished job is ignored, not an error
+    expect(active(await h.snapshot()).some((j) => j.id === active(s)[0]!.id)).toBe(true);
     const cleared = await h.call("queue.clearFinished");
     expect(cleared.jobs.every((j) => ["running", "queued", "paused", "waiting"].includes(j.status))).toBe(true);
   });
@@ -991,10 +986,12 @@ describe("EGL busy and while-playing policy", () => {
     expect((await h.job(j.id))!.status).toBe("running");
   });
 
-  it("jobs.resume forces a waiting job to run; frozen scenarios don't auto-resume", async () => {
+  it("jobs.resume puts a waiting job back in line, and the gate sends it back to waiting while Epic is still busy; frozen scenarios don't auto-resume", async () => {
     const h = setup({ scenario: "eglBusy" });
     const j = active(await h.snapshot())[0]!;
-    await h.call("jobs.resume", { jobId: j.id });
+    const r = await h.call("jobs.resume", { jobId: j.id });
+    expect(r.status).toBe("waiting");
+    h.controller.setEglBusy(false);
     await h.advance(200);
     expect((await h.job(j.id))!.status).toBe("running");
     const f = setup({ scenario: "eglBusy", freeze: true });
@@ -1028,15 +1025,16 @@ describe("EGL busy and while-playing policy", () => {
     expect(q.modeReason).toMatch(/Throttled while Fortnite is running/);
   });
 
-  it("offline: network jobs wait with a reason and resume when back online", async () => {
+  it("offline: a running network job fails with a network error (no offline gate in Core); Resume retries it once back online", async () => {
     const h = setup({ scenario: "downloading" });
     const j = active(await h.snapshot())[0]!;
     h.controller.setConnectivity("offline");
-    expect((await h.job(j.id))!).toMatchObject({ status: "waiting" });
-    expect((await h.job(j.id))!.blockedReason).toMatch(/offline/i);
+    await h.advance(300);
+    expect((await h.job(j.id))!).toMatchObject({ status: "failed", error: { code: "network" } });
     h.controller.setConnectivity("online");
-    await h.advance(200);
-    expect((await h.job(j.id))!.status).toBe("running");
+    await h.call("jobs.resume", { jobId: j.id });
+    await h.advance(300);
+    expect((await h.job(j.id))!).toMatchObject({ status: "running", error: null });
   });
 });
 
@@ -1134,17 +1132,18 @@ describe("launching", () => {
     expect(r.message).toContain("EA app");
   });
 
-  it("offline: games that can run offline start offline; others get a clear offline error", async () => {
+  it("offline: games that can run offline start offline; Core never refuses up front, it tries and the run fails", async () => {
     const h = setup({ scenario: "offline" });
     const lib = await library(h);
     const ok = find(lib, (x) => x.kind === "game" && x.installStatus === "installed" && x.canRunOffline && x.thirdParty === "none" && x.saveStatus !== "conflict");
     const forced = await h.callError("game.launch", { appName: ok.appName, mode: "online", skipSaveSync: false });
-    expect(forced.error.code).toBe("offline");
+    expect(forced.error.code).toBe("network");
+    expect((await library(h)).get(ok.appName)!.runState).toBe("idle");
     const r = await h.settle(launch(h, ok.appName));
     expect(r).toMatchObject({ outcome: "started", offline: true });
     expect((await h.snapshot()).sessions[0]!.offline).toBe(true);
     const no = find(lib, (x) => x.kind === "game" && x.installStatus === "installed" && !x.canRunOffline && x.thirdParty === "none");
-    expect((await h.callError("game.launch", { appName: no.appName, mode: null, skipSaveSync: false })).error.code).toBe("offline");
+    expect((await h.callError("game.launch", { appName: no.appName, mode: null, skipSaveSync: false })).error.code).toBe("network");
   });
 
   it("broken installs can't launch (corrupted with a repair fix); DLC can't be launched, add-ons can", async () => {
@@ -1222,7 +1221,8 @@ describe("modify, move and uninstall", () => {
     const h = setup();
     const g = find(await library(h), (x) => x.kind === "game" && x.installStatus === "installed" && x.thirdParty === "none" && (x.installedSizeBytes ?? 0) > 20e9);
     const base = g.installPath!.replace(/\\[^\\]*$/, "");
-    expect((await h.callError("game.move", { appName: g.appName, destinationBase: base })).error.code).toBe("invalidFolder");
+    expect((await h.callError("game.move", { appName: g.appName, destinationBase: base })).error.code).toBe("invalidRequest");
+    expect((await h.callError("game.move", { appName: g.appName, destinationBase: `${g.installPath!}\\inside` })).error.code).toBe("invalidFolder");
     expect((await h.callError("game.move", { appName: g.appName, destinationBase: "F:\\Library2" })).error.code).toBe("insufficientSpace");
   });
 
@@ -1249,16 +1249,21 @@ describe("modify, move and uninstall", () => {
     expect((await del.snapshot()).egl.installs.some((i) => i.appName === g2.appName)).toBe(false);
   });
 
-  it("modify changes the installed components", async () => {
+  it("modify: component changes are not available yet (like Core); DLC changes are install/uninstall jobs", async () => {
     const h = setup({ scenario: "returning", ...fast });
     const lib = await library(h);
-    const g = [...lib.values()].find((x) => x.kind === "game" && x.installStatus === "installed" && x.thirdParty === "none" && x.appName !== "Fortnite" && x.saveStatus !== "conflict")!;
-    const d = await h.call("game.getDetail", { appName: g.appName });
-    const withComp = (await Promise.all([...lib.values()].filter((x) => x.installStatus === "installed" && x.thirdParty === "none").map((x) => h.call("game.getDetail", { appName: x.appName })))).find((x) => x.components.length > 0) ?? d;
-    const ids = withComp.components.map((c) => c.id);
-    const job = await h.call("game.modify", { appName: withComp.summary.appName, components: ids, dlc: [] });
+    const host = find(lib, (x) => x.kind === "game" && x.installStatus === "installed" && x.thirdParty === "none" && [...lib.values()].some((d) => d.baseAppName === x.appName && d.installStatus === "notInstalled"));
+    const e = await h.callError("game.modify", { appName: host.appName, components: ["any"], dlc: [] });
+    expect(e.error).toMatchObject({ code: "unknown", title: "Not available yet" });
+    const have = [...lib.values()].filter((d) => d.baseAppName === host.appName && d.installStatus === "installed").map((d) => d.appName);
+    expect((await h.callError("game.modify", { appName: host.appName, components: [], dlc: have })).error.code).toBe("invalidRequest"); // nothing to change
+    const dlc = [...lib.values()].find((d) => d.baseAppName === host.appName && d.installStatus === "notInstalled")!;
+    const job = await h.call("game.modify", { appName: host.appName, components: [], dlc: [...have, dlc.appName] });
+    expect(job).toMatchObject({ kind: "install", appName: dlc.appName });
     await until(h, async () => (await h.job(job.id))?.status === "completed");
-    expect((await h.call("game.getDetail", { appName: withComp.summary.appName })).components.every((c) => c.selected)).toBe(true);
+    expect((await library(h)).get(dlc.appName)!.installStatus).toBe("installed");
+    const off = await h.call("game.modify", { appName: host.appName, components: [], dlc: have });
+    expect(off).toMatchObject({ kind: "uninstall", appName: dlc.appName });
   });
 });
 
@@ -1314,13 +1319,14 @@ describe("EGL scan and import", () => {
     expect(fr.jobs[0]!.phases).toEqual(["importing", "verifying"]);
   });
 
-  it("stale, busy and not-owned installs can't be imported, with their reasons", async () => {
+  it("stale, busy and not-owned installs are skipped, not errors; an empty selection is", async () => {
     const h = setup({ scenario: "firstRunSignedIn" });
     const installs = await eglInstalls(h);
-    const stale = installs.find((i) => i.status === "stale")!;
-    expect((await h.callError("egl.import", { ids: [stale.id], verify: "auto" })).error.code).toBe("invalidRequest");
-    const busy = installs.find((i) => i.status === "busy")!;
-    expect((await h.callError("egl.import", { ids: [busy.id], verify: "auto" })).error.code).toBe("eglBusy");
+    for (const status of ["stale", "busy", "notOwned"] as const) {
+      const one = installs.find((i) => i.status === status)!;
+      expect((await h.call("egl.import", { ids: [one.id], verify: "auto" })).jobs).toEqual([]);
+    }
+    expect((await h.call("egl.import", { ids: ["nope"], verify: "auto" })).jobs).toEqual([]);
     expect((await h.callError("egl.import", { ids: [], verify: "auto" })).error.code).toBe("invalidRequest");
   });
 
