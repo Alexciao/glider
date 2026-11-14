@@ -393,6 +393,9 @@ internal static unsafe partial class Win32
     [LibraryImport("user32.dll")]
     public static partial uint GetDpiForWindow(nint hwnd);
 
+    [LibraryImport("user32.dll")]
+    public static partial short GetKeyState(int virtualKey);
+
     [LibraryImport("shcore.dll")]
     public static partial int GetDpiForMonitor(nint monitor, int dpiType, out uint dpiX, out uint dpiY);
 
