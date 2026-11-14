@@ -133,7 +133,7 @@ public sealed class LegendaryCli : ILegendary, IDisposable
 
     public async Task<LegendaryAccount?> RefreshSessionAsync(CancellationToken ct)
     {
-        var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Status, ["status", "--json"]) { CaptureStdout = true, Timeout = _options.QuickTimeout }, null, ct);
+        var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Status, ["status", "--json"]) { CaptureStdout = true, UsesLogin = true, Timeout = _options.QuickTimeout }, null, ct);
         if (await AccountFromStatusAsync(run, ct) is { } status)
         {
             return status.Account;
@@ -164,7 +164,8 @@ public sealed class LegendaryCli : ILegendary, IDisposable
         {
             var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.AuthCode, ["auth", "--token", code, "--disable-webview"])
             {
-                Exclusive = true,
+                UsesLogin = true,
+                LoginPriority = true,
                 RedactedArguments = [2],
                 Timeout = _options.QuickTimeout,
             }, null, ct);
@@ -189,7 +190,7 @@ public sealed class LegendaryCli : ILegendary, IDisposable
 
     public async Task SignOutAsync(CancellationToken ct)
     {
-        var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.AuthDelete, ["auth", "--delete"]) { Exclusive = true, Timeout = _options.QuickTimeout }, null, ct);
+        var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.AuthDelete, ["auth", "--delete"]) { Timeout = _options.QuickTimeout }, null, ct);
         var error = ErrorClassifier.Classify(LegendaryCommandKind.AuthDelete, run);
         AtomicFile.TryDelete(LegendaryFiles.UserJson(Config)); // belt and braces: no token may survive sign-out
         if (error is not null && File.Exists(LegendaryFiles.UserJson(Config)))
@@ -202,7 +203,7 @@ public sealed class LegendaryCli : ILegendary, IDisposable
 
     public async Task<LegendaryGameInfo> GetGameInfoAsync(string appName, CancellationToken ct)
     {
-        var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Info, ["info", appName, "--json"]) { CaptureStdout = true, Timeout = _options.InfoTimeout }, null, ct);
+        var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Info, ["info", appName, "--json"]) { CaptureStdout = true, UsesLogin = true, Timeout = _options.InfoTimeout }, null, ct);
         using var doc = LegendaryFiles.JsonFromStdout(run.Stdout);
         if (doc is null)
         {
@@ -298,7 +299,8 @@ public sealed class LegendaryCli : ILegendary, IDisposable
             var command = new LegendaryCommand(kind, InstallArguments(args, before is not null, sharedMemory, repairAndUpdate))
             {
                 Exclusive = true,
-                LowPriority = true,
+                UsesLogin = true,
+                LowPriority = (args.Resources ?? ResourceProfile.Default).LowPriority,
                 StallTimeout = _options.StallTimeout,
                 Timeout = Timeout.InfiniteTimeSpan,
                 // A failed SDL download makes Legendary fall back to a stale hardcoded tag table (core.py:449-453): a fresh
@@ -329,7 +331,7 @@ public sealed class LegendaryCli : ILegendary, IDisposable
 
             if (run.AbortedEarly && f.SdlDownloadFailed)
             {
-                return Fail(Errors.Network("Couldn't download Fortnite's file list (SDL data) from api.legendary.gl. Nothing was changed."));
+                return Fail(Errors.Network("Couldn't download the game's file list (SDL data) from api.legendary.gl. Nothing was changed."));
             }
 
             var error = ErrorClassifier.Classify(kind, run, FreeBytes(location));
@@ -351,9 +353,11 @@ public sealed class LegendaryCli : ILegendary, IDisposable
     {
         // No -y: Legendary prints its analysis (cli.py:1043-1050) and then asks "Do you wish to install?". stdin is closed so
         // it can never answer yes, and we stop the process as soon as the summary is complete. Nothing is downloaded or written.
+        // Metadata lane: not exclusive with the writer. If a download holds installed.json.lock, Legendary refuses at once
+        // ("Failed to acquire installed data lock", exit 0) and the size simply stays unknown until the next check.
         var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Update, ["update", appName, "--skip-sdl", "--skip-dlcs", "--update-only"])
         {
-            Exclusive = true,
+            UsesLogin = true,
             LowPriority = true,
             Timeout = _options.InfoTimeout,
             AbortWhen = f => f.SummaryComplete,
@@ -382,6 +386,7 @@ public sealed class LegendaryCli : ILegendary, IDisposable
         var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Import, ["-y", "import", appName, path, "--skip-dlcs"])
         {
             Exclusive = true,
+            UsesLogin = true,
             Timeout = _options.ImportTimeout,
         }, null, ct);
         var error = ErrorClassifier.Classify(LegendaryCommandKind.Import, run);
@@ -436,7 +441,7 @@ public sealed class LegendaryCli : ILegendary, IDisposable
 
         // Cross-volume: copy ourselves, then let Legendary only rewrite its metadata, then remove the original. The
         // original is deleted recursively by us, so it must really be a game folder and nothing bigger.
-        if (!FortniteLayout.LooksLikeInstall(source))
+        if (!Game.GameProfiles.LooksLikeInstall(appName, source, installed.Executable))
         {
             return Fail(Errors.InvalidFolder($"Glider can't find the game in \"{source}\", so it won't copy and delete that folder. Verify or locate the install first."));
         }
@@ -481,7 +486,7 @@ public sealed class LegendaryCli : ILegendary, IDisposable
         try
         {
             Directory.CreateDirectory(destination);
-            await File.WriteAllTextAsync(marker, "Partial copy made by Glider while moving Fortnite. Safe to delete.", CancellationToken.None);
+            await File.WriteAllTextAsync(marker, $"Partial copy made by Glider while moving {appName}. Safe to delete.", CancellationToken.None);
             await FolderMover.CopyTreeAsync(source, destination, progress, _time, ct);
         }
         catch (Exception e)
@@ -537,12 +542,21 @@ public sealed class LegendaryCli : ILegendary, IDisposable
         return new LegendaryOutcome(error is null, error, null, null);
     }
 
-    public async Task<LaunchCommand> GetLaunchCommandAsync(string appName, bool skipVersionCheck, string extraArgs, CancellationToken ct)
+    /// <summary>
+    /// Launch lane: never takes installed.json.lock, so a running download never delays it; online it passes the auth gate
+    /// ahead of everyone else (L§1.8). <c>--offline</c> skips login, the version check and the exchange code.
+    /// </summary>
+    public async Task<LaunchCommand> GetLaunchCommandAsync(string appName, bool skipVersionCheck, string extraArgs, bool offline, CancellationToken ct)
     {
         List<string> args = ["launch", appName, "--json"];
         if (skipVersionCheck)
         {
             args.Add("--skip-version-check");
+        }
+
+        if (offline)
+        {
+            args.Add("--offline");
         }
 
         // User args are appended by us, not passed through Legendary: argparse would swallow anything that looks
@@ -551,6 +565,8 @@ public sealed class LegendaryCli : ILegendary, IDisposable
         {
             CaptureStdout = true,
             SensitiveStdout = true, // live exchange code
+            UsesLogin = !offline,
+            LoginPriority = true,
             Timeout = _options.QuickTimeout,
         }, null, ct);
         using var doc = LegendaryFiles.JsonFromStdout(run.Stdout);
@@ -562,8 +578,35 @@ public sealed class LegendaryCli : ILegendary, IDisposable
         return ParseLaunch(doc.RootElement, CommandLineSplitter.Split(extraArgs));
     }
 
-    // ------------------------------------------------------------------ helpers
+    // ------------------------------------------------------------------ library (metadata lane)
 
+    /// <summary>`list -T --json`: Legendary refreshes metadata/, assets.json and entitlements.json; its stdout is not parsed.</summary>
+    public async Task<LegendaryOutcome> RefreshLibraryAsync(CancellationToken ct)
+    {
+        var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.List, ["list", "-T", "--json"])
+        {
+            UsesLogin = true,
+            QuietStdout = true,
+            Timeout = _options.InfoTimeout,
+        }, null, ct);
+        var error = ErrorClassifier.Classify(LegendaryCommandKind.List, run);
+        return new LegendaryOutcome(error is null, error, null, null);
+    }
+
+    /// <summary>`list-installed --check-updates --json`: one login + one assets request per installed platform; refreshes assets.json.</summary>
+    public async Task<LegendaryOutcome> CheckUpdatesAsync(CancellationToken ct)
+    {
+        var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.ListInstalled, ["list-installed", "--check-updates", "--json"])
+        {
+            UsesLogin = true,
+            QuietStdout = true,
+            Timeout = _options.InfoTimeout,
+        }, null, ct);
+        var error = ErrorClassifier.Classify(LegendaryCommandKind.ListInstalled, run);
+        return new LegendaryOutcome(error is null, error, null, null);
+    }
+
+    // ------------------------------------------------------------------ helpers
     internal static IReadOnlyList<string> InstallArguments(InstallArgs args, bool installed, int sharedMemoryMb, bool repairAndUpdate)
     {
         var verb = args.Mode switch
@@ -579,8 +622,22 @@ public sealed class LegendaryCli : ILegendary, IDisposable
             a.Add(FolderMover.Normalize(args.BasePath));
         }
 
-        a.Add("--skip-sdl");
-        a.Add("--skip-dlcs");
+        if (args.InstallTags is { Count: > 0 } tags && args.Mode != InstallMode.Repair)
+        {
+            // Explicit components. Untagged files ("") are always part of a game; Legendary deletes files whose tags were
+            // deselected, so the list must be complete.
+            foreach (var tag in tags.Append("").Distinct(StringComparer.Ordinal))
+            {
+                a.Add("--install-tag");
+                a.Add(tag);
+            }
+        }
+        else
+        {
+            a.Add("--skip-sdl");
+        }
+
+        a.Add("--skip-dlcs"); // DLC are separate writer-lane jobs (L§3)
         if (args.Mode == InstallMode.Update)
         {
             a.Add("--update-only");

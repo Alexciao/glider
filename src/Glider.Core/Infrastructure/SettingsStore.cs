@@ -5,21 +5,23 @@ using Glider.Core.Contracts;
 namespace Glider.Core.Infrastructure;
 
 /// <summary>
-/// state/settings.json. Unknown/invalid fields fall back to <see cref="Settings.Default"/> one field at a time,
-/// so a file from an older or newer build never resets everything. Values are clamped on load and on update.
+/// state/settings.json (schema 2: the <see cref="Settings"/> fields plus <c>"schemaVersion": 2</c>). Unknown/invalid fields
+/// fall back to <see cref="Settings.Default"/> one field at a time, so a file from an older or newer build never resets
+/// everything. Values are clamped on load and on update.
 /// </summary>
 public sealed class SettingsStore : ISettingsStore, IDisposable
 {
     public const int MinUpdateIntervalMinutes = 5;
     public const int MaxUpdateIntervalMinutes = 24 * 60;
     public const int MaxLaunchArgsLength = 4096;
+    public const int SchemaVersion = 2;
 
-    private readonly JsonFileStore<Settings> _store;
+    private readonly JsonFileStore<JsonObject> _store;
     private readonly ILog _log;
     private readonly SemaphoreSlim _updateLock = new(1, 1);
     private Settings _current;
 
-    private SettingsStore(JsonFileStore<Settings> store, ILog log, Settings current)
+    private SettingsStore(JsonFileStore<JsonObject> store, ILog log, Settings current)
     {
         _store = store;
         _log = log;
@@ -40,7 +42,7 @@ public sealed class SettingsStore : ISettingsStore, IDisposable
 
     public static async Task<SettingsStore> LoadAsync(AppPaths paths, ILog log, CancellationToken ct = default)
     {
-        var store = new JsonFileStore<Settings>(PathFor(paths), GliderJsonContext.Default.Settings, log);
+        var store = new JsonFileStore<JsonObject>(PathFor(paths), EngineJsonContext.Default.JsonObject, log);
         var raw = await store.ReadRawAsync(ct).ConfigureAwait(false);
         var settings = raw is null ? Settings.Default : Parse(raw, log);
         return new SettingsStore(store, log, Normalize(settings));
@@ -58,7 +60,7 @@ public sealed class SettingsStore : ISettingsStore, IDisposable
                 return normalized;
             }
 
-            await _store.SaveAsync(normalized).ConfigureAwait(false);
+            await _store.SaveAsync(ToFile(normalized)).ConfigureAwait(false);
             Volatile.Write(ref _current, normalized);
         }
         finally
@@ -69,6 +71,20 @@ public sealed class SettingsStore : ISettingsStore, IDisposable
         _log.Info("settings", "Settings updated.");
         Changed?.Invoke(normalized);
         return normalized;
+    }
+
+    /// <summary>The on-disk document: <c>schemaVersion</c> first, then every setting (camelCase, like the wire).</summary>
+    public static JsonObject ToFile(Settings settings)
+    {
+        var node = (JsonObject)JsonSerializer.SerializeToNode(settings, GliderJsonContext.Default.Settings)!;
+        var file = new JsonObject { ["schemaVersion"] = SchemaVersion };
+        foreach (var (k, v) in node.ToList())
+        {
+            node.Remove(k);
+            file[k] = v;
+        }
+
+        return file;
     }
 
     /// <summary>Clamps and cleans every field. Pure; used on load and before every save.</summary>
@@ -82,12 +98,40 @@ public sealed class SettingsStore : ISettingsStore, IDisposable
             SharedMemoryMb = s.SharedMemoryMb is { } m ? Math.Clamp(m, AutoTune.MinSharedMemoryMb, AutoTune.MaxSharedMemoryCeilingMb) : null,
             PreferredCdn = CleanHost(s.PreferredCdn),
             UpdateCheckIntervalMinutes = Math.Clamp(s.UpdateCheckIntervalMinutes, MinUpdateIntervalMinutes, MaxUpdateIntervalMinutes),
-            LaunchArgs = CleanArgs(s.LaunchArgs),
             LogLevel = Enum.IsDefined(s.LogLevel) ? s.LogLevel : d.LogLevel,
             Theme = Enum.IsDefined(s.Theme) ? s.Theme : d.Theme,
+            DownloadMode = Enum.IsDefined(s.DownloadMode) ? s.DownloadMode : d.DownloadMode,
+            WhilePlaying = Enum.IsDefined(s.WhilePlaying) ? s.WhilePlaying : d.WhilePlaying,
+            AutoUpdate = s.AutoUpdate is AutoUpdatePolicy.Always or AutoUpdatePolicy.Ask or AutoUpdatePolicy.Never ? s.AutoUpdate : d.AutoUpdate,
+            SpeedLimitBytesPerSecond = s.SpeedLimitBytesPerSecond is > 0 and var limit ? limit : null,
             DefaultInstallBase = CleanPath(s.DefaultInstallBase),
+            LibraryFolders = SameOrNew(s.LibraryFolders, LibraryFolders(s.LibraryFolders, CleanPath(s.DefaultInstallBase))),
         };
     }
+
+    /// <summary>Keeps the caller's list instance when nothing changed (records compare lists by reference).</summary>
+    private static IReadOnlyList<string> SameOrNew(IReadOnlyList<string>? old, List<string> cleaned) =>
+        old is not null && old.SequenceEqual(cleaned, StringComparer.Ordinal) ? old
+        : cleaned.Count == 0 ? Settings.Default.LibraryFolders
+        : cleaned;
+
+    /// <summary>Full, distinct paths; the default install base is always one of them.</summary>
+    private static List<string> LibraryFolders(IReadOnlyList<string>? folders, string? defaultBase)
+    {
+        var list = new List<string>();
+        foreach (var f in (folders ?? []).Prepend(defaultBase))
+        {
+            if (CleanPath(f) is { } p && !list.Any(x => string.Equals(Path.TrimEndingDirectorySeparator(x), Path.TrimEndingDirectorySeparator(p), StringComparison.OrdinalIgnoreCase)))
+            {
+                list.Add(p);
+            }
+        }
+
+        return list.Count > 64 ? list[..64] : list;
+    }
+
+    /// <summary>One line, at most <see cref="MaxLaunchArgsLength"/> characters (per-game launch arguments).</summary>
+    public static string CleanLaunchArgs(string? args) => CleanArgs(args);
 
     /// <summary>Overlays the file's fields onto the defaults, dropping (and logging) any field that doesn't deserialize.</summary>
     internal static Settings Parse(byte[] raw, ILog log)

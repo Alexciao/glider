@@ -17,6 +17,8 @@ internal enum LegendaryCommandKind
     Move,
     Uninstall,
     Launch,
+    List,
+    ListInstalled,
 }
 
 /// <summary>
@@ -110,12 +112,12 @@ internal static class ErrorClassifier
 
                 if (f.ImportNoFiles)
                 {
-                    return Errors.InvalidFolder("No Fortnite files were found in this folder.");
+                    return Errors.InvalidFolder("No files of this game were found in this folder.");
                 }
 
                 if (f.ImportExeMissing)
                 {
-                    return Errors.InvalidFolder("The Fortnite game executable is missing from this folder.");
+                    return Errors.InvalidFolder("The game executable is missing from this folder.");
                 }
 
                 break;
@@ -128,7 +130,7 @@ internal static class ErrorClassifier
 
                 if (f.MoveTargetExists)
                 {
-                    return Errors.PermissionDenied("The destination already contains a Fortnite folder.");
+                    return Errors.PermissionDenied("The destination already contains a folder with this name.");
                 }
 
                 if (f.MoveFailed || f.MoveCrossDrive)
@@ -165,7 +167,7 @@ internal static class ErrorClassifier
             case LegendaryCommandKind.Launch:
                 if (f.OutOfDate)
                 {
-                    return Errors.LaunchFailed("Fortnite is out of date and must be updated first.");
+                    return Errors.LaunchFailed("The game is out of date and must be updated first.");
                 }
 
                 break;
@@ -174,6 +176,14 @@ internal static class ErrorClassifier
                 if (f.VersionPrinted)
                 {
                     return null;
+                }
+
+                break;
+
+            case LegendaryCommandKind.List or LegendaryCommandKind.ListInstalled:
+                if (run.ExitCode == 0)
+                {
+                    return null; // the files on disk are what Glider reads; stdout is not parsed
                 }
 
                 break;
@@ -221,7 +231,8 @@ internal static class ErrorClassifier
 
         if (f.LockFailed)
         {
-            return Errors.Busy("another Legendary task");
+            // "Failed to acquire installed data lock" (exit 0): busy, never a failure — the writer lane retries (L§1.8).
+            return Errors.LegendaryLocked(f.Detail);
         }
 
         if (f.RequiredBytesFromCheck is { } required && f.FreeBytesFromCheck is { } free)
@@ -244,7 +255,7 @@ internal static class ErrorClassifier
 
         if (f.NotOwned)
         {
-            return Errors.LegendaryFailed("Fortnite isn't available on this Epic account: " + f.Detail);
+            return Errors.NotOwned() with { Detail = f.Detail };
         }
 
         if (f.NotInstalled)

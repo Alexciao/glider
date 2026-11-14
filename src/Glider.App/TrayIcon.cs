@@ -11,22 +11,23 @@ namespace Glider.App;
 internal sealed class TrayIcon : NativeWindow
 {
     private const uint CallbackMessage = Win32.WM_USER + 1;
-    private const uint IdOpen = 1, IdPlay = 2, IdCheckUpdates = 3, IdQuit = 4;
+    private const uint IdOpen = 1, IdCheckUpdates = 3, IdQuit = 4, IdDynamic = 100;
 
     private readonly string _iconPath;
     private readonly Action _open;
-    private readonly Action _play;
+    private readonly Func<IReadOnlyList<(string Label, Action Run)>> _gameItems;
     private readonly Action _checkUpdates;
     private readonly Action _quit;
     private readonly uint _taskbarCreated;
     private nint _icon;
     private bool _added;
 
-    public TrayIcon(string iconPath, Action open, Action play, Action checkUpdates, Action quit)
+    /// <param name="gameItems">Built when the menu opens: "Close X" per running game, else "Play &lt;last played&gt;".</param>
+    public TrayIcon(string iconPath, Action open, Func<IReadOnlyList<(string Label, Action Run)>> gameItems, Action checkUpdates, Action quit)
     {
         _iconPath = iconPath;
         _open = open;
-        _play = play;
+        _gameItems = gameItems;
         _checkUpdates = checkUpdates;
         _quit = quit;
         _taskbarCreated = Win32.RegisterWindowMessage("TaskbarCreated");
@@ -121,7 +122,22 @@ internal sealed class TrayIcon : NativeWindow
         try
         {
             Win32.AppendMenu(menu, Win32.MF_STRING, IdOpen, "Open Glider");
-            Win32.AppendMenu(menu, Win32.MF_STRING, IdPlay, "Play");
+            IReadOnlyList<(string Label, Action Run)> games;
+            try
+            {
+                games = _gameItems();
+            }
+            catch (Exception ex)
+            {
+                HostLog.Warn("Tray game items failed", ex);
+                games = [];
+            }
+
+            for (var i = 0; i < games.Count; i++)
+            {
+                Win32.AppendMenu(menu, Win32.MF_STRING, IdDynamic + (uint)i, games[i].Label.Replace("&", "&&", StringComparison.Ordinal));
+            }
+
             Win32.AppendMenu(menu, Win32.MF_STRING, IdCheckUpdates, "Check for updates");
             Win32.AppendMenu(menu, Win32.MF_SEPARATOR, 0, null);
             Win32.AppendMenu(menu, Win32.MF_STRING, IdQuit, "Quit");
@@ -133,7 +149,7 @@ internal sealed class TrayIcon : NativeWindow
             switch ((uint)cmd)
             {
                 case IdOpen: _open(); break;
-                case IdPlay: _play(); break;
+                case >= IdDynamic when (uint)cmd - IdDynamic < (uint)games.Count: games[(int)((uint)cmd - IdDynamic)].Run(); break;
                 case IdCheckUpdates: _checkUpdates(); break;
                 case IdQuit: _quit(); break;
             }

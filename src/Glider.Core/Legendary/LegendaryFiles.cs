@@ -102,7 +102,12 @@ internal static class LegendaryFiles
             NullIfEmpty(Str(g, "executable")),
             Bool(g, "needs_verification"),
             NullIfEmpty(Str(g, "egl_guid")),
-            Strings(g, "install_tags"));
+            Strings(g, "install_tags"),
+            Bool(g, "is_dlc"),
+            NullIfEmpty(Str(g, "title")),
+            !(g.TryGetProperty("can_run_offline", out var off) && off.ValueKind == JsonValueKind.False),
+            Bool(g, "requires_ot"),
+            NullIfEmpty(Str(g, "platform")));
     }
 
     /// <summary>

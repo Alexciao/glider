@@ -15,8 +15,6 @@ public enum VerifyPolicy
 
 public sealed class JobQueueOptions
 {
-    public string AppName { get; init; } = FortniteLayout.AppName;
-
     /// <summary>Workers / cache used when the settings say "auto". Null = <see cref="Infrastructure.AutoTune.ForCurrentMachine"/>.</summary>
     public AutoTuneResult? AutoTune { get; init; }
 
@@ -32,14 +30,33 @@ public sealed class JobQueueOptions
     public TimeSpan ProgressPersistInterval { get; init; } = TimeSpan.FromSeconds(10);
 
     public int KeepFinishedJobs { get; init; } = 20;
+
+    /// <summary>Legendary printed "Failed to acquire installed data lock" (exit 0): busy, try again after this long (L§1.8).</summary>
+    public TimeSpan LockRetryDelay { get; init; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>Holds and the effective download mode (null = never hold, Balanced).</summary>
+    public IQueuePolicy? Policy { get; init; }
+
+    public IResourcePolicy Resources { get; init; } = DefaultResourcePolicy.Instance;
+
+    /// <summary>Shared with the metadata lane (pre-download phase of the running writer job).</summary>
+    public WriterActivity Activity { get; init; } = new();
+
+    /// <summary>Catalog FolderName of an app (Legendary installs into &lt;base&gt;\&lt;FolderName&gt;); null = the app name.</summary>
+    public Func<string, string?>? FolderNameFor { get; init; }
+
+    /// <summary>Manifest install size of the installed game (verify byte totals); null = unknown.</summary>
+    public Func<string, long?>? InstallSizeFor { get; init; }
 }
 
 /// <summary>
-/// Serial, persistent job queue. Every state change is written atomically to state/jobs.json. Jobs run strictly in
-/// order; a paused job blocks the ones behind it (an update or verify must not run under a half-finished install).
-/// Pause = kill Legendary (its resume file keeps completed files); resume = run the same command again. After a crash
-/// or restart, jobs that were running come back queued and resume automatically; paused ones stay paused.
-/// Call <see cref="RestoreAsync"/> once at startup; jobs only start running after it.
+/// The writer lane (docs/v0.2-design.md §3, L§1.8): exactly one Legendary job that writes installed.json (or the game's files)
+/// at a time, in a user-ordered, persistent queue (state/jobs.json). Jobs are idempotent per (AppName, Kind). A paused job
+/// blocks only later jobs of the same game (and its DLC); others run. Pause = kill Legendary (its resume file keeps completed
+/// files); resume = run the same command again. After a crash or restart, jobs that were running come back queued and resume
+/// automatically; paused ones stay paused. Legendary's "installed data lock" refusal is "busy, retry in 5 s", never a failure.
+/// While <see cref="IQueuePolicy.HoldReason"/> is set (a game runs and Settings.WhilePlaying is Pause) a running pausable job
+/// is stopped and held, and nothing new starts until the hold lifts. Call <see cref="RestoreAsync"/> once at startup.
 /// </summary>
 public sealed class JobQueue : IJobQueue, IAsyncDisposable
 {
@@ -54,6 +71,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
     private readonly JsonFileStore<PersistedJobFile> _store;
     private readonly Lock _lock = new();
     private readonly List<PersistedJob> _jobs = [];
+    private readonly Dictionary<string, JobSamples> _samples = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _signal = new(0, int.MaxValue);
     private readonly CancellationTokenSource _shutdown = new();
     private readonly List<Task> _background = [];
@@ -61,6 +79,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
     private Running? _running;
     private bool _restored;
     private bool _disposed;
+    private bool _paused;
     private long _lastProgressPersist;
 
     public JobQueue(AppPaths paths, ILegendary legendary, ISettingsStore settings, IJobHooks hooks, ILog log, TimeProvider? time = null, JobQueueOptions? options = null)
@@ -82,6 +101,8 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
 
     public static string PathFor(AppPaths paths) => Path.Combine(paths.State, "jobs.json");
 
+    public WriterActivity Activity => _options.Activity;
+
     public bool IsBusy
     {
         get
@@ -93,11 +114,41 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
     }
 
+    public bool Paused
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _paused;
+            }
+        }
+    }
+
     public IReadOnlyList<JobInfo> Snapshot()
     {
         lock (_lock)
         {
-            return _jobs.Select(j => j.Info).ToList();
+            var running = _running?.Job;
+            var unfinished = _jobs.Where(j => !IsTerminal(j.Info.Status)).OrderBy(j => j == running ? 0 : 1).Select(j => j.Info);
+            var finished = _jobs.Where(j => IsTerminal(j.Info.Status)).OrderByDescending(j => j.Info.FinishedAt ?? j.Info.CreatedAt).Select(j => j.Info);
+            return [.. unfinished, .. finished];
+        }
+    }
+
+    public JobHistory History(string jobId)
+    {
+        lock (_lock)
+        {
+            return new JobHistory(jobId, _samples.TryGetValue(jobId, out var s) ? s.Snapshot() : []);
+        }
+    }
+
+    public JobRequest? Request(string jobId)
+    {
+        lock (_lock)
+        {
+            return _jobs.FirstOrDefault(j => j.Info.Id == jobId)?.Request;
         }
     }
 
@@ -108,22 +159,34 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         PersistedJob job;
         lock (_lock)
         {
-            var existing = _jobs.FirstOrDefault(j => j.Request.Kind == request.Kind && !IsTerminal(j.Info.Status));
+            var existing = _jobs.FirstOrDefault(j => j.Request.Kind == request.Kind && j.Request.AppName == request.AppName && !IsTerminal(j.Info.Status));
             if (existing is not null)
             {
-                return existing.Info; // idempotent: a second click doesn't queue a duplicate
+                return existing.Info; // idempotent per (app, kind): a second click doesn't queue a duplicate
             }
 
+            var id = Guid.NewGuid().ToString("N");
             job = new PersistedJob
             {
-                Info = new JobInfo(Guid.NewGuid().ToString("N"), request.Kind, JobStatus.Queued, null, null, _time.GetUtcNow(), null,
-                    request.TargetPath, request.FromVersion, request.ToVersion, null),
+                Info = new JobInfo(id, request.AppName, string.IsNullOrWhiteSpace(request.Title) ? request.AppName : request.Title!, request.Kind,
+                    JobStatus.Queued, JobPlan.Phases(request.Kind), null, null, null, _time.GetUtcNow(), null, null,
+                    request.TargetPath, request.FromVersion, request.ToVersion, null, null, null),
                 Request = request,
             };
-            _jobs.Add(job);
+            if (request.Priority)
+            {
+                var at = _jobs.FindIndex(j => !IsTerminal(j.Info.Status) && j != _running?.Job);
+                _jobs.Insert(at < 0 ? _jobs.Count : at, job);
+            }
+            else
+            {
+                _jobs.Add(job);
+            }
+
+            _samples[id] = new JobSamples();
         }
 
-        _log.Info("jobs", $"Queued {request.Kind} {job.Info.Id}.");
+        _log.Info("jobs", $"Queued {request.Kind} {request.AppName} {job.Info.Id}{(request.Priority ? " (priority)" : "")}.");
         PersistInBackground();
         Changed?.Invoke();
         EnsureLoop();
@@ -147,7 +210,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
                 throw new GliderException(Errors.InvalidRequest($"The {job.Info.Kind} task has already finished."));
             }
 
-            if (!CanPause(job.Request.Kind))
+            if (!JobPlan.CanPause(job.Request.Kind))
             {
                 throw new GliderException(Errors.InvalidRequest($"A {job.Info.Kind} task can't be paused."));
             }
@@ -155,6 +218,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             running = _running?.Job == job ? _running : null;
             if (running is null)
             {
+                job.Held = false;
                 job.Info = job.Info with { Status = JobStatus.Paused, BlockedReason = null };
             }
             else
@@ -173,6 +237,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
 
         await PersistAsync();
+        _signal.Release(); // another game's job may run now
         return Find(jobId).Info;
     }
 
@@ -181,17 +246,25 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         lock (_lock)
         {
             var job = Find(jobId);
-            if (job.Info.Status is JobStatus.Queued or JobStatus.Running or JobStatus.Waiting)
+            if (job.Info.Status is JobStatus.Queued or JobStatus.Running)
             {
+                _paused = false;
                 return job.Info;
             }
 
-            if (job.Info.Status is not (JobStatus.Paused or JobStatus.Failed))
+            if (job.Info.Status is not (JobStatus.Paused or JobStatus.Failed or JobStatus.Waiting))
             {
                 throw new GliderException(Errors.InvalidRequest($"A {job.Info.Status} task can't be resumed."));
             }
 
-            job.Info = job.Info with { Status = JobStatus.Queued, Error = null, FinishedAt = null, BlockedReason = null };
+            if (job.Info.Status == JobStatus.Waiting && _running?.Job == job)
+            {
+                return job.Info; // waiting for EGL/lock inside its run: it continues by itself
+            }
+
+            job.Held = false;
+            job.Info = job.Info with { Status = JobStatus.Queued, Error = null, FinishedAt = null, BlockedReason = null, Outcome = null };
+            _paused = false; // resuming one job resumes the queue
         }
 
         _log.Info("jobs", $"Resuming {jobId}.");
@@ -217,7 +290,8 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             running = _running?.Job == job ? _running : null;
             if (running is null)
             {
-                job.Info = job.Info with { Status = JobStatus.Cancelled, FinishedAt = _time.GetUtcNow(), BlockedReason = null };
+                job.Held = false;
+                job.Info = job.Info with { Status = JobStatus.Cancelled, FinishedAt = _time.GetUtcNow(), BlockedReason = null, Outcome = null };
             }
             else
             {
@@ -231,10 +305,10 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
         else
         {
-            _log.Info("jobs", $"Cancelled {job.Info.Kind} {jobId}.");
+            _log.Info("jobs", $"Cancelled {job.Info.Kind} {job.Info.AppName} {jobId}.");
             StartCleanup(job);
             Changed?.Invoke();
-            _signal.Release(); // a paused head no longer blocks the queue
+            _signal.Release(); // a paused job no longer blocks its game
         }
 
         await PersistAsync();
@@ -252,10 +326,135 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             }
 
             _jobs.Remove(job);
+            _samples.Remove(jobId);
         }
 
         PersistInBackground();
         Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// Moves an unfinished job to <paramref name="toIndex"/> in the run order (index into the unfinished jobs as
+    /// <see cref="Snapshot"/> lists them). The running job keeps running: nothing is pre-empted.
+    /// </summary>
+    public async Task ReorderAsync(string jobId, int toIndex)
+    {
+        lock (_lock)
+        {
+            var job = Find(jobId);
+            if (IsTerminal(job.Info.Status))
+            {
+                throw new GliderException(Errors.InvalidRequest("Finished tasks can't be reordered."));
+            }
+
+            var unfinished = _jobs.Where(j => !IsTerminal(j.Info.Status)).OrderBy(j => j == _running?.Job ? 0 : 1).ToList();
+            unfinished.Remove(job);
+            var min = _running is not null && _running.Job != job ? 1 : 0;
+            unfinished.Insert(Math.Clamp(toIndex, min, unfinished.Count), job);
+            var finished = _jobs.Where(j => IsTerminal(j.Info.Status)).ToList();
+            _jobs.Clear();
+            _jobs.AddRange(unfinished);
+            _jobs.AddRange(finished);
+        }
+
+        await PersistAsync();
+        Changed?.Invoke();
+        _signal.Release();
+    }
+
+    public Task MoveToTopAsync(string jobId) => ReorderAsync(jobId, 0);
+
+    /// <summary>Pauses the running job (if it can pause) and stops the queue from starting anything until resume-all.</summary>
+    public async Task PauseAllAsync()
+    {
+        Running? running;
+        lock (_lock)
+        {
+            _paused = true;
+            running = _running is { } r && JobPlan.CanPause(r.Job.Request.Kind) ? r : null;
+            if (running is not null)
+            {
+                running.Intent = StopIntent.Pause;
+            }
+
+            foreach (var j in _jobs.Where(j => j.Info.Status is JobStatus.Queued || (j.Info.Status == JobStatus.Waiting && j.Held)))
+            {
+                if (JobPlan.CanPause(j.Request.Kind))
+                {
+                    j.Held = false;
+                    j.Info = j.Info with { Status = JobStatus.Paused, BlockedReason = null };
+                }
+            }
+        }
+
+        _log.Info("jobs", "Queue paused.");
+        if (running is not null)
+        {
+            await StopAsync(running);
+        }
+
+        await PersistAsync();
+        Changed?.Invoke();
+    }
+
+    public async Task ResumeAllAsync()
+    {
+        lock (_lock)
+        {
+            _paused = false;
+            foreach (var j in _jobs.Where(j => j.Info.Status == JobStatus.Paused))
+            {
+                j.Info = j.Info with { Status = JobStatus.Queued, BlockedReason = null };
+            }
+        }
+
+        _log.Info("jobs", "Queue resumed.");
+        await PersistAsync();
+        Changed?.Invoke();
+        EnsureLoop();
+        _signal.Release();
+    }
+
+    public void ClearFinished()
+    {
+        lock (_lock)
+        {
+            foreach (var j in _jobs.Where(j => IsTerminal(j.Info.Status)).ToList())
+            {
+                _jobs.Remove(j);
+                _samples.Remove(j.Info.Id);
+            }
+        }
+
+        PersistInBackground();
+        Changed?.Invoke();
+    }
+
+    /// <summary>A game started or closed: stop the running job for a hold, or wake the loop when the hold lifted.</summary>
+    public void Reevaluate()
+    {
+        var hold = _options.Policy?.HoldReason;
+        Running? stop = null;
+        lock (_lock)
+        {
+            if (hold is not null && _running is { Intent: StopIntent.Shutdown } r && JobPlan.CanPause(r.Job.Request.Kind) && !_disposed)
+            {
+                r.Intent = StopIntent.Hold;
+                r.HoldReason = hold;
+                stop = r;
+            }
+        }
+
+        if (stop is not null)
+        {
+            _log.Info("jobs", $"Holding {stop.Job.Info.Kind} {stop.Job.Info.AppName}: {hold}");
+            _ = Task.Run(() => StopAsync(stop));
+        }
+        else
+        {
+            Changed?.Invoke(); // the mode/hold reason shown in the queue changed
+            _signal.Release();
+        }
     }
 
     public async Task RestoreAsync(CancellationToken ct)
@@ -276,10 +475,11 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         {
             if (!_restored && file?.Jobs is { } persisted)
             {
+                _paused = file.Paused;
                 foreach (var job in persisted)
                 {
                     // jobs.json is data: drop entries a crash, another build or a hand edit left unusable.
-                    if (job?.Info is null || job.Request is null || string.IsNullOrEmpty(job.Info.Id) ||
+                    if (job?.Info is null || job.Request is null || string.IsNullOrEmpty(job.Info.Id) || string.IsNullOrWhiteSpace(job.Request.AppName) ||
                         !Enum.IsDefined(job.Info.Kind) || !Enum.IsDefined(job.Info.Status) || job.Request.Kind != job.Info.Kind)
                     {
                         _log.Warn("jobs", "Ignoring an unusable entry in jobs.json.");
@@ -292,17 +492,24 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
                         continue;
                     }
 
+                    job.Info = job.Info with
+                    {
+                        AppName = job.Request.AppName,
+                        Title = string.IsNullOrWhiteSpace(job.Info.Title) ? job.Request.Title ?? job.Request.AppName : job.Info.Title,
+                        Phases = job.Info.Phases is { Count: > 0 } ? job.Info.Phases : JobPlan.Phases(job.Info.Kind),
+                    };
                     if (job.Info.Status is JobStatus.Running or JobStatus.Waiting)
                     {
                         // Interrupted by a crash, shutdown or restart: Legendary's resume file has the progress.
-                        _log.Info("jobs", $"Resuming interrupted {job.Info.Kind} {job.Info.Id} after restart.");
+                        _log.Info("jobs", $"Resuming interrupted {job.Info.Kind} {job.Info.AppName} {job.Info.Id} after restart.");
+                        job.Held = false;
                         job.Info = job.Info with { Status = JobStatus.Queued, BlockedReason = null };
                     }
 
                     _jobs.Add(job);
+                    _samples[job.Info.Id] = new JobSamples();
                 }
 
-                _jobs.Sort((a, b) => a.Info.CreatedAt.CompareTo(b.Info.CreatedAt));
                 Prune();
             }
 
@@ -364,14 +571,14 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         _shutdown.Dispose();
     }
 
-    /// <summary>Completes once no job is queued or running (paused/finished jobs don't count). For tests and shutdown.</summary>
+    /// <summary>Completes once nothing is running and nothing claimable is queued (paused/held/finished jobs don't count). For tests and shutdown.</summary>
     internal async Task WhenIdleAsync(CancellationToken ct)
     {
         while (true)
         {
             lock (_lock)
             {
-                if (_running is null && !_jobs.Any(j => j.Info.Status == JobStatus.Queued && !BlockedByPause(j)))
+                if (_running is null && (_paused || _options.Policy?.HoldReason is not null || !_jobs.Any(j => Claimable(j))))
                 {
                     return;
                 }
@@ -403,7 +610,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
     {
         lock (_lock)
         {
-            if (_restored)
+            if (_restored && !_disposed)
             {
                 _loop ??= Task.Run(LoopAsync);
             }
@@ -423,88 +630,131 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
     }
 
+    /// <summary>Queued (or held, once the hold lifted) and not behind a paused job of the same game.</summary>
+    private bool Claimable(PersistedJob job)
+    {
+        if (!(job.Info.Status == JobStatus.Queued || (job.Info.Status == JobStatus.Waiting && job.Held)))
+        {
+            return false;
+        }
+
+        foreach (var j in _jobs)
+        {
+            if (j == job)
+            {
+                return true;
+            }
+
+            if (j.Group == job.Group && j.Info.Status == JobStatus.Paused)
+            {
+                return false; // a paused job blocks only its own game
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>
-    /// Picks the next queued job and marks it running in the same critical section, so a concurrent pause/cancel sees
+    /// Picks the next runnable job and marks it running in the same critical section, so a concurrent pause/cancel sees
     /// either a queued job (and changes it directly) or a running one (and stops it) — never a job in between.
     /// </summary>
     private Running? Claim(CancellationToken shutdown)
     {
+        var hold = _options.Policy?.HoldReason;
         lock (_lock)
         {
+            if (_running is not null || _paused || _disposed)
+            {
+                return null;
+            }
+
             foreach (var job in _jobs)
             {
-                switch (job.Info.Status)
+                if (!Claimable(job))
                 {
-                    case JobStatus.Paused:
-                        return null; // strictly serial: nothing overtakes a paused job
-                    case JobStatus.Queued:
-                        var running = new Running(job, CancellationTokenSource.CreateLinkedTokenSource(shutdown));
-                        _running = running;
-                        job.Info = job.Info with
-                        {
-                            Status = JobStatus.Running,
-                            BlockedReason = null,
-                            Error = null,
-                            Progress = job.Info.Progress is { } p
-                                ? p with { Phase = JobPhase.Preparing, DownloadBytesPerSecond = 0, RawDownloadBytesPerSecond = 0, DiskBytesPerSecond = 0, EtaSeconds = null }
-                                : null,
-                        };
-                        return running;
+                    continue;
                 }
+
+                if (hold is not null && JobPlan.CanPause(job.Request.Kind))
+                {
+                    continue; // held while a game runs; uninstall/move/import still proceed
+                }
+
+                var running = new Running(job, CancellationTokenSource.CreateLinkedTokenSource(shutdown));
+                _running = running;
+                job.Held = false;
+                job.Info = job.Info with
+                {
+                    Status = JobStatus.Running,
+                    BlockedReason = null,
+                    Error = null,
+                    Outcome = null,
+                    StartedAt = job.Info.StartedAt ?? _time.GetUtcNow(),
+                    Phase = job.Info.Phase ?? JobPhase.Preparing,
+                };
+                return running;
             }
 
             return null;
         }
     }
 
-    private bool BlockedByPause(PersistedJob job)
-    {
-        foreach (var j in _jobs)
-        {
-            if (j == job)
-            {
-                return false;
-            }
-
-            if (j.Info.Status == JobStatus.Paused)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     private async Task RunAsync(Running running, CancellationToken shutdown)
     {
         var job = running.Job;
         using var cts = running.Cts;
-        using var tracker = new JobProgressTracker(job.Info.Id, job.Baseline, _time, _options.ProgressInterval, OnProgress, phase => OnPhase(job, phase));
+        JobSamples samples;
+        lock (_lock)
+        {
+            if (!_samples.TryGetValue(job.Info.Id, out samples!))
+            {
+                samples = _samples[job.Info.Id] = new JobSamples();
+            }
+        }
+
+        using var tracker = new JobProgressTracker(job.Info.Id, job.Request.AppName, JobPlan.Segment(job.Request.Kind, job.Step), job.Baseline, _time,
+            _options.ProgressInterval, OnProgress, phase => OnPhase(job, phase), () => _options.Policy?.EffectiveMode ?? _settings.Current.DownloadMode,
+            samples, () => (job.VerifyBad, job.Info.Verify?.FilesFixed ?? 0), _options.InstallSizeFor?.Invoke(job.Request.AppName));
         lock (_lock)
         {
             running.Tracker = tracker;
         }
 
-        _log.Info("jobs", $"Running {job.Info.Kind} {job.Info.Id} (step {job.Step}).");
+        _log.Info("jobs", $"Running {job.Info.Kind} {job.Info.AppName} {job.Info.Id} (step {job.Step}).");
         await PersistAsync();
         Changed?.Invoke();
 
         GliderError? error = null;
-        var outcome = Outcome.Failed;
+        var result = Result.Failed;
         try
         {
             await _hooks.BeforeRunAsync(job.Info, reason => SetBlocked(job, reason), cts.Token);
             SetBlocked(job, null);
-            error = await ExecuteAsync(job, tracker, cts.Token);
-            outcome = error is null ? Outcome.Succeeded : Outcome.Failed;
+            while (true)
+            {
+                error = await ExecuteAsync(job, tracker, cts.Token);
+                if (error?.Code != ErrorCode.LegendaryLocked)
+                {
+                    break;
+                }
+
+                // Another Legendary (EGL sync, a stray process) holds installed.json.lock: busy, not failed.
+                _log.Info("jobs", $"{job.Info.Kind} {job.Info.AppName}: Legendary's install lock is busy; retrying in {_options.LockRetryDelay.TotalSeconds:0} s.");
+                SetBlocked(job, Errors.LegendaryLocked().Message);
+                await Task.Delay(_options.LockRetryDelay, _time, cts.Token);
+                SetBlocked(job, null);
+            }
+
+            result = error is null ? Result.Succeeded : Result.Failed;
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
-            outcome = running.Intent switch
+            result = running.Intent switch
             {
-                StopIntent.Pause => Outcome.Paused,
-                StopIntent.Cancel => Outcome.Cancelled,
-                _ => Outcome.Interrupted,
+                StopIntent.Pause => Result.Paused,
+                StopIntent.Cancel => Result.Cancelled,
+                StopIntent.Hold => Result.Held,
+                _ => Result.Interrupted,
             };
         }
         catch (GliderException e)
@@ -513,8 +763,12 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
         catch (Exception e)
         {
-            _log.Error("jobs", $"{job.Info.Kind} {job.Info.Id} crashed.", e);
+            _log.Error("jobs", $"{job.Info.Kind} {job.Info.AppName} {job.Info.Id} crashed.", e);
             error = Errors.Unknown(e.Message);
+        }
+        finally
+        {
+            _options.Activity.EndPreDownload();
         }
 
         tracker.Flush();
@@ -524,26 +778,43 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         {
             job.Baseline = baseline;
             var info = job.Info with { BlockedReason = null };
-            var progress = info.Progress is { } p ? p with { DownloadBytesPerSecond = 0, RawDownloadBytesPerSecond = 0, DiskBytesPerSecond = 0, EtaSeconds = null } : null;
-            final = outcome switch
+            var progress = info.Progress is { } p ? Idle(p) : null;
+            final = result switch
             {
-                Outcome.Succeeded => info with { Status = JobStatus.Completed, FinishedAt = _time.GetUtcNow(), Error = null, Progress = progress is null ? null : progress with { Percent = 100 } },
-                Outcome.Failed => info with { Status = JobStatus.Failed, FinishedAt = _time.GetUtcNow(), Error = error ?? Errors.Unknown(), Progress = progress },
-                Outcome.Paused => info with { Status = JobStatus.Paused, Progress = progress },
-                Outcome.Cancelled => info with { Status = JobStatus.Cancelled, FinishedAt = _time.GetUtcNow(), Progress = progress },
+                Result.Succeeded => info with
+                {
+                    Status = JobStatus.Completed,
+                    FinishedAt = _time.GetUtcNow(),
+                    Error = null,
+                    Phase = JobPhase.Finalizing,
+                    Progress = progress is null ? null : progress with { Percent = 100, Phase = JobPhase.Finalizing },
+                    Outcome = new JobOutcome(OutcomeKind.Success, DefaultSuccess(job.Request.Kind)),
+                },
+                Result.Failed => info with
+                {
+                    Status = JobStatus.Failed,
+                    FinishedAt = _time.GetUtcNow(),
+                    Error = (error ?? Errors.Unknown()) with { AppName = job.Request.AppName },
+                    Progress = progress,
+                    Outcome = new JobOutcome(OutcomeKind.Failed, (error ?? Errors.Unknown()).Message),
+                },
+                Result.Paused => info with { Status = JobStatus.Paused, Progress = progress },
+                Result.Held => info with { Status = JobStatus.Waiting, BlockedReason = running.HoldReason, Progress = progress },
+                Result.Cancelled => info with { Status = JobStatus.Cancelled, FinishedAt = _time.GetUtcNow(), Progress = progress },
                 _ => info with { Progress = progress }, // interrupted by shutdown: keep "running" so the next start resumes it
             };
+            job.Held = result == Result.Held;
         }
 
-        _log.Info("jobs", $"{job.Info.Kind} {job.Info.Id}: {outcome}{(error is null ? "" : $" ({error.Code}: {error.Detail})")}.");
+        _log.Info("jobs", $"{job.Info.Kind} {job.Info.AppName} {job.Info.Id}: {result}{(error is null ? "" : $" ({error.Code}: {error.Detail})")}.");
 
-        // Hooks run before the terminal status is published, so the UI never sees "completed" while the game record
+        // Hooks run before the terminal status is published, so the UI never sees "completed" while the install record
         // or the EGL write-back are still stale.
-        if (outcome is Outcome.Succeeded or Outcome.Failed)
+        if (result is Result.Succeeded or Result.Failed)
         {
             try
             {
-                if (outcome == Outcome.Succeeded)
+                if (result == Result.Succeeded)
                 {
                     await _hooks.OnSucceededAsync(final, shutdown);
                 }
@@ -560,17 +831,20 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
 
         lock (_lock)
         {
+            // A hook may have set a richer outcome (e.g. "Imported; needs repair") on the job meanwhile.
+            final = final with { Outcome = job.PendingOutcome ?? final.Outcome };
+            job.PendingOutcome = null;
             job.Info = final;
             _running = null;
             Prune();
         }
 
-        if (outcome == Outcome.Cancelled)
+        if (result == Result.Cancelled)
         {
             StartCleanup(job);
         }
 
-        if (outcome != Outcome.Interrupted)
+        if (result != Result.Interrupted)
         {
             await PersistAsync();
         }
@@ -579,11 +853,50 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         running.Done.TrySetResult();
     }
 
+    /// <summary>Hooks call this (during OnSucceeded/OnFailed) to replace the default outcome of the finishing job.</summary>
+    public void SetOutcome(string jobId, JobOutcome outcome)
+    {
+        lock (_lock)
+        {
+            if (_jobs.FirstOrDefault(j => j.Info.Id == jobId) is { } job)
+            {
+                if (IsTerminal(job.Info.Status))
+                {
+                    job.Info = job.Info with { Outcome = outcome };
+                }
+                else
+                {
+                    job.PendingOutcome = outcome;
+                }
+            }
+        }
+    }
+
+    private static JobProgress Idle(JobProgress p) => p with
+    {
+        EtaSeconds = null,
+        Network = p.Network is { } n ? n with { BytesPerSecond = 0 } : null,
+        Disk = p.Disk is { } d ? d with { BytesPerSecond = 0 } : null,
+        Verify = p.Verify is { } v ? v with { ReadBytesPerSecond = 0 } : null,
+    };
+
+    private static string DefaultSuccess(JobKind kind) => kind switch
+    {
+        JobKind.Install => "Installed",
+        JobKind.Update => "Updated",
+        JobKind.Repair => "Repaired",
+        JobKind.Verify => "All files OK",
+        JobKind.Move => "Moved",
+        JobKind.Uninstall => "Uninstalled",
+        JobKind.Import => "Imported",
+        _ => "Done",
+    };
+
     // ------------------------------------------------------------------ executors
 
     private async Task<GliderError?> ExecuteAsync(PersistedJob job, JobProgressTracker tracker, CancellationToken ct)
     {
-        var app = _options.AppName;
+        var app = job.Request.AppName;
         var request = job.Request;
         switch (request.Kind)
         {
@@ -602,12 +915,28 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
                 tracker.SetPhase(JobPhase.Removing);
                 return (await _legendary.UninstallAsync(app, keepFiles: request.UninstallMode != UninstallMode.DeleteFiles, ct)).Error;
             case JobKind.Import:
-                tracker.SetPhase(JobPhase.Preparing);
-                var imported = await _legendary.ImportAsync(app, request.TargetPath!, ct);
+                tracker.SetPhase(JobPhase.Importing);
+                var imported = await WithPreDownloadAsync(tracker, () => _legendary.ImportAsync(app, request.TargetPath!, ct));
                 tracker.SetPhase(JobPhase.Finalizing);
                 return imported.Error;
             default:
-                return Errors.InvalidRequest($"Unknown job kind {request.Kind}.");
+                return Errors.NotAvailableYet($"{request.Kind} jobs");
+        }
+    }
+
+    /// <summary>Marks the writer's login/metadata phase for the metadata lane until the first progress line or the end of the run.</summary>
+    private async Task<LegendaryOutcome> WithPreDownloadAsync(JobProgressTracker tracker, Func<Task<LegendaryOutcome>> run)
+    {
+        var activity = _options.Activity;
+        activity.BeginPreDownload();
+        tracker.OnFirstProgress(activity.EndPreDownload);
+        try
+        {
+            return await run();
+        }
+        finally
+        {
+            activity.EndPreDownload();
         }
     }
 
@@ -617,7 +946,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
     /// </summary>
     private async Task<GliderError?> VerifyAndRepairAsync(PersistedJob job, JobProgressTracker tracker, CancellationToken ct)
     {
-        var app = _options.AppName;
+        var app = job.Request.AppName;
         if (job.Step == JobStep.Main)
         {
             tracker.SetPhase(JobPhase.Verifying);
@@ -632,7 +961,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
 
             if (first.Success)
             {
-                SetVerifyReport(job, new VerifyReport(checkedFiles, 0, 0, true));
+                SetVerifyReport(job, new VerifyReport(checkedFiles, 0, 0, true, 0));
                 return null;
             }
 
@@ -642,22 +971,32 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             }
 
             _log.Info("jobs", $"Verify found problems ({first.Error.Detail}); repairing only those files.");
-            SetVerifyReport(job, new VerifyReport(checkedFiles, bad, 0, false));
+            SetVerifyReport(job, new VerifyReport(checkedFiles, bad, 0, false, 0));
             await AdvanceAsync(job, JobStep.Repair, tracker);
         }
 
-        tracker.SetPhase(JobPhase.Preparing);
-        var repaired = await _legendary.InstallAsync(Args(InstallMode.Repair, job), tracker, ct);
-        if (!repaired.Success)
+        if (job.Step == JobStep.Repair)
         {
-            return repaired.Error;
+            tracker.SetPhase(JobPhase.Repairing);
+            var repaired = await WithPreDownloadAsync(tracker, () => _legendary.InstallAsync(Args(InstallMode.Repair, job), tracker, ct));
+            if (!repaired.Success)
+            {
+                return repaired.Error;
+            }
+
+            if (repaired.DownloadSizeBytes is { } toFix && job.Info.Verify is { } r)
+            {
+                SetVerifyReport(job, r with { BytesToFix = toFix });
+            }
+
+            await AdvanceAsync(job, JobStep.Verify, tracker);
         }
 
         tracker.SetPhase(JobPhase.Verifying);
         var second = await _legendary.VerifyAsync(app, tracker, ct);
         var remaining = second.Success ? 0 : Math.Max(second.Counts?.Bad ?? job.VerifyBad, 1);
         var checkedAfter = second.Counts?.FilesChecked is > 0 and var n ? n : job.VerifyChecked;
-        SetVerifyReport(job, new VerifyReport(checkedAfter, job.VerifyBad, Math.Max(0, job.VerifyBad - remaining), second.Success));
+        SetVerifyReport(job, new VerifyReport(checkedAfter, job.VerifyBad, Math.Max(0, job.VerifyBad - remaining), second.Success, job.Info.Verify?.BytesToFix ?? 0));
         if (second.Success)
         {
             return null;
@@ -681,13 +1020,13 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
     /// <summary>install/update/repair, then the verify policy, then at most one automatic repair of what verify found.</summary>
     private async Task<GliderError?> InstallFlowAsync(PersistedJob job, InstallMode mode, VerifyPolicy policy, JobProgressTracker tracker, CancellationToken ct)
     {
-        var app = _options.AppName;
+        var app = job.Request.AppName;
         if (job.Step == JobStep.Main)
         {
             if (mode == InstallMode.Install && job.GameFolder is null && ExpectedGameFolder(job.Request) is { } folder)
             {
-                // Legendary installs into <base>\<catalog FolderName> ("Fortnite"). Remember whether we create that folder,
-                // so cancelling a fresh install may delete it without ever touching pre-existing data.
+                // Legendary installs into <base>\<catalog FolderName>. Remember whether we create that folder, so cancelling a
+                // fresh install may delete it without ever touching pre-existing data.
                 lock (_lock)
                 {
                     job.GameFolder = folder;
@@ -697,7 +1036,12 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
                 await PersistAsync();
             }
 
-            var outcome = await _legendary.InstallAsync(Args(mode, job), tracker, ct);
+            if (mode == InstallMode.Repair)
+            {
+                tracker.SetPhase(JobPhase.Verifying);
+            }
+
+            var outcome = await WithPreDownloadAsync(tracker, () => _legendary.InstallAsync(Args(mode, job), tracker, ct));
             var writeFailures = !outcome.Success && outcome.Error?.Code == ErrorCode.Corrupted && mode != InstallMode.Repair;
             if (!outcome.Success && !writeFailures)
             {
@@ -737,14 +1081,14 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             await AdvanceAsync(job, JobStep.Repair, tracker);
         }
 
-        tracker.SetPhase(JobPhase.Preparing);
-        var repaired = await _legendary.InstallAsync(Args(InstallMode.Repair, job), tracker, ct);
+        tracker.SetPhase(JobPhase.Repairing);
+        var repaired = await WithPreDownloadAsync(tracker, () => _legendary.InstallAsync(Args(InstallMode.Repair, job), tracker, ct));
         return repaired.Success ? null : repaired.Error;
     }
 
     private async Task AdvanceAsync(PersistedJob job, JobStep step, JobProgressTracker tracker)
     {
-        tracker.BeginStep();
+        tracker.BeginStep(JobPlan.Segment(job.Request.Kind, step));
         lock (_lock)
         {
             job.Step = step;
@@ -757,13 +1101,17 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
     private InstallArgs Args(InstallMode mode, PersistedJob job)
     {
         var s = _settings.Current;
+        var effective = _options.Policy?.EffectiveMode ?? s.DownloadMode;
+        var isDlc = job.Request.Options?.BaseAppName is not null;
         return new InstallArgs(
-            _options.AppName,
+            job.Request.AppName,
             mode,
-            job.Request.TargetPath,
+            isDlc ? null : job.Request.TargetPath, // a DLC installs into its base game's folder
             s.DownloadWorkers ?? _auto.Workers,
             s.SharedMemoryMb ?? _auto.SharedMemoryMb,
-            s.PreferredCdn);
+            s.PreferredCdn,
+            job.Request.Options?.Components,
+            _options.Resources.For(effective, job.Request.Kind));
     }
 
     // ------------------------------------------------------------------ state helpers
@@ -785,7 +1133,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         {
             if (reason is not null)
             {
-                _log.Info("jobs", $"{job.Info.Kind} {job.Info.Id} waiting: {reason}");
+                _log.Info("jobs", $"{job.Info.Kind} {job.Info.AppName} {job.Info.Id} waiting: {reason}");
             }
 
             PersistInBackground();
@@ -797,8 +1145,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
     {
         lock (_lock)
         {
-            var p = job.Info.Progress ?? new JobProgress(job.Info.Id, phase, 0, 0, 0, 0, 0, 0, 0, 0, null, 0);
-            job.Info = job.Info with { Progress = p with { Phase = phase } };
+            job.Info = job.Info with { Phase = phase, Progress = job.Info.Progress is { } p ? p with { Phase = phase } : null };
         }
 
         PersistInBackground();
@@ -816,7 +1163,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
                 return;
             }
 
-            job.Info = job.Info with { Progress = progress };
+            job.Info = job.Info with { Progress = progress, Phase = progress.Phase };
             if (_running?.Job == job && _running.Tracker is { } t)
             {
                 job.Baseline = t.Snapshot();
@@ -850,19 +1197,20 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             return;
         }
 
+        var app = job.Request.AppName;
         var task = Task.Run(async () =>
         {
             try
             {
-                if (await _legendary.GetInstalledAsync(_options.AppName, CancellationToken.None) is not null)
+                if (await _legendary.GetInstalledAsync(app, CancellationToken.None) is not null)
                 {
                     return; // something is registered there: never touch it
                 }
 
-                AtomicFile.TryDelete(LegendaryFiles.ResumeFile(_paths.LegendaryConfig, _options.AppName));
+                AtomicFile.TryDelete(LegendaryFiles.ResumeFile(_paths.LegendaryConfig, app));
                 if (job.CreatedGameFolder && job.GameFolder is { } folder && Directory.Exists(folder))
                 {
-                    // jobs.json is data, not authority: only ever delete <base>\<app> recomputed from the request.
+                    // jobs.json is data, not authority: only ever delete <base>\<FolderName> recomputed from the request.
                     var expected = ExpectedGameFolder(job.Request);
                     if (expected is null || !FolderMover.PathsEqual(folder, expected))
                     {
@@ -886,11 +1234,22 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
     }
 
-    /// <summary><c>&lt;base&gt;\&lt;app&gt;</c> for an install request with an absolute base path, else null.</summary>
-    private string? ExpectedGameFolder(JobRequest request) =>
-        request.TargetPath is { } basePath && Path.IsPathFullyQualified(basePath)
-            ? Path.TrimEndingDirectorySeparator(Path.Combine(Path.GetFullPath(basePath), _options.AppName))
-            : null;
+    /// <summary><c>&lt;base&gt;\&lt;FolderName&gt;</c> for a (non-DLC) install request with an absolute base path, else null.</summary>
+    private string? ExpectedGameFolder(JobRequest request)
+    {
+        if (request.Options?.BaseAppName is not null || request.TargetPath is not { } basePath || !Path.IsPathFullyQualified(basePath))
+        {
+            return null;
+        }
+
+        var folderName = _options.FolderNameFor?.Invoke(request.AppName) is { Length: > 0 } f ? f : request.AppName;
+        if (folderName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || folderName is "." or "..")
+        {
+            return null;
+        }
+
+        return Path.TrimEndingDirectorySeparator(Path.Combine(Path.GetFullPath(basePath), folderName));
+    }
 
     internal Task WhenCleanupDoneAsync()
     {
@@ -911,10 +1270,11 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
 
     private void Prune()
     {
-        var finished = _jobs.Where(j => IsTerminal(j.Info.Status)).ToList();
+        var finished = _jobs.Where(j => IsTerminal(j.Info.Status)).OrderBy(j => j.Info.FinishedAt ?? j.Info.CreatedAt).ToList();
         foreach (var old in finished.Take(Math.Max(0, finished.Count - _options.KeepFinishedJobs)))
         {
             _jobs.Remove(old);
+            _samples.Remove(old.Info.Id);
         }
     }
 
@@ -930,7 +1290,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
                 return;
             }
 
-            snapshot = new PersistedJobFile { Jobs = _jobs.Select(j => j.Clone()).ToList() };
+            snapshot = new PersistedJobFile { Paused = _paused, Jobs = _jobs.Select(j => j.Clone()).ToList() };
         }
 
         try
@@ -945,7 +1305,18 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
 
     private static void Validate(JobRequest r)
     {
-        if (r.Kind is JobKind.Install or JobKind.Move or JobKind.Import && string.IsNullOrWhiteSpace(r.TargetPath))
+        if (string.IsNullOrWhiteSpace(r.AppName))
+        {
+            throw new GliderException(Errors.InvalidRequest("A task needs an app name."));
+        }
+
+        if (!Enum.IsDefined(r.Kind))
+        {
+            throw new GliderException(Errors.InvalidRequest("Unknown task kind."));
+        }
+
+        var needsPath = r.Kind is JobKind.Move or JobKind.Import || (r.Kind == JobKind.Install && r.Options?.BaseAppName is null);
+        if (needsPath && string.IsNullOrWhiteSpace(r.TargetPath))
         {
             throw new GliderException(Errors.InvalidRequest($"{r.Kind} needs a target path."));
         }
@@ -961,8 +1332,6 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
     }
 
-    private static bool CanPause(JobKind kind) => kind is JobKind.Install or JobKind.Update or JobKind.Repair or JobKind.Verify;
-
     private static bool IsTerminal(JobStatus s) => s is JobStatus.Completed or JobStatus.Failed or JobStatus.Cancelled;
 
     private enum StopIntent
@@ -970,14 +1339,16 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         Shutdown,
         Pause,
         Cancel,
+        Hold,
     }
 
-    private enum Outcome
+    private enum Result
     {
         Succeeded,
         Failed,
         Paused,
         Cancelled,
+        Held,
         Interrupted,
     }
 
@@ -988,6 +1359,8 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         public CancellationTokenSource Cts { get; } = cts;
 
         public StopIntent Intent { get; set; } = StopIntent.Shutdown;
+
+        public string? HoldReason { get; set; }
 
         public JobProgressTracker? Tracker { get; set; }
 

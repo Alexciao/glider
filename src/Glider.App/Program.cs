@@ -157,7 +157,7 @@ internal static class HostApp
         var tray = new TrayIcon(
             Path.Combine(AppContext.BaseDirectory, "Assets", "tray.ico"),
             open: () => rt.Platform.RestoreWindow(),
-            play: () => FireAndForget(r => r.Launch(), "Play"),
+            gameItems: TrayGameItems,
             checkUpdates: () => FireAndForget(r => r.CheckForUpdates(), "Check for updates"),
             quit: () => FireAndForget(r => r.Quit(), "Quit", fallback: rt.Platform.Quit));
         rt.Platform.Attach(window, tray);
@@ -205,6 +205,30 @@ internal static class HostApp
         tray.Dispose();
         DisposeRpc(rt);
         return 0;
+    }
+
+    /// <summary>Tray entries from Core's state: "Close X" for each running game, else "Play &lt;last played installed game&gt;".</summary>
+    private static IReadOnlyList<(string Label, Action Run)> TrayGameItems()
+    {
+        if (Composition.Runtime?.Service is not { } service)
+        {
+            return [];
+        }
+
+        var sessions = service.Hub.BuildSnapshot().Sessions;
+        if (sessions.Count > 0)
+        {
+            return [.. sessions.Select(s => ($"Close {s.Title}", (Action)(() =>
+                FireAndForget(r => r.CloseGame(new Glider.Core.Contracts.AppRef(s.AppName)), "Close game"))))];
+        }
+
+        var last = service.Library
+            .Where(g => g.InstallStatus == Glider.Core.Contracts.InstallStatus.Installed && g.Kind != Glider.Core.Contracts.GameKind.Dlc && g.LastPlayedAt is not null)
+            .OrderByDescending(g => g.LastPlayedAt)
+            .FirstOrDefault();
+        return last is null
+            ? []
+            : [($"Play {last.Title}", () => FireAndForget(r => r.Launch(new Glider.Core.Contracts.LaunchRequest(last.AppName, null, false)), "Play"))];
     }
 
     private static void FireAndForget(Func<Glider.Core.Contracts.IGliderRpc, Task> call, string what, Action? fallback = null)

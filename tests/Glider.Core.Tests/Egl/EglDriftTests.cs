@@ -17,7 +17,7 @@ public sealed class FortniteVersionTests
     [InlineData("33.10", "33.9", 1)]
     [InlineData("Release-33.10.1", "Release-33.10", 1)]
     [InlineData("Release-33.10", "Release-33.11", -1)]
-    public void Orders(string a, string b, int expected) => Assert.Equal(expected, Math.Sign(FortniteVersion.Compare(a, b)!.Value));
+    public void Orders(string a, string b, int expected) => Assert.Equal(expected, Math.Sign(BuildVersion.Compare(a, b)!.Value));
 
     [Theory]
     [InlineData(null, "++Fortnite+Release-33.10-CL-45000000-Windows")]
@@ -29,14 +29,14 @@ public sealed class FortniteVersionTests
     [InlineData("33.10", "33.10.0")]
     // One side with CL, the other not, same release.
     [InlineData("++Fortnite+Release-33.10-CL-45000000-Windows", "Release-33.10")]
-    public void Unorderable(string? a, string? b) => Assert.Null(FortniteVersion.Compare(a, b));
+    public void Unorderable(string? a, string? b) => Assert.Null(BuildVersion.Compare(a, b));
 
     [Fact]
     public void ExtractsChangelist()
     {
-        Assert.Equal(45000000, FortniteVersion.Changelist("++Fortnite+Release-33.10-CL-45000000-Windows"));
-        Assert.Null(FortniteVersion.Changelist("Release-33.10"));
-        Assert.Null(FortniteVersion.Changelist(null));
+        Assert.Equal(45000000, BuildVersion.Changelist("++Fortnite+Release-33.10-CL-45000000-Windows"));
+        Assert.Null(BuildVersion.Changelist("Release-33.10"));
+        Assert.Null(BuildVersion.Changelist(null));
     }
 }
 
@@ -51,7 +51,7 @@ public sealed class EglDriftTests
         return (t, game);
     }
 
-    private static Glider.Core.DriftResult Check(EglTestTree t, string game, Glider.Core.GameRecord record)
+    private static Glider.Core.DriftResult Check(EglTestTree t, string game, Glider.Core.InstallRecord record)
     {
         var before = EglTreeHasher.Hash(t.Environment, game);
         using var svc = t.CreateService();

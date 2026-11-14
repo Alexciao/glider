@@ -13,7 +13,7 @@ import { STATES } from "./states";
 const OUT = process.env.SHOT_OUT
   ? `${process.env.SHOT_OUT.replace(/[\\/]+$/, "")}/`
   : fileURLToPath(new URL("../../docs/screenshots/", import.meta.url));
-const NAMES = ["library-installed", "library-downloading", "settings-general", "dialog-uninstall", "toasts"];
+const NAMES = ["library-installed", "library-downloading", "settings-startup", "dialog-uninstall", "toasts"];
 const SURFACES = {
   "mica-active": { backdrop: "mica", solid: false },
   "mica-solid": { backdrop: "mica", solid: true },

@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "jobs": [
+    {
+      "info": {
+        "id": "8d2f3c4b5a6e47f8b9c0d1e2f3a4b5c6",
+        "kind": "install",
+        "status": "running",
+        "progress": {
+          "jobId": "8d2f3c4b5a6e47f8b9c0d1e2f3a4b5c6",
+          "phase": "verifying",
+          "percent": 37,
+          "downloadedBytes": 0,
+          "totalDownloadBytes": 0,
+          "writtenBytes": 0,
+          "totalWriteBytes": 0,
+          "downloadBytesPerSecond": 0,
+          "diskBytesPerSecond": 412000000,
+          "rawDownloadBytesPerSecond": 0,
+          "etaSeconds": 120,
+          "elapsedSeconds": 3600
+        },
+        "error": null,
+        "createdAt": "2026-11-13T20:00:00.0000000+00:00",
+        "finishedAt": null,
+        "targetPath": "D:\\Games",
+        "fromVersion": null,
+        "toVersion": "\u002B\u002BFortnite\u002BRelease-43.10-CL-60118918-Windows",
+        "blockedReason": null,
+        "verify": null
+      },
+      "request": {
+        "kind": "install",
+        "targetPath": "D:\\Games",
+        "uninstallMode": null,
+        "fromVersion": null,
+        "toVersion": "\u002B\u002BFortnite\u002BRelease-43.10-CL-60118918-Windows"
+      },
+      "step": "Verify",
+      "createdGameFolder": true,
+      "gameFolder": "D:\\Games\\Fortnite",
+      "autoRepairAttempted": false,
+      "verifyChecked": 0,
+      "verifyBad": 0,
+      "baseline": {
+        "totalDownloadBytes": 52000000000,
+        "totalWriteBytes": 81000000000,
+        "percent": 37,
+        "elapsedSeconds": 3600.25,
+        "phase": "verifying"
+      }
+    }
+  ]
+}

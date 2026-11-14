@@ -2,24 +2,23 @@ using Glider.Core.Contracts;
 
 namespace Glider.Core.Tests.Services;
 
-/// <summary>Installed version (Legendary's installed.json) is compared with a freshly fetched latest version, every check.</summary>
+/// <summary>Update = assets.json build vs installed.json version (L§10), both read directly; a check refreshes assets.json first.</summary>
 public class UpdateCheckTests
 {
+    private const string Fn = FortniteLayout.AppName;
+
     [Fact]
-    public async Task InstalledVersionChangedOutsideGlider_IsReReadBeforeComparing()
+    public async Task InstalledVersionChangedOutsideGlider_IsWhatTheLibraryShows()
     {
         using var rig = new Rig();
-        rig.Settings.Set(Settings.Default with { AutoUpdate = false });
+        rig.Settings.Set(Settings.Default with { AutoUpdate = AutoUpdatePolicy.Never });
         rig.Install("v1"); // our record says v1
-        rig.Legendary.Installed = FakeLegendary.MakeInstalled(rig.Records.Current!.InstallPath, "v2"); // EGL/Legendary already moved to v2
-        rig.Legendary.Info = FakeLegendary.MakeInfo("v2");
+        rig.Legendary.Installed = FakeLegendary.MakeInstalled(rig.Games.Record()!.InstallPath, "v2"); // EGL/Legendary already moved to v2
         await rig.StartWarmAsync();
 
-        var result = await rig.Service.CheckForUpdates();
-
-        Assert.False(result.UpdateAvailable);
-        Assert.Equal("v2", result.InstalledVersion);
-        Assert.Equal("v2", rig.Records.Current!.Version);
+        var g = (await rig.SummaryAsync())!;
+        Assert.False(g.UpdateAvailable);
+        Assert.Equal("v2", g.InstalledVersion);
         Assert.Empty(rig.Jobs.Requests);
     }
 
@@ -27,34 +26,36 @@ public class UpdateCheckTests
     public async Task NewBuildPublishedAfterAnEarlierCheck_IsSeenOnTheNextCheck()
     {
         using var rig = new Rig();
-        rig.Settings.Set(Settings.Default with { AutoUpdate = false });
+        rig.Settings.Set(Settings.Default with { AutoUpdate = AutoUpdatePolicy.Never });
         rig.Install("v2");
-        rig.Legendary.Info = FakeLegendary.MakeInfo("v2");
         await rig.StartWarmAsync();
-        Assert.False((await rig.Service.GetSnapshot()).Game.UpdateAvailable);
+        Assert.False((await rig.SummaryAsync())!.UpdateAvailable);
 
-        rig.Legendary.Info = FakeLegendary.MakeInfo("v3"); // no clock advance: the 10-minute info cache must not hide it
-        var result = await rig.Service.CheckForUpdates();
+        // `list-installed --check-updates` rewrites assets.json with the new build.
+        rig.Legendary.OnSync = () => rig.Library.AddCatalog(Fn, LibraryFixture.FortniteCatalog, "v3").Save();
+        await rig.Service.CheckForUpdates();
+        await rig.Service.LibraryForTests.SyncTask;
 
-        Assert.True(result.UpdateAvailable);
-        Assert.Equal("v2", result.InstalledVersion);
-        Assert.Equal("v3", result.LatestVersion);
+        var g = (await rig.SummaryAsync())!;
+        Assert.True(g.UpdateAvailable);
+        Assert.Equal("v2", g.InstalledVersion);
+        Assert.Equal("v3", g.LatestVersion);
+        Assert.True(rig.Calls.Has("legendary.checkUpdates"));
+        Assert.Equal(1, (await rig.Service.GetSnapshot()).Library.UpdatesAvailable);
     }
 
     [Fact]
-    public async Task Reconcile_IsSkippedWhileAJobIsRunning()
+    public async Task ATornInstalledJson_KeepsThePreviousLibrary_NeverNotInstalled()
     {
         using var rig = new Rig();
-        rig.Settings.Set(Settings.Default with { AutoUpdate = false });
+        rig.Settings.Set(Settings.Default with { AutoUpdate = AutoUpdatePolicy.Never });
         rig.Install("v1");
-        rig.Legendary.Info = FakeLegendary.MakeInfo("v2");
         await rig.StartWarmAsync();
-        var job = rig.Jobs.Enqueue(new JobRequest(JobKind.Update, null, null, "v1", "v2"));
-        rig.Jobs.Set(job with { Status = JobStatus.Running });
-        rig.Legendary.Installed = FakeLegendary.MakeInstalled(rig.Records.Current!.InstallPath, "v-half-written");
+        Assert.Equal(InstallStatus.Installed, (await rig.SummaryAsync())!.InstallStatus);
 
-        await rig.Service.CheckForUpdates();
-
-        Assert.Equal("v1", rig.Records.Current!.Version);
+        File.WriteAllText(Path.Combine(rig.Paths.LegendaryConfig, "installed.json"), "{\"Fortnite\": {\"app_na"); // Legendary mid-write
+        var g = (await rig.SummaryAsync())!;
+        Assert.Equal(InstallStatus.Installed, g.InstallStatus);
+        Assert.Equal("v1", g.InstalledVersion);
     }
 }

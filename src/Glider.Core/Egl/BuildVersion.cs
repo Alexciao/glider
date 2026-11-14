@@ -4,11 +4,11 @@ using System.Text.RegularExpressions;
 namespace Glider.Core.Egl;
 
 /// <summary>
-/// Compares Fortnite build version strings such as <c>++Fortnite+Release-33.10-CL-12345678-Windows</c>.
+/// Compares Epic build version strings, e.g. Fortnite's <c>++Fortnite+Release-33.10-CL-12345678-Windows</c> (the generic rule).
 /// The changelist (<c>-CL-n</c>) is authoritative when both sides have one; otherwise the numeric components are
 /// compared in order (ordinal, component-wise). Anything that can't be ordered safely returns null.
 /// </summary>
-public static partial class FortniteVersion
+public static partial class BuildVersion
 {
     [GeneratedRegex(@"-CL-(\d+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex ClRegex();

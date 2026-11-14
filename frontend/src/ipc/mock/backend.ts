@@ -921,6 +921,14 @@ export class MockBackend {
       case "modify":
         if (g) {
           g.components = g.components.map((c) => ({ ...c, selected: c.required || (e.meta.components ?? []).includes(c.id) }));
+          // The chosen DLC are on disk afterwards, the others are not (entitlement-only content never changes).
+          const wanted = e.meta.dlc ?? [];
+          for (const d of g.dlc) {
+            const rec = this.games.get(d);
+            if (!rec || rec.summary.installStatus === "notInstallable") continue;
+            const on = wanted.includes(d);
+            this.patch(d, { installStatus: on ? "installed" : "notInstalled", installedVersion: on ? g.summary.installedVersion : null, installedSizeBytes: on ? rec.fullInstallBytes : null });
+          }
           this.patch(appName, { installedSizeBytes: Math.round(g.fullInstallBytes * 0.99) });
         }
         break;

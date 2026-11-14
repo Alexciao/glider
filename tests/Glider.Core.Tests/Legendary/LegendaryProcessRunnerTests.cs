@@ -168,7 +168,7 @@ public class LegendaryProcessRunnerTests
         Assert.Null(ErrorClassifier.Classify(LegendaryCommandKind.Install, run));
         Assert.Equal(5, sink.Progress.Count);
         Assert.Equal(100, sink.Progress[^1].Percent);
-        Assert.Equal([JobPhase.Downloading, JobPhase.Finalizing], sink.Phases);
+        Assert.Equal([JobPhase.Downloading, JobPhase.Installing, JobPhase.Finalizing], sink.Phases);
         Assert.Equal((long)(100 * 1024 * 1024), sink.Sizes?.DownloadBytes);
         Assert.DoesNotContain(run.Tail, l => l.Contains("= Progress", StringComparison.Ordinal)); // progress lines aren't kept
     }

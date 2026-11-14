@@ -7,6 +7,7 @@ export { Tooltip, TooltipProvider } from "./Tooltip";
 export { Kbd } from "./Kbd";
 export { Surface, Card, Section, Row } from "./Surface";
 export { ProgressBar } from "./ProgressBar";
+export { SplitButton, type SplitButtonProps, type SplitButtonSize, type SplitButtonTone } from "./SplitButton";
 export { Sparkline } from "./Sparkline";
 export { MiniSparkline, type MiniSparklineProps } from "./MiniSparkline";
 export { ThroughputChart, niceCeil, nearestIndex, monotonePath, type ChartData, type ChartSeries, type ThroughputChartProps } from "./ThroughputChart";
@@ -26,6 +27,10 @@ export {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuLabel,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+  DropdownMenuCheckboxItem,
 } from "./DropdownMenu";
 export { ToastRegion, type ToastItem, type ToastLevel } from "./Toast";
 export { Skeleton } from "./Skeleton";
@@ -34,3 +39,9 @@ export { Avatar, initialsOf } from "./Avatar";
 export { EmptyState } from "./EmptyState";
 export { ErrorCallout } from "./ErrorCallout";
 export { GliderMark, GliderWordmark } from "./Logo";
+export { Checkbox, type CheckedState } from "./Checkbox";
+export { ChoiceGroup, type ChoiceOption } from "./ChoiceGroup";
+export { UsageBar, isLowOnSpace } from "./UsageBar";
+export { Disclosure } from "./Disclosure";
+export { ArtThumb } from "./ArtThumb";
+export { Callout, type CalloutTone } from "./Callout";

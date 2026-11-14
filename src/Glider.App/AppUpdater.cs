@@ -61,7 +61,7 @@ internal static class AppUpdater
             HostLog.Info($"Self-update {version} found; downloading");
             await manager.DownloadUpdatesAsync(update).ConfigureAwait(false);
             manager.WaitExitThenApplyUpdates(update.TargetFullRelease, silent: true, restart: false);
-            sink.Publish(RpcEvents.Notice, new Notice("app-update", NoticeLevel.Info, $"Glider {version} is ready", "It installs the next time you close Glider.", null));
+            sink.Publish(RpcEvents.Notice, new Notice("app-update", NoticeLevel.Info, $"Glider {version} is ready", "It installs the next time you close Glider.", null, null, null));
             HostLog.Info($"Self-update {version} downloaded; applies on exit");
             return true;
         }

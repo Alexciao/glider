@@ -1,17 +1,33 @@
 import { create } from "zustand";
-import type { FixAction, GliderError } from "../ipc/contract.gen";
+import type { FixAction, GliderError, SaveConflict } from "../ipc/contract.gen";
 import { navigate, type Page } from "./router";
 
 /** How long the "ready to play" flourish stays on screen. */
 export const READY_MOMENT_MS = 2800;
 
 export type { Page };
-export type SettingsSection = "general" | "downloads" | "library" | "egl" | "advanced" | "about";
+export type SettingsSection =
+  | "downloads"
+  | "library"
+  | "updates"
+  | "saves"
+  | "egl"
+  | "overlay"
+  | "links"
+  | "appearance"
+  | "startup"
+  | "account"
+  | "advanced"
+  | "about"
+  /** v0.1's catch-all page; Settings shows Startup and tray for it. Kept so old deep links keep working. */
+  | "general";
 
 export type DialogState =
   | { kind: "install"; appName: string }
   | { kind: "uninstall"; appName: string }
   | { kind: "move"; appName: string }
+  /** Cloud and local saves both changed. `conflict` is what a failed launch returned; without it the dialog reads the saves itself. `thenPlay` = it came from Play. */
+  | { kind: "saveConflict"; appName: string; conflict?: SaveConflict | null; thenPlay?: boolean }
   | { kind: "cancelJob"; jobId: string }
   | { kind: "error"; error: GliderError; retry?: () => void };
 
@@ -56,7 +72,7 @@ interface UiStore {
 }
 
 export const useUi = create<UiStore>((set) => ({
-  settingsSection: "general",
+  settingsSection: "downloads",
   dialog: null,
   palette: false,
   pending: {},

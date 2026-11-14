@@ -31,41 +31,43 @@ public class PlaytimeTests
     [Fact]
     public void ApplyAddsToTotalAndStampsLastPlayed()
     {
-        var rec = new GameRecord(@"D:\G", "v1", 1, T0, false, null, false, 100, null);
-        var next = PlaytimeTracker.Apply(rec, 42, T0.AddHours(1));
+        var entry = GameEntry.Empty with { PlaytimeSeconds = 100 };
+        var next = PlaytimeTracker.Apply(entry, 42, T0.AddHours(1));
         Assert.Equal(142, next.PlaytimeSeconds);
         Assert.Equal(T0.AddHours(1), next.LastPlayedAt);
     }
 
     [Fact]
-    public async Task SessionIsPersistedWhenGameExits()
+    public async Task SessionIsPersistedPerGameWhenItExits()
     {
         using var rig = new Rig();
         var rec = rig.Install("v2");
-        var setup = Path.Combine(rec.InstallPath, EacService.SetupRelative.Replace('\\', Path.DirectorySeparatorChar));
+        var setup = Path.Combine(rec.InstallPath, GameProfiles.Fortnite.Eac!.SetupRelative.Replace('\\', Path.DirectorySeparatorChar));
         Directory.CreateDirectory(Path.GetDirectoryName(setup)!);
         File.WriteAllText(setup, "");
         rig.Services.Installed.Add("EasyAntiCheat_EOS");
         await rig.StartWarmAsync();
 
-        await rig.Service.Launch();
-        var w = rig.Service.LaunchServiceForTests.Watcher;
+        await rig.Service.Launch(new LaunchRequest(FortniteLayout.AppName, null, false));
+        var sessions = rig.Service.LaunchServiceForTests.Sessions;
         var since = rig.Time.GetUtcNow();
         rig.Processes.Add(FortniteLayout.ShippingProcessName, since);
         rig.Processes.Remove("FortniteLauncher");
-        Assert.True(w.Tick());
-        Assert.Equal(RunState.Running, rig.Service.Hub.State.RunState);
+        Assert.True(sessions.Tick());
+        Assert.Equal(RunState.Running, rig.Service.Hub.State.RunStateOf(FortniteLayout.AppName));
 
         rig.Time.Advance(TimeSpan.FromSeconds(125));
         rig.Processes.Remove(FortniteLayout.ShippingProcessName);
-        w.Tick();
-        w.Tick();
+        sessions.Tick();
+        rig.Time.Advance(TimeSpan.FromSeconds(6));
+        sessions.Tick();
         await rig.Service.LaunchServiceForTests.PlaytimeFlushed;
 
-        Assert.Equal(125, rig.Records.Current!.PlaytimeSeconds);
-        Assert.Equal(rig.Time.GetUtcNow(), rig.Records.Current.LastPlayedAt);
-        var game = rig.Service.Hub.BuildGame();
-        Assert.Equal(125, game.PlaytimeSeconds);
+        var entry = rig.Games.Get(FortniteLayout.AppName);
+        Assert.Equal(131, entry.PlaytimeSeconds); // until the session ended (5 s grace after the last process)
+        Assert.Equal(rig.Time.GetUtcNow(), entry.LastPlayedAt);
+        var game = (await rig.SummaryAsync())!;
+        Assert.Equal(131, game.PlaytimeSeconds);
         Assert.Equal(rig.Time.GetUtcNow(), game.LastPlayedAt);
     }
 }

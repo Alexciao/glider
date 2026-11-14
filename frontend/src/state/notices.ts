@@ -41,4 +41,19 @@ export function toast(t: Omit<Toast, "id"> & { id?: string }): string {
   return id;
 }
 
-export const pushNotice = (n: Notice): void => useNotices.getState().push({ ...n });
+const suppressors = new Set<(n: Notice) => boolean>();
+
+/**
+ * Register a predicate: backend notices it returns true for are not toasted, because a screen already shows that
+ * outcome inline (the onboarding import list shows every game's result; a toast per game would say it twice).
+ * Returns the unregister function.
+ */
+export function suppressNoticesWhen(fn: (n: Notice) => boolean): () => void {
+  suppressors.add(fn);
+  return () => void suppressors.delete(fn);
+}
+
+export const pushNotice = (n: Notice): void => {
+  for (const suppress of suppressors) if (suppress(n)) return;
+  useNotices.getState().push({ ...n });
+};
