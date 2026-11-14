@@ -16,5 +16,6 @@ namespace Glider.Core.Infrastructure;
 [JsonSerializable(typeof(PersistedJobFile))]
 [JsonSerializable(typeof(Library.LibraryCacheFile))]
 [JsonSerializable(typeof(Migrations.SchemaFile))]
+[JsonSerializable(typeof(Migrations.DataRootMarker))]
 [JsonSerializable(typeof(System.Text.Json.Nodes.JsonObject))]
 internal sealed partial class EngineJsonContext : JsonSerializerContext;
