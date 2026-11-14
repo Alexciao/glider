@@ -99,17 +99,17 @@ export function EglSection({ s }: { s: SettingsT }) {
           checked={s.eglSync}
           onChange={(v) => void actions.updateSettings({ eglSync: v })}
         />
-        <Setting label="Import games" find="bulk import scan existing installs link egl folder locate rescan">
+        <Setting label="Existing installs" find="import games bulk scan link egl folder locate rescan">
           <Line
-            label="Import games"
-            description={ready > 0 ? `${plural(ready, "game")} ready` : "Nothing new to import"}
+            label="Existing installs"
+            description={ready > 0 ? `${plural(ready, "game")} ready to import` : "Nothing new to import"}
             control={
               <>
                 <Button size="sm" variant="ghost" loading={rescanning} icon={<RefreshCw size={13} />} onClick={() => void actions.rescanEgl()}>
                   Rescan
                 </Button>
                 <Button size="sm" variant="secondary" disabled={!signedIn} onClick={() => setImportOpen(true)}>
-                  Import games…
+                  Import…
                 </Button>
               </>
             }

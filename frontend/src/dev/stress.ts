@@ -30,7 +30,7 @@ const LONG_ERROR = {
   code: "filesLocked" as const,
   title: "Game files are in use",
   message:
-    "Close the game and any program using its files, then retry. Glider couldn't replace Content\\Paks\\pakchunk10-WindowsClient.ucas because another process (BattlEye, an antivirus scan or a backup tool) still has it open.",
+    "Close the game and any program using its files, then try again. Glider couldn't replace Content\\Paks\\pakchunk10-WindowsClient.ucas because another process (BattlEye, an antivirus scan or a backup tool) still has it open.",
   fix: "retry" as const,
   detail:
     "IOException: The process cannot access the file 'D:\\Users\\Aleksandra Wiśniewska-Kowalczyk\\Documents\\My Games\\Epic Games Store Library\\Game\\Content\\Paks\\pakchunk10-WindowsClient.ucas' because it is being used by another process.\n   at Glider.Legendary.Installer.Replace(String path)\n   at Glider.Jobs.JobRunner.Run(JobContext ctx)",

@@ -112,7 +112,7 @@ export function LibraryPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className={cx("shrink-0 border-b px-10 pb-4 pt-8 transition-[border-color] duration-150 max-[1000px]:px-7 [@media(max-height:700px)]:pt-5", scrolled ? "border-border" : "border-transparent")}>
+      <header className={cx("shrink-0 overflow-y-hidden border-b px-10 pb-4 pt-8 [scrollbar-gutter:stable] transition-[border-color] duration-150 max-[1000px]:px-7 [@media(max-height:700px)]:pt-5", scrolled ? "border-border" : "border-transparent")}>
         <div className="mb-4 flex h-7 items-center justify-between gap-6 [@media(max-height:700px)]:mb-3">
           <div className="flex min-w-0 items-baseline gap-3">
             <h1 className="text-xl font-semibold tracking-tight text-fg">Library</h1>

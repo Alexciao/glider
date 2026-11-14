@@ -22,7 +22,7 @@ export const SECTION_GROUPS: SectionDef[][] = [
   ],
   [
     { id: "egl", label: "Epic Games Launcher", icon: <Gamepad2 size={16} />, keywords: "egl epic launcher import scan uninstall sync" },
-    { id: "overlay", label: "EOS overlay", icon: <Layers size={16} />, keywords: "epic online services eos friends achievements" },
+    { id: "overlay", label: "Epic overlay", icon: <Layers size={16} />, keywords: "epic online services eos friends achievements" },
     { id: "links", label: "Links", icon: <Link2 size={16} />, keywords: "protocol com.epicgames.launcher glider:// url handler" },
   ],
   [

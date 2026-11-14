@@ -105,7 +105,7 @@ export function unavailableLabel(status: EglInstallStatus): string {
     case "stale":
       return "Folder missing";
     case "busy":
-      return "Epic is busy";
+      return "Launcher is busy";
     case "notOwned":
       return "Not in your library";
     case "importable":
@@ -130,7 +130,7 @@ export function shortFailure(error: GliderError | null, message: string | null):
     case "invalidFolder":
       return "folder missing";
     case "eglBusy":
-      return "Epic is busy";
+      return "Launcher is busy";
     case "insufficientSpace":
       return "not enough space";
     case "gameRunning":

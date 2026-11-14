@@ -27,7 +27,7 @@ describe("Onboarding: Welcome and Sign in", () => {
     const signIn = await screen.findByRole("button", { name: "Sign in with Epic" });
     controller.failNext("authCancelled");
     await user.click(signIn);
-    expect(await screen.findByText("Sign-in was cancelled")).toBeInTheDocument();
+    expect(await screen.findByText("Sign-in was canceled")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy diagnostic logs" })).toBeInTheDocument();
   });
 
@@ -57,7 +57,7 @@ describe("Onboarding: Find games", () => {
     const rows = boxes.filter((b) => b.getAttribute("aria-labelledby"));
     expect(rows.length).toBeGreaterThanOrEqual(5);
     expect(rows.every((b) => b.getAttribute("aria-checked") === "true")).toBe(true);
-    for (const label of ["Folder missing", "Epic is busy", "Not in your library", "Already in Glider"]) expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    for (const label of ["Folder missing", "Launcher is busy", "Not in your library", "Already in Glider"]) expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     // The backend's long reasons are tooltips, not text on the page.
     expect(screen.queryByText(/isn't at this location any more/)).not.toBeInTheDocument();
   });

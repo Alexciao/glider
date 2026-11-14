@@ -54,7 +54,7 @@ export const Errors = {
   authFailed: (detail: string | null = null) =>
     err("authFailed", "Sign-in failed", "Epic didn't accept the sign-in. Try again.", "signIn", detail),
   authCancelled: () =>
-    err("authCancelled", "Sign-in was cancelled", "The sign-in window was closed before you finished. If Epic showed an error, copy the diagnostic logs so it can be looked into.", null),
+    err("authCancelled", "Sign-in was canceled", "The sign-in window was closed before you finished. If Epic showed an error, copy the diagnostic logs so it can be looked into.", null),
   insufficientSpace: (requiredBytes: number, freeBytes: number, detail: string | null = null, appName: string | null = null) =>
     err(
       "insufficientSpace",
@@ -65,13 +65,13 @@ export const Errors = {
       appName,
     ),
   network: (detail: string | null = null, appName: string | null = null) =>
-    err("network", "Can't reach Epic", "Check your internet connection, then retry. Progress is kept.", "retry", detail, appName),
+    err("network", "Can't reach Epic", "Check your internet connection, then try again. Progress is kept.", "retry", detail, appName),
   offline: (what = "This") =>
     err("offline", "You're offline", `${what} needs an internet connection. Glider will pick up again when you're back online.`, "retry"),
   cdnUnavailable: (detail: string | null = null, appName: string | null = null) =>
-    err("cdnUnavailable", "Download server unavailable", "Epic's download servers didn't respond. Retry, or pick another CDN in Settings.", "retry", detail, appName),
+    err("cdnUnavailable", "Download server unavailable", "Epic's download servers didn't respond. Try again, or pick another CDN in Settings.", "retry", detail, appName),
   filesLocked: (title?: string, detail: string | null = null, appName: string | null = null) =>
-    err("filesLocked", "Game files are in use", `Close ${game(title)} and any program using its files, then retry.`, "retry", detail, appName),
+    err("filesLocked", "Game files are in use", `Close ${game(title)} and any program using its files, then try again.`, "retry", detail, appName),
   permissionDenied: (detail: string | null = null, appName: string | null = null) =>
     err("permissionDenied", "Access denied", "Glider can't write to this folder. Choose a different location.", "chooseFolder", detail, appName),
   eglBusy: (title?: string, detail: string | null = null, appName: string | null = null) =>
@@ -94,15 +94,15 @@ export const Errors = {
   legendaryMissing: (detail: string | null = null) =>
     err("legendaryMissing", "Glider is damaged", "A required component is missing. Reinstall Glider to fix it.", "openLogs", detail),
   legendaryFailed: (detail: string | null = null, appName: string | null = null) =>
-    err("legendaryFailed", "The task failed", "The operation stopped unexpectedly. Retry; progress is kept.", "retry", detail, appName),
+    err("legendaryFailed", "The task failed", "The operation stopped unexpectedly. Try again; progress is kept.", "retry", detail, appName),
   legendaryLocked: () =>
     err("legendaryLocked", "Epic's data is busy", "Another Glider task is using Epic's account data. Glider will retry in a moment.", "retry"),
   eacSetupFailed: (detail: string | null = null, appName: string | null = null) =>
-    err("eacSetupFailed", "Anti-cheat setup failed", "Easy Anti-Cheat must be installed to play. Retry and accept the Windows prompt.", "retry", detail, appName),
+    err("eacSetupFailed", "Anti-cheat setup failed", "Easy Anti-Cheat must be installed to play. Try again and accept the Windows prompt.", "retry", detail, appName),
   prerequisiteFailed: (title?: string, detail: string | null = null, appName: string | null = null) =>
-    err("prerequisiteFailed", "Setup didn't finish", `${game(title)} needs a one-time setup (runtimes) before it can start. Retry and accept the Windows prompt.`, "installPrerequisites", detail, appName),
+    err("prerequisiteFailed", "Setup didn't finish", `${game(title)} needs a one-time setup (runtimes) before it can start. Try again and accept the Windows prompt.`, "installPrerequisites", detail, appName),
   launchFailed: (title?: string, detail: string | null = null, appName: string | null = null) =>
-    err("launchFailed", `Couldn't start ${title ?? "the game"}`, "The game didn't start. Retry, or repair the install if it keeps happening.", "repair", detail, appName),
+    err("launchFailed", `Couldn't start ${title ?? "the game"}`, "The game didn't start. Try again, or repair the install if it keeps happening.", "repair", detail, appName),
   thirdPartyRequired: (store: string, appName: string | null = null) =>
     err("thirdPartyRequired", `${store} is required`, `This game starts through ${store}. Install it, then try again.`, null, null, appName),
   activationRequired: (store: string, appName: string | null = null) =>
@@ -112,8 +112,8 @@ export const Errors = {
   saveSyncFailed: (title?: string, detail: string | null = null, appName: string | null = null) =>
     err("saveSyncFailed", "Cloud saves didn't sync", `Glider couldn't sync ${game(title)}'s saves with Epic. You can play without syncing.`, "retry", detail, appName),
   overlayFailed: (detail: string | null = null) =>
-    err("overlayFailed", "Overlay setup failed", "The Epic overlay couldn't be installed. Retry; the games work without it.", "retry", detail),
-  cancelled: () => err("cancelled", "Cancelled", "The task was cancelled.", null),
+    err("overlayFailed", "Overlay setup failed", "The Epic overlay couldn't be installed. Try again; the games work without it.", "retry", detail),
+  cancelled: () => err("cancelled", "Canceled", "The task was canceled.", null),
   timeout: (what: string) => err("timeout", "Timed out", `${what} took too long to respond. Check your connection and retry.`, "retry"),
 } as const;
 

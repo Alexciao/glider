@@ -1671,7 +1671,7 @@ export class MockBackend {
     "jobs.cancel": async (r) => {
       const e = this.entry(r.jobId);
       if (!e) throw fail(Errors.invalidRequest("That task has already finished"));
-      if (e.info.kind === "uninstall" && e.info.status === "running") throw fail(Errors.invalidRequest("Removal can't be cancelled once it started"));
+      if (e.info.kind === "uninstall" && e.info.status === "running") throw fail(Errors.invalidRequest("Removal can't be canceled once it started"));
       return clone(this.cancelEntry(e));
     },
     "jobs.dismiss": async (r) => {

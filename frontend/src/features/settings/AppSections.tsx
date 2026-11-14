@@ -9,7 +9,7 @@ import { LogViewer } from "./LogViewer";
 import { Block, Group, Line, Setting, SwitchRow, useSettingsQuery } from "./parts";
 import { sectionById } from "./sections";
 
-/* ------------------------------------------------------------------ EOS overlay */
+/* ------------------------------------------------------------------ Epic overlay */
 
 export function OverlaySection() {
   const overlay = useSnap((x) => x.overlay);
@@ -37,10 +37,10 @@ export function OverlaySection() {
   return (
     <Block id="overlay" title={def.label}>
       <Group>
-        <Setting label="Epic Online Services overlay" find="eos overlay install update remove version status friends achievements">
+        <Setting label="Friends and achievements" find="epic eos overlay install update remove version status online services">
           <Line
-            label="Epic Online Services overlay"
-            description="Friends and achievements in the few games that use it."
+            label="Friends and achievements"
+            description="The Epic overlay, used by the few games that support it."
             control={
               <>
                 {status}
@@ -221,12 +221,12 @@ export function AdvancedSection({ s }: { s: SettingsT }) {
   return (
     <Block id="advanced" title={def.label}>
       <Group>
-        <Setting label="Run setup again" find="onboarding welcome first run wizard rescan">
+        <Setting label="Welcome setup" find="run setup again onboarding welcome first run wizard rescan">
           <Line
-            label="Run setup again"
+            label="Welcome setup"
             control={
               <Button size="sm" variant="secondary" onClick={() => void actions.restartOnboarding()}>
-                Run setup
+                Run again
               </Button>
             }
           />

@@ -69,7 +69,7 @@ export function Hero({
               {game.title}
             </h1>
           )}
-          <GameStatus status={action.status} moment={moment} className="mt-2" />
+          {(!action.status.quiet || moment) && <GameStatus status={action.status} moment={moment} className="mt-2" />}
         </div>
 
         <div className="g-rise mt-6 flex items-center gap-2" style={{ ["--g-i" as string]: 1 }}>

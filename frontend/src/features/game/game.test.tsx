@@ -67,9 +67,10 @@ afterEach(() => {
 });
 
 describe("Game page: hero and the one primary action", () => {
-  it("shows one status line, one split button and the facts, with no version repeated", async () => {
+  it("shows no status line for a ready game, one split button and the facts, with no version repeated", async () => {
     await mount("returning", (b) => <GameView appName={b.find(idleInstalled).appName} />);
-    expect(screen.getByText("Ready to play")).toBeInTheDocument();
+    // The Play button already says it: the "Ready to play" line only appears for the one-off ready moment.
+    expect(screen.queryByText("Ready to play")).not.toBeInTheDocument();
     const group = screen.getByRole("group");
     expect(within(group).getByRole("button", { name: "Play" })).toBeEnabled();
     expect(within(group).getByRole("button", { name: "More actions" })).toBeEnabled();
