@@ -20,6 +20,7 @@ internal sealed class JobHooks : IJobHooks
     public async Task BeforeRunAsync(JobInfo job, Action<string?> setBlockedReason, CancellationToken ct)
     {
         var app = job.AppName;
+        await _c.WhenSavesIdle(app, ct); // a cloud-save sync of this game finishes first (S lane is exclusive with W jobs on the game)
         if (ServiceContext.IsWriteJob(job.Kind) && _c.IsGameRunning(app))
         {
             // Files of a running game can't be replaced: wait for it to close instead of failing the job.

@@ -79,6 +79,12 @@ public sealed class GliderServiceOptions
     /// <summary>Per-mode process priorities for writer-lane runs (Phase 2 fills in the per-mode plumbing).</summary>
     public Jobs.IResourcePolicy ResourcePolicy { get; init; } = Jobs.DefaultResourcePolicy.Instance;
 
+    /// <summary>Cloud-save tunables (pre-launch timeout, post-exit retries, backup retention). Null = defaults.</summary>
+    internal Saves.SaveOptions? SaveOptions { get; init; }
+
+    /// <summary>Cloud-save commands; null = the bundled Legendary when <c>ILegendary</c> is the real CLI (tests inject a fake).</summary>
+    internal Saves.ILegendarySaves? SavesLegendary { get; init; }
+
     /// <summary>"User idle" threshold for AutoUpdateOnlyWhenIdle when an <see cref="IIdleSignal"/> is present.</summary>
     public TimeSpan IdleThreshold { get; init; } = TimeSpan.FromMinutes(10);
 

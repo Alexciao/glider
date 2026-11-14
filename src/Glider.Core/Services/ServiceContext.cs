@@ -32,6 +32,12 @@ internal sealed class ServiceContext
     /// <summary>Background measurement of install folders (GameSummary.InstalledSizeBytes). Set by GliderService.</summary>
     public InstalledSizeMeter Sizes { get; set; } = null!;
 
+    /// <summary>Live cloud-save status per app (set by the save service; the catalog reads it into GameSummary.SaveStatus).</summary>
+    public System.Collections.Immutable.ImmutableDictionary<string, SaveSyncStatus> SaveStatuses { get; set; } = System.Collections.Immutable.ImmutableDictionary<string, SaveSyncStatus>.Empty;
+
+    /// <summary>Completes when no cloud-save operation touches the app (the writer lane waits for it before a job starts).</summary>
+    public Func<string, CancellationToken, Task> WhenSavesIdle { get; set; } = static (_, _) => Task.CompletedTask;
+
     public Settings Settings => SettingsStore.Current;
 
     public DateTimeOffset Now => Time.GetUtcNow();

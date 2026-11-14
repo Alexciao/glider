@@ -49,6 +49,9 @@ internal sealed class LaunchService
 
     internal SessionTracker Sessions { get; }
 
+    /// <summary>Cloud saves: synced before the game starts and after it closes (set by GliderService).</summary>
+    internal Saves.SaveService? Saves { get; set; }
+
     /// <summary>Completes when the current prepare fetch ends (tests).</summary>
     internal Task Preparing
     {
@@ -268,6 +271,20 @@ internal sealed class LaunchService
         try
         {
             SetRun(app, summary.Title, RunState.Preparing, null, offline);
+            if (!request.SkipSaveSync && Saves is { } saves && saves.IsEnabled(app))
+            {
+                // Download a newer cloud save / upload what changed; a conflict stops here (nothing is launched, nothing is overwritten).
+                SetRun(app, summary.Title, RunState.SyncingSaves, null, offline);
+                var sync = await saves.PreLaunchAsync(app, offline, ct);
+                if (sync.Conflict is { } conflict)
+                {
+                    SetRun(app, summary.Title, RunState.Idle, null, offline);
+                    return new LaunchResult(LaunchOutcome.SaveConflict, conflict, offline, sync.Message);
+                }
+
+                SetRun(app, summary.Title, RunState.Preparing, null, offline);
+            }
+
             var ranEac = await _eac.EnsureInstalledAsync(app, installPath, () => SetRun(app, summary.Title, RunState.InstallingPrerequisites, null, offline), ct);
 
             SetRun(app, summary.Title, RunState.Launching, null, offline);
@@ -416,6 +433,7 @@ internal sealed class LaunchService
         else if (previous is RunState.Running or RunState.Closing)
         {
             _c.Log.Info("launch", $"{app}: game closed");
+            Saves?.AfterExit(app); // upload what the session changed (retries; never deletes anything)
         }
 
         _c.Jobs.Reevaluate();

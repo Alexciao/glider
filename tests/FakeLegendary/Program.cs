@@ -20,9 +20,10 @@ namespace FakeLegendary;
 ///   download chunks=N files=F mib=M interval=MS [app=A] [stallat=PCT] [spam] [writefail=K [diskfull|locked]]
 ///   verify files=N interval=MS [app=A] [corrupt=K] [missing=K] [locked=K]
 ///   installed version=V path=P [app=A] [tags=a,b] [needsverify]   |   uninstalled [app=A]
+///   cloudsaves list | cloudsaves sync [fault=dropupload|failafterdelete|killafterdelete]   a fake Epic cloud under fake/cloud/<app>/<manifest>/
 ///   writefile RELPATH TEXT | deletefile RELPATH
 /// </summary>
-internal static class Program
+internal static partial class Program
 {
     private static readonly Stream StdOut = Console.OpenStandardOutput();
     private static readonly Stream StdErr = Console.OpenStandardError();
@@ -103,6 +104,7 @@ internal static class Program
                 case "verify": Verify(KeyValues(rest)); break;
                 case "installed": Installed(KeyValues(rest)); break;
                 case "uninstalled": Uninstalled(KeyValues(rest)); break;
+                case "cloudsaves": CloudSaves(KeyValues(rest)); break;
                 case "writefile":
                 {
                     var s2 = rest.IndexOf(' ');
