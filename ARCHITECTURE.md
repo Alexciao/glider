@@ -1,26 +1,28 @@
 # Glider architecture
 
-Glider replaces the Epic Games Launcher for one game, Fortnite. It is a thin native Windows host around
-a web UI, and it drives the bundled **Legendary** CLI (v0.21.1) as the Epic protocol engine.
+Glider replaces the Epic Games Launcher for the whole Epic library. It is a thin native Windows host around a web UI,
+and it drives the bundled **Legendary** CLI (v0.21.1) as the Epic protocol engine. The binding design is
+[`docs/v0.2-design.md`](docs/v0.2-design.md); this file maps it onto the code.
 
 ```
 ┌──────────────────────────── Glider.App (net10.0-windows, WPF) ───────────────────────────┐
 │  MainWindow (frameless, Mica)  ── WebView2 ── https://app.glider/  (frontend/dist, local)   │
-│  LoginWindow (WebView2 → Epic login, captures authorizationCode)                          │
-│  Tray · single instance (mutex + pipe) · toasts · HKCU Run · window placement             │
+│  LoginWindow (WebView2, launcher mode → exchange code)                                     │
+│  Tray (Close <game> per session / Play <last played>) · single instance · toasts · HKCU Run│
 │  WebViewBridge: WebMessageReceived ⇄ RpcDispatcher ; PostWebMessageAsJson ⇐ events       │
-│  WindowsHostPlatform : IHostPlatform  (dialogs, UAC, shell, clipboard, toasts)             │
 └──────────────────────────────────────────┬─────────────────────────────────────────────────┘
-                                           │ IGliderRpc (C# interface = the IPC contract)
+                                           │ IGliderRpc (C# interface = the IPC contract, v2)
 ┌──────────────────────────── Glider.Core (net10.0, no UI deps) ───────────────────────────┐
-│  Services/GliderService : IGliderRpc  — facade; StateHub builds + publishes AppSnapshot    │
-│  Legendary/  process runner, typed CLI wrappers, span-based progress parser, error mapper  │
-│  Jobs/       persistent serial queue: install/update/repair/verify/move/uninstall/import   │
-│  Egl/        detect EGL installs, adopt, drift checks, manifest write-back with backups    │
-│  Game/       folder validation, EAC check, launch, process watch                           │
-│  Auth/  Settings/  Infrastructure/ (paths, atomic files, logging)                          │
+│  Services/GliderService : IGliderRpc — facade; StateHub (small AppSnapshot)               │
+│  Library/   LegendaryLibraryReader → GameCatalog (pure) → LibraryService (map + deltas)    │
+│  Jobs/      writer lane (JobQueue), phases/segments, progress tracker, policy seams        │
+│  Legendary/ process runner + AuthGate, typed CLI, parser, error classifier                 │
+│  Game/      GameProfiles (quirks), SessionTracker (process tree), launch, install, EAC     │
+│  Egl/       scan every .item, busy, drift, write-back with backups                         │
+│  Infrastructure/ stores (settings, games, collections, onboarding), Migrations, atomic IO  │
+│  Saves/ Overlay/ Store/  Phase 2 stubs                                                     │
 └──────────────────────────────────────────┬─────────────────────────────────────────────────┘
-                                           │ child process, env LEGENDARY_CONFIG_PATH=%LocalAppData%\Glider\legendary
+                                           │ child processes, env LEGENDARY_CONFIG_PATH=%LocalAppData%\Glider\legendary
                                     legendary.exe (bundled, SHA-256 pinned)
 ```
 
@@ -31,12 +33,32 @@ a web UI, and it drives the bundled **Legendary** CLI (v0.21.1) as the Epic prot
 | `src/Glider.Core` | All logic. Cross-platform class library, unit-testable on any OS. |
 | `src/Glider.Core/Contracts` | **The IPC contract**: `IGliderRpc`, DTO records, errors, dispatcher, JSON context. |
 | `src/Glider.App` | WPF + WebView2 host. Only Windows/UI glue lives here. |
-| `tests/Glider.Core.Tests` | xUnit v3 tests: parsers (real fixtures), job queue (fake Legendary), EGL scenarios. |
+| `tests/Glider.Core.Tests` | xUnit v3: parsers (real fixtures), catalog (real catalog JSON), lanes, EGL scenarios, migration (real v0.1 data shapes), end to end. |
+| `tests/FakeLegendary` | A scriptable legendary.exe (multi-app: `app=` on download/verify/installed) for runner and end-to-end tests. |
 | `tools/Glider.ContractGen` | Generates `frontend/src/ipc/contract.gen.ts` from the C# contract. |
 | `frontend` | React 19 + TS + Vite + Tailwind v4 + Radix + Motion + Zustand (pnpm). |
-| `frontend/src/ipc` | Typed RPC client, WebView2 transport, mock backend (scenarios). |
-| `build` | Scripts: fetch + verify Legendary, publish, Velopack pack. |
-| `docs/research` | Phase-0 findings (Legendary internals, Heroic patterns, host/packaging). |
+| `docs/research` | Phase-0 findings (Legendary internals incl. `legendary-v0.2.md`, Heroic, host/packaging, store). |
+
+## Core modules
+
+| Module | Responsibility |
+|---|---|
+| `Library/LegendaryLibrary.cs` | Reads `metadata/*.json`, `assets.json`, `installed.json`, `entitlements.json` directly (never spawns Legendary). Each parse retried 3× / 100 ms; a file that stays torn keeps its previous value; missing = unknown. Unchanged metadata files (size + mtime) are not re-parsed. |
+| `Library/GameCatalog.cs` | Pure mapping to `GameSummary`: kind (`mainGameItem`, `addons/launchable`), hidden DLC and mods excluded, entitlement-only DLC, cloud saves, offline default, third party, grant date, art (`DieselGameBoxTall`/`DieselGameBox` with fallbacks + placeholder colour), update = asset build ≠ installed version. Also `Diff`. |
+| `Library/LibraryService.cs` | One immutable `ImmutableDictionary<app, GameSummary>` + revision. Any change → one coalesced (50 ms) `LibraryDelta` with only the changed summaries; `library.get` flushes then returns everything (`Reset`). Cold start from `cache/library.json`. Background `list -T --json` / `list-installed --check-updates` on the metadata lane, lazy update-size dry runs, broken-install detection, `GameDetail`. |
+| `Services/StateHub.cs` | Small `AppSnapshot` (app, auth, connectivity, library status, queue, sessions, storage, EGL, overlay, collections, settings, onboarding), coalesced 33 ms; forwards `progress`; holds `HubState` with per-game runtime maps (sessions, sizes, update sizes, broken). |
+| `Jobs/JobQueue.cs` | **Writer lane**: one job at a time, user-ordered, persisted (`state/jobs.json` schema 2), crash-resumed. Idempotent per (AppName, Kind); a paused job blocks only its own game (and its DLC); reorder / move-to-top / priority / pause-all / resume-all / clear-finished; "installed data lock" refusals retried every 5 s; WhilePlaying holds via `IQueuePolicy`; every Legendary run is spawned with the `IResourcePolicy` profile for the effective `DownloadMode`. |
+| `Jobs/JobPlan.cs`, `JobProgressTracker.cs` | Planned phases per kind, the whole-job bar split into per-step segments (monotonic), honest groups per phase (Verify / Network+Disk / Disk), averages and peaks, ≈1 Hz `JobSample`s per job (≤ 600) for `jobs.getHistory`; `WriterActivity` (pre-download phase) for the metadata lane. |
+| `Legendary/AuthGate.cs` + runner | One Legendary process inside `login()` at a time; launch jumps the wait list; released at the first post-login line, at exit or after 45 s. |
+| `Services/ServiceContext.cs` (`MetadataLane`) | Metadata lane: one online library command at a time, never during the writer's pre-download phase. |
+| `Game/LaunchService.cs` | **Launch lane**: `launch <app> --json --skip-version-check [--offline]`, refused only when that game or its base game has a writer job; prepared launch on hover; EAC; per-session playtime into `games.json`. |
+| `Game/SessionTracker.cs` | Per-game sessions: spawned PID + descendants (one Toolhelp snapshot per poll, only while sessions live) + the profile's tracked names; ends when nothing tracked remains for 5 s. |
+| `Game/GameProfiles.cs` | Per-game quirks keyed by AppName; Fortnite is entry #1 (tracked stubs incl. `FortniteBootstrapper`, liveness exe, EAC setup + product id, quick-scan folders). Generic EAC/BattlEye detection from the install folder. Nothing else may branch on a game. |
+| `Game/InstallService.cs` | Plan (catalog FolderName, DLC options), install (+ one writer job per DLC, base with `--skip-dlcs`), update, verify→repair→verify, move, uninstall, import of EGL installs / located folders, folder validation (app from `.egstore`). |
+| `Services/JobHooks.cs` | Per-game gating (waits while that game runs, auth, EGL busy) and bookkeeping (install records, EGL write-back keyed by app, import outcomes and follow-up verify, notices with AppName/JobId). |
+| `Services/EglCoordinator.cs` | Contract `EglState` from the scan + library (status, drift, title, art) and startup drift reconciliation per EGL-shared game; `egl.checkReadiness`. |
+| `Services/UpdateService.cs` | Per-game auto-update policy (Default → Settings), notices once per version, `library.updateAll`, periodic checks; `QueuePolicy` (WhilePlaying, idle full speed, effective mode + reason). |
+| `Infrastructure/Migrations` | Versioned migrations (v0.1 → 2), run by `GliderRuntime` before any store loads; `state/schema.json` written last. |
 
 ## IPC
 
@@ -44,33 +66,46 @@ a web UI, and it drives the bundled **Legendary** CLI (v0.21.1) as the Epic prot
   or `{ type: "event", event, data }`. Transport: WebView2 `postMessage` / `PostWebMessageAsJson`.
 - `IGliderRpc` methods carry `[RpcMethod("ns.name")]`; events are declared with `[RpcEvent]`.
   `RpcDispatcher` routes by name using the source-generated `GliderJsonContext`.
-- Events: `state` (full `AppSnapshot`, coalesced), `progress` (`JobProgress`, ≤10 Hz), `notice`, `window`.
-- The UI keeps one Zustand store that mirrors the latest snapshot; it never derives backend state itself.
+- Events: `state` (small `AppSnapshot`, coalesced), `library` (`LibraryDelta`, revisioned, never coalesced by the bridge),
+  `progress` (`JobProgress`, ≤10 Hz), `notice`, `window`, `caption`, `navigate`, `store`.
+- The UI calls `library.get` once (reset), applies deltas in order, and calls it again on a revision gap.
 - **Change the contract only in C#**, then run `dotnet run --project tools/Glider.ContractGen`.
 
-## Data locations (all per-user)
+## Lanes (who may run what, L§1.8)
+
+| Lane | Where | Concurrency |
+|---|---|---|
+| Writer | `JobQueue` | 1 job; install/update/repair/verify/move/uninstall/import |
+| Metadata | `MetadataLane` | 1; `list -T`, `list-installed --check-updates`, `info`, update dry runs; waits for the writer's pre-download phase |
+| Launch | `LaunchService` | unlimited; never queued behind the writer; jumps the auth gate |
+| Read | `LegendaryLibraryReader`, `LegendaryFiles` | in-process |
+
+Saves (S lane) arrive with cloud saves in Phase 2.
+
+## Data locations (all per-user, `%LocalAppData%\Glider\`)
 
 | Path | Content |
 |---|---|
-| `%LocalAppData%\Glider\legendary\` | Legendary's isolated config (`LEGENDARY_CONFIG_PATH`): user.json, installed.json, metadata, manifests |
-| `%LocalAppData%\Glider\state\` | `settings.json`, `jobs.json` (persisted queue), `game.json` (our install record + EGL link) |
-| `%LocalAppData%\Glider\cache\` | Key art and metadata cache, served to the UI at `https://cache.glider/…` (`WebHost.CacheUrl`; one folder per WebView2 virtual host) |
-| `%LocalAppData%\Glider\logs\` | Rolling logs (`glider-YYYYMMDD.log`) |
-| `%LocalAppData%\Glider\backups\egl\` | Timestamped copies of any EGL file before Glider writes it |
-| `%LocalAppData%\Glider\webview2\` | WebView2 user data folder |
+| `legendary\` | Legendary's isolated config (`LEGENDARY_CONFIG_PATH`): user.json, installed.json, metadata, manifests. Glider only reads it. |
+| `state\schema.json` | `{schemaVersion: 2, migratedFrom, migratedAt}` (migration commit marker) |
+| `state\settings.json`, `games.json`, `collections.json`, `jobs.json`, `onboarding.json` | schema 2 stores (`games.json` = per-app install record, favorite, hidden, playtime, settings, shortcuts) |
+| `cache\library.json`, `cache\installed-size.json`, `cache\art\` | caches (safe to delete) |
+| `backups\migration\v0.1-<ts>\` | byte copies of the v0.1 files before migrating |
+| `backups\egl\<ts>\` | copies of every EGL file before Glider writes it |
+| `logs\`, `webview2\` | rolling logs, WebView2 user data |
 
 ## Threading & performance rules
 
 - The UI thread only renders. Every Legendary call is async with a `CancellationToken`.
-- Legendary output is read with async stream reads into `System.Threading.Channels`; progress lines are
-  parsed from spans without per-line allocations where practical; UI progress is throttled to ~10 Hz.
-- Startup: the WebView2 environment is created in parallel with the window; the window is shown
-  when the UI reports `app.ready` (no white flash). Pre-warm (auth refresh, metadata, update check,
-  EGL drift check) runs in the background after first paint.
+- Legendary output is read with async stream reads; progress lines are parsed from spans; UI progress ≤10 Hz.
+- Startup: the first snapshot and the cached library are published before any Legendary process or file parse; pre-warm
+  (version, offline account, library files, running games, EGL scan + drift, job restore, auth warm-up, library sync) runs in
+  the background.
+- The snapshot never carries per-game lists (except the queue and EGL installs); 500 games rebuild in well under a second.
 
 ## EGL coexistence (summary)
 
-One-time `legendary import` of an EGL install (no re-download), then our own drift checks on startup
-(no continuous `egl-sync`). The opt-in-by-default "Keep Epic Games Launcher in sync" setting writes
-version changes back to EGL's `.item` manifest exactly as Legendary's EGL export does, with a backup and
-an atomic write. Write operations are blocked while EGL is busy with the game. Details: `docs/egl.md`.
+One-time `legendary import` per game (one Import job each, zero re-download), then drift checks per EGL-shared game on
+startup (no continuous `egl-sync`). "Keep Epic Games Launcher in sync" writes version changes back to EGL's `.item`
+exactly as Legendary's EGL export does, keyed by app, with a backup and an atomic write. Write operations wait while EGL is
+busy with that folder. Details: `docs/egl.md`.
