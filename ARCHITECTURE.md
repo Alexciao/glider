@@ -58,6 +58,7 @@ and it drives the bundled **Legendary** CLI (v0.21.1) as the Epic protocol engin
 | `Services/JobHooks.cs` | Per-game gating (waits while that game runs, auth, EGL busy) and bookkeeping (install records, EGL write-back keyed by app, import outcomes and follow-up verify, notices with AppName/JobId). |
 | `Services/EglCoordinator.cs` | Contract `EglState` from the scan + library (status, drift, title, art) and startup drift reconciliation per EGL-shared game; `egl.checkReadiness`. |
 | `Services/UpdateService.cs` | Per-game auto-update policy (Default → Settings), notices once per version, `library.updateAll`, periodic checks; `QueuePolicy` (WhilePlaying, idle full speed, effective mode + reason). |
+| `Links/`, `Shortcuts/`, `Tray/` | Strict `glider://` / Epic link parsers, link routing, per-user protocol registration (Epic handler backed up and restored), per-game `.lnk` shortcuts, tray view-model. Registry and shell links are host-implemented interfaces. Details: `docs/shell-integration.md`. |
 | `Infrastructure/Migrations` | Versioned migrations (v0.1 → 2), run by `GliderRuntime` before any store loads; `state/schema.json` written last. |
 
 ## IPC
