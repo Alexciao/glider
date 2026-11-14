@@ -220,7 +220,7 @@ function PaletteBody({ close }: { close: () => void }) {
         <input
           autoFocus
           role="combobox"
-          aria-expanded
+          aria-expanded={flat.length > 0}
           aria-controls={`${uid}-list`}
           aria-autocomplete="list"
           aria-label="Search games and commands"
@@ -239,10 +239,8 @@ function PaletteBody({ close }: { close: () => void }) {
         <Kbd>Esc</Kbd>
       </div>
 
-      <div ref={list} id={`${uid}-list`} role="listbox" aria-label="Results" className="max-h-[min(420px,calc(100vh-220px))] overflow-y-auto p-1.5">
-        {flat.length === 0 && (
-          <p className="px-3 py-8 text-center text-sm text-fg-muted">No results for “{query.trim()}”</p>
-        )}
+      {flat.length === 0 && <p className="px-3 py-8 text-center text-sm text-fg-muted">No results for “{query.trim()}”</p>}
+      <div ref={list} id={`${uid}-list`} role="listbox" aria-label="Results" hidden={flat.length === 0} className="max-h-[min(420px,calc(100vh-220px))] overflow-y-auto p-1.5">
         {sections.map((s) => {
           const gid = `${uid}-g-${s.group}`;
           return (

@@ -84,9 +84,9 @@ function FolderRow({ folder, drive, isDefault, variant, onDefault, onRemove, onO
 export function FolderList({ folders, drives, defaultPath, onDefault, onRemove, onOpen, variant = "rows" }: FolderListProps) {
   return (
     <RadioGroup.Root value={defaultPath ?? ""} onValueChange={onDefault} aria-label="Default install folder" className={variant === "cards" ? "flex flex-col gap-2" : "flex flex-col"}>
-      {folders.map((f) => (
+      {folders.map((f, i) => (
         <FolderRow
-          key={f.path}
+          key={`${f.path}#${i}`}
           folder={f}
           drive={driveFor(f, drives)}
           isDefault={f.isDefault || (defaultPath !== null && f.path === defaultPath)}

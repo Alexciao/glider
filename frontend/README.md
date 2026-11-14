@@ -49,9 +49,21 @@ monotonic and ~1 Hz `JobSample` history is served by `jobs.getHistory`.
 - `state/router.ts`: hash router, routes `home` `library` `game/<appName>` `downloads` `store` `settings`; the host's
   `navigate` event goes through it.
 
+## Onboarding, Settings, command palette
+
+- Onboarding (`features/onboarding`): Welcome → Sign in → Find games → Folders → Downloads → Done. Every step goes through
+  `onboarding.setStep`, so a restart resumes where it stopped; skipped steps are remembered. Re-run from Settings → Advanced
+  (`onboarding.restart`). Scenarios: `firstRun`, `firstRunSignedIn`, `games=0` (nothing found), `offline` via the dev menu.
+- Import list (`features/import`): selection, per-game results (`Imported`, `Needs repair: 12 files`, `Failed: folder in use`),
+  shared by onboarding and Settings → Epic Games Launcher → Import games. Notices for a batch's jobs are not toasted while the list is on screen.
+- Settings (`features/settings`): flat rows (label + at most one line), rare controls under an `Advanced` disclosure, one section
+  at a time; typing in the search box shows matching rows from every section. `SettingsSection` ids are in `sections.tsx`.
+- Command palette (`app/CommandPalette.tsx`, `app/palette/model.tsx`): Ctrl+K; games with their one action (Enter), Ctrl+Enter opens the page;
+  fuzzy matching in `state/fuzzy.ts`, recents in `state/recents.ts`.
+
 ## Layout
 
 `src/ui` design system · `src/state` stores, actions, formatters · `src/app` shell ·
-`src/features` Home / Library list / game page / Downloads / Settings / Onboarding / dialogs (interim v2 screens) ·
+`src/features` Home / Library list / game page / Downloads / Settings (12 sections + search) / Onboarding / import (the shared "bring existing installs in" list) / dialogs ·
 `src/ipc` typed client + mock · `e2e` Playwright (screenshots, a11y, focus, break-UI; the screenshot states still
 carry v0.1 setups, see the note in `e2e/states.ts`).

@@ -28,7 +28,7 @@ const Meta = ({ text }: { text: string }) => <span className="shrink-0 text-xs t
 const ReadyRow = memo(function ReadyRow({ install, checked, onToggle }: { install: EglInstall; checked: boolean; onToggle: (id: string) => void }) {
   const id = useId();
   return (
-    <li className="[content-visibility:auto] [contain-intrinsic-size:auto_56px]">
+    <li>
       <label title={install.installPath} className="flex h-14 items-center gap-3 rounded-lg px-3 transition-colors duration-150 hover:bg-surface-hover has-[:focus-visible]:bg-surface-hover">
         <Checkbox checked={checked} onCheckedChange={() => onToggle(install.id)} aria-labelledby={id} />
         <ArtThumb src={install.artUrl} title={install.title} size="sm" />
@@ -45,7 +45,7 @@ const ReadyRow = memo(function ReadyRow({ install, checked, onToggle }: { instal
 const StaticRow = memo(function StaticRow({ install }: { install: EglInstall }) {
   const imported = install.status === "imported";
   return (
-    <li className="[content-visibility:auto] [contain-intrinsic-size:auto_56px]">
+    <li>
       <div title={install.reason ?? install.installPath} className={cx("flex h-14 items-center gap-3 rounded-lg px-3", !imported && "opacity-80")}>
         <span className="size-4 shrink-0" aria-hidden />
         <ArtThumb src={install.artUrl} title={install.title} size="sm" className={imported ? undefined : "opacity-60"} />

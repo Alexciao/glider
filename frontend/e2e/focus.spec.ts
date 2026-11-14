@@ -8,7 +8,7 @@ import { expect, test } from "@playwright/test";
 const PAGES: { name: string; query: string; go?: [string, string?] }[] = [
   { name: "library", query: "scenario=returning" },
   { name: "downloads", query: "scenario=downloading&freeze=1", go: ["downloads"] },
-  { name: "settings", query: "scenario=returning", go: ["settings", "general"] },
+  { name: "settings", query: "scenario=returning", go: ["settings", "startup"] },
   { name: "onboarding", query: "scenario=firstRunSignedIn" },
 ];
 

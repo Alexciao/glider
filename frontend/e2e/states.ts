@@ -21,7 +21,7 @@ interface G {
   app: { getState(): { snapshot: { settings: Record<string, unknown> } | null } };
   router: { getState(): { go(route: string): void } };
   rpc(method: string, params?: unknown): Promise<unknown>;
-  mock: { failNext(code: string): void; failActiveJob(code: string): void; emitNotice(n: object): void };
+  mock: { failNext(code: string): void; failActiveJob(code: string): void; emitNotice(n: object): void; setConnectivity(c: "online" | "offline"): void };
 }
 const g = <T>(page: Page, fn: (g: G) => T | Promise<T>): Promise<T> =>
   page.evaluate(`(${fn.toString()})(window.__glider)`) as Promise<T>;
@@ -63,75 +63,121 @@ const RAW_STATES: ShotState[] = [
     name: "onboarding-2-signin-error",
     query: "scenario=firstRun",
     setup: async (p) => {
-      await g(p, (h) => h.mock.failNext("authFailed"));
       await btn(p, "Get started").click();
       await wait(700);
+      await g(p, (h) => h.mock.failNext("authFailed"));
       await btn(p, /Sign in with Epic/).click();
       await wait(1900);
     },
   },
-  { name: "onboarding-3-fresh-install", query: "scenario=firstRunSignedIn", settle: 900 },
   {
-    name: "onboarding-3-fresh-insufficient",
-    query: "scenario=firstRunSignedIn",
+    name: "onboarding-2-signin-offline",
+    query: "scenario=firstRun",
     setup: async (p) => {
+      await g(p, (h) => h.mock.setConnectivity("offline"));
+      await btn(p, "Get started").click();
       await wait(800);
-      await btn(p, "Change…").click();
-      await wait(900);
-      await btn(p, "Change…").click();
-      await wait(1600);
     },
   },
-  { name: "onboarding-4-found-one", query: "scenario=firstRunSignedIn", settle: 700 },
-  { name: "onboarding-4-found-multiple", query: "scenario=firstRunSignedIn", settle: 700 },
+  { name: "onboarding-3-scanning", query: "scenario=firstRunSignedIn&latency=40", settle: 300 },
+  { name: "onboarding-3-scan", query: "scenario=firstRunSignedIn", settle: 1100 },
   {
-    name: "onboarding-4-found-located",
+    name: "onboarding-3-scan-rest",
     query: "scenario=firstRunSignedIn",
     setup: async (p) => {
-      await wait(600);
-      await btn(p, /Locate another folder/).click();
-      await wait(1300);
+      await wait(1100);
+      await p.evaluate(() => {
+        const el = document.querySelector("main .overflow-y-auto");
+        if (el) el.scrollTop = el.scrollHeight;
+      });
     },
   },
   {
-    name: "onboarding-4-locate-invalid",
-    query: "scenario=firstRunSignedIn",
+    name: "onboarding-3-importing",
+    query: "scenario=firstRunSignedIn&timescale=2&freeze=1",
     setup: async (p) => {
-      await wait(600);
+      await wait(1100);
+      await btn(p, /^Import \d+ games$/).click();
+      await wait(1200);
+    },
+  },
+  {
+    name: "onboarding-3-import-done",
+    query: "scenario=firstRunSignedIn&timescale=400",
+    setup: async (p) => {
+      await wait(1100);
+      await btn(p, /^Import \d+ games$/).click();
+      await p.getByText(/games imported|of \d+ imported/).waitFor({ timeout: 20_000 });
+      await wait(300);
+    },
+  },
+  {
+    name: "onboarding-3-import-failed",
+    query: "scenario=firstRunSignedIn&timescale=1",
+    setup: async (p) => {
+      await wait(1100);
+      await p.getByRole("checkbox", { name: "Deselect all" }).click();
+      await p.getByRole("checkbox").nth(1).click();
+      await btn(p, "Import 1 game").click();
+      await wait(700);
+      await g(p, (h) => h.mock.failActiveJob("filesLocked"));
+      await wait(700);
+    },
+  },
+  { name: "onboarding-3-empty", query: "scenario=firstRunSignedIn&games=0", settle: 1100 },
+  {
+    name: "onboarding-3-locate-invalid",
+    query: "scenario=firstRunSignedIn&timescale=400",
+    setup: async (p) => {
+      await wait(1100);
       await btn(p, /Locate another folder/).click();
-      await wait(1300);
+      await p.getByText(/imported/).first().waitFor({ timeout: 15_000 });
       await btn(p, /Locate another folder/).click();
       await wait(1500);
     },
   },
   {
-    name: "onboarding-4-linking",
+    name: "onboarding-4-folders-empty",
     query: "scenario=firstRunSignedIn",
     setup: async (p) => {
+      await wait(700);
+      await g(p, (h) => h.rpc("onboarding.setStep", { step: "folders", skipped: false }));
+      await wait(700);
+    },
+  },
+  {
+    name: "onboarding-4-folders",
+    query: "scenario=firstRunSignedIn",
+    setup: async (p) => {
+      await wait(700);
+      await g(p, (h) => h.rpc("onboarding.setStep", { step: "folders", skipped: false }));
       await wait(600);
-      await btn(p, "Use this install").click();
+      await btn(p, "Add a library folder").click();
       await wait(500);
+      await btn(p, "Add a folder…").click();
+      await wait(500);
+      await btn(p, "Add a folder…").click();
+      await wait(700);
     },
   },
   {
-    name: "onboarding-5-done",
+    name: "onboarding-5-mode",
     query: "scenario=firstRunSignedIn",
     setup: async (p) => {
-      await wait(600);
-      await btn(p, "Use this install").click();
-      await wait(2800);
+      await wait(700);
+      await g(p, (h) => h.rpc("onboarding.setStep", { step: "mode", skipped: false }));
+      await wait(700);
     },
   },
   {
-    name: "onboarding-5-done-installing",
-    query: "scenario=firstRunSignedIn&freeze=1",
+    name: "onboarding-6-done",
+    query: "scenario=firstRunSignedIn",
     setup: async (p) => {
+      await wait(700);
+      await g(p, (h) => h.rpc("onboarding.setStep", { step: "done", skipped: false }));
       await wait(900);
-      await btn(p, "Install Fortnite").click();
-      await wait(2200);
     },
   },
-  { name: "onboarding-eglsignedout-welcome", query: "scenario=firstRun" },
 
   // --------------------------------------------------------------- library
   { name: "library-installed", query: "scenario=returning" },
@@ -264,6 +310,36 @@ const RAW_STATES: ShotState[] = [
     },
   },
   {
+    name: "library-command-palette-game",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await wait(600);
+      await p.keyboard.press("Control+k");
+      await p.keyboard.type("fort");
+      await wait(250);
+    },
+  },
+  {
+    name: "library-command-palette-none",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await wait(600);
+      await p.keyboard.press("Control+k");
+      await p.keyboard.type("qzqzq");
+      await wait(250);
+    },
+  },
+  {
+    name: "library-command-palette-offline",
+    query: "scenario=offline",
+    setup: async (p) => {
+      await wait(600);
+      await p.keyboard.press("Control+k");
+      await p.keyboard.type("check");
+      await wait(250);
+    },
+  },
+  {
     name: "toasts",
     query: "scenario=returning",
     live: true,
@@ -302,7 +378,7 @@ const RAW_STATES: ShotState[] = [
     name: "focus-settings-switch",
     query: "scenario=returning",
     setup: async (p) => {
-      await go(p, "settings", "general");
+      await go(p, "settings", "startup");
       await wait(500);
       await p.keyboard.press("Tab");
       await p.getByRole("switch", { name: /Start with Windows/ }).focus();
@@ -355,20 +431,22 @@ const RAW_STATES: ShotState[] = [
   },
 
   // -------------------------------------------------------------- settings
-  ...(["general", "downloads", "game", "egl", "advanced", "about"] as const).map<ShotState>((s) => ({
+  ...(["downloads", "library", "updates", "saves", "egl", "overlay", "links", "appearance", "startup", "account", "advanced", "about"] as const).map<ShotState>((s) => ({
     name: `settings-${s}`,
     query: "scenario=returning",
     setup: async (p) => {
       await go(p, "settings", s);
     },
-    settle: s === "advanced" || s === "about" ? 900 : 400,
+    settle: s === "about" ? 900 : 450,
   })),
   {
-    name: "settings-downloads-custom",
+    name: "settings-downloads-advanced",
     query: "scenario=returning",
     setup: async (p) => {
       await go(p, "settings", "downloads");
-      await wait(300);
+      await wait(400);
+      await p.locator("#settings-downloads").getByRole("button", { name: "Advanced" }).click();
+      await wait(500);
       await p.getByRole("radio", { name: "Custom" }).first().click();
       await wait(400);
     },
@@ -378,9 +456,49 @@ const RAW_STATES: ShotState[] = [
     query: "scenario=returning",
     setup: async (p) => {
       await go(p, "settings", "downloads");
-      await wait(300);
-      await p.getByRole("combobox", { name: "Preferred CDN" }).click();
+      await wait(400);
+      await p.getByRole("combobox", { name: "Speed limit" }).click();
       await wait(350);
+    },
+  },
+  {
+    name: "settings-search",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await go(p, "settings", "downloads");
+      await wait(400);
+      await p.getByRole("searchbox", { name: "Search settings" }).fill("fold");
+      await wait(500);
+    },
+  },
+  {
+    name: "settings-search-empty",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await go(p, "settings", "downloads");
+      await wait(400);
+      await p.getByRole("searchbox", { name: "Search settings" }).fill("zzzqq");
+      await wait(500);
+    },
+  },
+  {
+    name: "settings-egl-readiness-blocked",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await go(p, "settings", "egl");
+      await wait(400);
+      await btn(p, "Check").click();
+      await wait(1200);
+    },
+  },
+  {
+    name: "settings-egl-import",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await go(p, "settings", "egl");
+      await wait(400);
+      await btn(p, "Import games…").click();
+      await wait(800);
     },
   },
   {
@@ -393,6 +511,24 @@ const RAW_STATES: ShotState[] = [
       });
       await go(p, "settings", "egl");
       await wait(300);
+    },
+  },
+  {
+    name: "settings-overlay-missing",
+    query: "scenario=firstRunSignedIn",
+    setup: async (p) => {
+      await g(p, (h) => h.rpc("onboarding.complete"));
+      await wait(500);
+      await go(p, "settings", "overlay");
+      await wait(500);
+    },
+  },
+  {
+    name: "settings-account-expired",
+    query: "scenario=authExpired",
+    setup: async (p) => {
+      await go(p, "settings", "account");
+      await wait(500);
     },
   },
 
