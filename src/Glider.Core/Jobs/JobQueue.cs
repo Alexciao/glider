@@ -47,6 +47,15 @@ public sealed class JobQueueOptions
 
     /// <summary>Manifest install size of the installed game (verify byte totals); null = unknown.</summary>
     public Func<string, long?>? InstallSizeFor { get; init; }
+
+    /// <summary>Per-game start conditions checked before a job takes the writer slot. Null = the hooks, when they implement <see cref="IJobGate"/>.</summary>
+    public IJobGate? Gate { get; init; }
+
+    /// <summary>While a job waits at its gate, the queue looks again this often (no event says "EGL finished" or "saves synced").</summary>
+    public TimeSpan GateRecheckInterval { get; init; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>Pause/cancel/shutdown wait at most this long for the running job to settle, then return (and log) while it finishes.</summary>
+    public TimeSpan StopTimeout { get; init; } = TimeSpan.FromSeconds(30);
 }
 
 /// <summary>
@@ -56,7 +65,9 @@ public sealed class JobQueueOptions
 /// files); resume = run the same command again. After a crash or restart, jobs that were running come back queued and resume
 /// automatically; paused ones stay paused. Legendary's "installed data lock" refusal is "busy, retry in 5 s", never a failure.
 /// While <see cref="IQueuePolicy.HoldReason"/> is set (a game runs and Settings.WhilePlaying is Pause) a running pausable job
-/// is stopped and held, and nothing new starts until the hold lifts. Call <see cref="RestoreAsync"/> once at startup.
+/// is stopped and held, and nothing new starts until the hold lifts. A job whose own game blocks it (the game runs, EGL is
+/// busy with its folder, its saves sync; <see cref="IJobGate"/>) never takes the writer slot: it waits with its reason, the
+/// next eligible job runs, and it starts in queue order once unblocked. Call <see cref="RestoreAsync"/> once at startup.
 /// </summary>
 public sealed class JobQueue : IJobQueue, IAsyncDisposable
 {
@@ -64,6 +75,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
     private readonly ILegendary _legendary;
     private readonly ISettingsStore _settings;
     private readonly IJobHooks _hooks;
+    private readonly IJobGate? _gate;
     private readonly ILog _log;
     private readonly TimeProvider _time;
     private readonly JobQueueOptions _options;
@@ -77,10 +89,16 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
     private readonly List<Task> _background = [];
     private Task? _loop;
     private Running? _running;
+    private ITimer? _recheck;
+    private int _refreshing;
     private bool _restored;
     private bool _disposed;
     private bool _paused;
+
+    /// <summary>jobs.json held entries (or a schema) this build couldn't read: don't write over it until something changes, and keep a copy first (M1).</summary>
+    private bool _unreadOnDisk;
     private long _lastProgressPersist;
+    private long _lastSubscriberError = long.MinValue;
 
     public JobQueue(AppPaths paths, ILegendary legendary, ISettingsStore settings, IJobHooks hooks, ILog log, TimeProvider? time = null, JobQueueOptions? options = null)
     {
@@ -88,6 +106,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         _legendary = legendary;
         _settings = settings;
         _hooks = hooks;
+        _gate = options?.Gate ?? hooks as IJobGate;
         _log = log;
         _time = time ?? TimeProvider.System;
         _options = options ?? new JobQueueOptions();
@@ -130,8 +149,8 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         lock (_lock)
         {
             var running = _running?.Job;
-            var unfinished = _jobs.Where(j => !IsTerminal(j.Info.Status)).OrderBy(j => j == running ? 0 : 1).Select(j => j.Info);
-            var finished = _jobs.Where(j => IsTerminal(j.Info.Status)).OrderByDescending(j => j.Info.FinishedAt ?? j.Info.CreatedAt).Select(j => j.Info);
+            var unfinished = _jobs.Where(j => !IsTerminal(j.Info.Status)).OrderBy(j => j == running ? 0 : 1).Select(View);
+            var finished = _jobs.Where(j => IsTerminal(j.Info.Status)).OrderByDescending(j => j.Info.FinishedAt ?? j.Info.CreatedAt).Select(View);
             return [.. unfinished, .. finished];
         }
     }
@@ -162,7 +181,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             var existing = _jobs.FirstOrDefault(j => j.Request.Kind == request.Kind && j.Request.AppName == request.AppName && !IsTerminal(j.Info.Status));
             if (existing is not null)
             {
-                return existing.Info; // idempotent per (app, kind): a second click doesn't queue a duplicate
+                return View(existing); // idempotent per (app, kind): a second click doesn't queue a duplicate
             }
 
             var id = Guid.NewGuid().ToString("N");
@@ -188,10 +207,10 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
 
         _log.Info("jobs", $"Queued {request.Kind} {request.AppName} {job.Info.Id}{(request.Priority ? " (priority)" : "")}.");
         PersistInBackground();
-        Changed?.Invoke();
+        RaiseChanged();
         EnsureLoop();
-        _signal.Release();
-        return job.Info;
+        Wake();
+        return InfoOf(job);
     }
 
     public async Task<JobInfo> PauseAsync(string jobId)
@@ -202,7 +221,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             var job = Find(jobId);
             if (job.Info.Status == JobStatus.Paused)
             {
-                return job.Info;
+                return View(job);
             }
 
             if (IsTerminal(job.Info.Status))
@@ -233,12 +252,12 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
         else
         {
-            Changed?.Invoke();
+            RaiseChanged();
         }
 
         await PersistAsync();
-        _signal.Release(); // another game's job may run now
-        return Find(jobId).Info;
+        Wake(); // another game's job may run now
+        return InfoOf(Find(jobId));
     }
 
     public async Task<JobInfo> ResumeAsync(string jobId)
@@ -249,7 +268,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             if (job.Info.Status is JobStatus.Queued or JobStatus.Running)
             {
                 _paused = false;
-                return job.Info;
+                return View(job);
             }
 
             if (job.Info.Status is not (JobStatus.Paused or JobStatus.Failed or JobStatus.Waiting))
@@ -259,7 +278,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
 
             if (job.Info.Status == JobStatus.Waiting && _running?.Job == job)
             {
-                return job.Info; // waiting for EGL/lock inside its run: it continues by itself
+                return View(job); // waiting for Legendary's install lock inside its run: it continues by itself
             }
 
             job.Held = false;
@@ -269,10 +288,10 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
 
         _log.Info("jobs", $"Resuming {jobId}.");
         await PersistAsync();
-        Changed?.Invoke();
+        RaiseChanged();
         EnsureLoop();
-        _signal.Release();
-        return Find(jobId).Info;
+        Wake();
+        return InfoOf(Find(jobId));
     }
 
     public async Task<JobInfo> CancelAsync(string jobId)
@@ -284,10 +303,18 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             job = Find(jobId);
             if (IsTerminal(job.Info.Status) && job.Info.Status != JobStatus.Failed)
             {
-                return job.Info;
+                return View(job);
             }
 
             running = _running?.Job == job ? _running : null;
+            if (running is not null && !CanCancel(job))
+            {
+                // Killing Legendary mid-delete leaves a half-deleted game that is still registered (M8).
+                throw new GliderException(Errors.InvalidRequest(job.Request.Kind == JobKind.Uninstall
+                    ? $"Removing {job.Info.Title} can't be stopped once it has started."
+                    : $"Moving {job.Info.Title} can't be stopped while Legendary records the new folder."));
+            }
+
             if (running is null)
             {
                 job.Held = false;
@@ -307,12 +334,12 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         {
             _log.Info("jobs", $"Cancelled {job.Info.Kind} {job.Info.AppName} {jobId}.");
             StartCleanup(job);
-            Changed?.Invoke();
-            _signal.Release(); // a paused job no longer blocks its game
+            RaiseChanged();
+            Wake(); // a paused job no longer blocks its game
         }
 
         await PersistAsync();
-        return Find(jobId).Info;
+        return InfoOf(Find(jobId));
     }
 
     public void Dismiss(string jobId)
@@ -330,7 +357,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
 
         PersistInBackground();
-        Changed?.Invoke();
+        RaiseChanged();
     }
 
     /// <summary>
@@ -358,8 +385,8 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
 
         await PersistAsync();
-        Changed?.Invoke();
-        _signal.Release();
+        RaiseChanged();
+        Wake();
     }
 
     public Task MoveToTopAsync(string jobId) => ReorderAsync(jobId, 0);
@@ -394,7 +421,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
 
         await PersistAsync();
-        Changed?.Invoke();
+        RaiseChanged();
     }
 
     public async Task ResumeAllAsync()
@@ -410,9 +437,9 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
 
         _log.Info("jobs", "Queue resumed.");
         await PersistAsync();
-        Changed?.Invoke();
+        RaiseChanged();
         EnsureLoop();
-        _signal.Release();
+        Wake();
     }
 
     public void ClearFinished()
@@ -427,7 +454,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
 
         PersistInBackground();
-        Changed?.Invoke();
+        RaiseChanged();
     }
 
     /// <summary>A game started or closed: stop the running job for a hold, or wake the loop when the hold lifted.</summary>
@@ -453,16 +480,21 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
         else
         {
-            Changed?.Invoke(); // the mode/hold reason shown in the queue changed
-            _signal.Release();
+            RaiseChanged(); // the mode/hold reason shown in the queue changed
+            Wake(); // a game closed: a job waiting for it may start now
         }
     }
 
     public async Task RestoreAsync(CancellationToken ct)
     {
         PersistedJobFile? file;
+        var unread = false;
+        var hadEarly = false;
         try
         {
+            // The main file as it is on disk: if this build can't read all of it, it must survive (M1).
+            var raw = await _store.ReadRawAsync(ct);
+            unread = raw is { Length: > 0 } && !Parses(raw);
             file = await _store.LoadAsync(ct);
         }
         catch (Exception e) when (e is not OperationCanceledException)
@@ -470,13 +502,28 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             // Whatever is on disk, the queue must come up: an un-restored queue never runs or saves anything.
             _log.Error("jobs", "jobs.json could not be loaded; starting with an empty queue.", e);
             file = null;
+            unread = File.Exists(_store.FilePath);
         }
 
         lock (_lock)
         {
+            // Jobs enqueued before the restore (a click during the startup scan) go after the restored ones, and a
+            // duplicate of a restored unfinished job merges into it: per-(app, kind) idempotency holds across the restore (L11).
+            List<PersistedJob> early = _restored ? [] : [.. _jobs];
+            if (!_restored)
+            {
+                _jobs.Clear();
+            }
+
             if (!_restored && file?.Jobs is { } persisted)
             {
                 _paused = file.Paused;
+                if (file.SchemaVersion > PersistedJobFile.CurrentSchema)
+                {
+                    _log.Warn("jobs", $"jobs.json was written by a newer Glider (schema {file.SchemaVersion}); keeping it until a change must be saved.");
+                    unread = true;
+                }
+
                 foreach (var job in persisted)
                 {
                     // jobs.json is data: drop entries a crash, another build or a hand edit left unusable.
@@ -484,6 +531,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
                         !Enum.IsDefined(job.Info.Kind) || !Enum.IsDefined(job.Info.Status) || job.Request.Kind != job.Info.Kind)
                     {
                         _log.Warn("jobs", "Ignoring an unusable entry in jobs.json.");
+                        unread = true;
                         continue;
                     }
 
@@ -510,23 +558,74 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
                     _jobs.Add(job);
                     _samples[job.Info.Id] = new JobSamples();
                 }
-
-                Prune();
             }
 
+            foreach (var job in early)
+            {
+                if (!IsTerminal(job.Info.Status) &&
+                    _jobs.FirstOrDefault(j => j.Request.Kind == job.Request.Kind && j.Request.AppName == job.Request.AppName && !IsTerminal(j.Info.Status)) is { } restored)
+                {
+                    _log.Info("jobs", $"{job.Request.Kind} {job.Request.AppName}: already queued before the restart; keeping {restored.Info.Id}, dropping {job.Info.Id}.");
+                    _samples.Remove(job.Info.Id);
+                    if (job.Request.Priority)
+                    {
+                        _jobs.Remove(restored);
+                        InsertFirstUnfinished(restored);
+                    }
+
+                    continue;
+                }
+
+                if (job.Request.Priority)
+                {
+                    InsertFirstUnfinished(job);
+                }
+                else
+                {
+                    _jobs.Add(job);
+                }
+            }
+
+            Prune();
+            _unreadOnDisk = _restored ? _unreadOnDisk : unread;
             _restored = true;
+            hadEarly = early.Count > 0;
         }
 
-        await PersistAsync();
-        Changed?.Invoke();
+        if (unread)
+        {
+            _log.Warn("jobs", "jobs.json has entries this version can't read; it is left as it is until a change must be saved.");
+        }
+
+        await PersistAsync(changed: hadEarly);
+        RaiseChanged();
         EnsureLoop();
-        _signal.Release();
+        Wake();
+    }
+
+    private void InsertFirstUnfinished(PersistedJob job)
+    {
+        var at = _jobs.FindIndex(j => !IsTerminal(j.Info.Status));
+        _jobs.Insert(at < 0 ? _jobs.Count : at, job);
+    }
+
+    private static bool Parses(byte[] raw)
+    {
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize(raw, EngineJsonContext.Default.PersistedJobFile) is not null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Stops the loop. A running job is interrupted, not paused: it stays "running" on disk and resumes on next start.</summary>
     public async ValueTask DisposeAsync()
     {
         Running? running;
+        ITimer? recheck;
         lock (_lock)
         {
             if (_disposed)
@@ -540,8 +639,12 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             {
                 running.Intent = StopIntent.Shutdown;
             }
+
+            recheck = _recheck;
+            _recheck = null;
         }
 
+        recheck?.Dispose();
         await _shutdown.CancelAsync();
         if (running is not null)
         {
@@ -566,20 +669,20 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
 
         await Task.WhenAll(background);
-        await PersistAsync();
+        await PersistAsync(changed: false);
         _store.Dispose();
         _signal.Dispose();
         _shutdown.Dispose();
     }
 
-    /// <summary>Completes once nothing is running and nothing claimable is queued (paused/held/finished jobs don't count). For tests and shutdown.</summary>
+    /// <summary>Completes once nothing is running and nothing can start (paused, held, gated or finished jobs don't count). For tests and shutdown.</summary>
     internal async Task WhenIdleAsync(CancellationToken ct)
     {
         while (true)
         {
             lock (_lock)
             {
-                if (_running is null && (_paused || _options.Policy?.HoldReason is not null || !_jobs.Any(j => Claimable(j))))
+                if (_running is null && (_paused || _options.Policy?.HoldReason is not null || !_jobs.Any(j => Claimable(j) && !(j.Held && j.Info.BlockedReason is not null))))
                 {
                     return;
                 }
@@ -589,8 +692,12 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
     }
 
-    /// <summary>Stops a running job and waits until it has fully settled (Legendary dead, state recorded).</summary>
-    private static async Task StopAsync(Running running)
+    /// <summary>
+    /// Stops a running job and waits until it has settled (Legendary dead, state recorded), for at most
+    /// <see cref="JobQueueOptions.StopTimeout"/>: pause/cancel must answer the UI. The job keeps the writer slot until it
+    /// really settles, so a second writer never starts beside it.
+    /// </summary>
+    private async Task StopAsync(Running running)
     {
         try
         {
@@ -601,7 +708,83 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             // it finished on its own a moment ago
         }
 
-        await running.Done.Task;
+        try
+        {
+            await running.Done.Task.WaitAsync(_options.StopTimeout, _time);
+        }
+        catch (TimeoutException)
+        {
+            var job = running.Job.Info;
+            _log.Error("jobs", $"{job.Kind} {job.AppName} {job.Id} didn't stop within {_options.StopTimeout.TotalSeconds:0} s; it keeps the writer slot until it does.");
+        }
+    }
+
+    // ------------------------------------------------------------------ events
+
+    private void RaiseChanged()
+    {
+        if (Changed is not { } handlers)
+        {
+            return;
+        }
+
+        foreach (var handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                ((Action)handler)();
+            }
+            catch (Exception e)
+            {
+                SubscriberFailed(nameof(Changed), e);
+            }
+        }
+    }
+
+    private void RaiseProgress(JobProgress progress)
+    {
+        if (ProgressChanged is not { } handlers)
+        {
+            return;
+        }
+
+        foreach (var handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                ((Action<JobProgress>)handler)(progress);
+            }
+            catch (Exception e)
+            {
+                SubscriberFailed(nameof(ProgressChanged), e);
+            }
+        }
+    }
+
+    /// <summary>A subscriber's bug must never reach the lane (M2): log it (at most every few seconds; progress fires at 10 Hz) and go on.</summary>
+    private void SubscriberFailed(string evt, Exception e)
+    {
+        var now = _time.GetTimestamp();
+        var last = Interlocked.Read(ref _lastSubscriberError);
+        if (last != long.MinValue && _time.GetElapsedTime(last, now) < TimeSpan.FromSeconds(5))
+        {
+            return;
+        }
+
+        Interlocked.Exchange(ref _lastSubscriberError, now);
+        _log.Error("jobs", $"A {evt} subscriber of the job queue threw; ignoring it.", e);
+    }
+
+    private void Wake()
+    {
+        try
+        {
+            _signal.Release();
+        }
+        catch (ObjectDisposedException)
+        {
+            // disposed: nothing left to wake
+        }
     }
 
     // ------------------------------------------------------------------ loop
@@ -611,9 +794,9 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
     {
         lock (_lock)
         {
-            if (_restored && !_disposed)
+            if (_restored && !_disposed && _loop is not { IsCompleted: false })
             {
-                _loop ??= Task.Run(LoopAsync);
+                _loop = Task.Run(LoopAsync);
             }
         }
     }
@@ -623,15 +806,27 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         var ct = _shutdown.Token;
         while (!ct.IsCancellationRequested)
         {
-            await _signal.WaitAsync(ct);
-            while (!ct.IsCancellationRequested && Claim(ct) is { } running)
+            try
             {
-                await RunAsync(running, ct);
+                await _signal.WaitAsync(ct);
+                while (!ct.IsCancellationRequested && Claim(ct) is { } running)
+                {
+                    await RunAsync(running, ct);
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception e)
+            {
+                // One bad iteration must not end the lane for the session (M2): log it and wait for the next signal.
+                _log.Error("jobs", "The writer lane hit an unexpected error; it keeps going.", e);
             }
         }
     }
 
-    /// <summary>Queued (or held, once the hold lifted) and not behind a paused job of the same game.</summary>
+    /// <summary>Queued (or waiting to be retried) and not behind a paused or waiting job of the same game.</summary>
     private bool Claimable(PersistedJob job)
     {
         if (!(job.Info.Status == JobStatus.Queued || (job.Info.Status == JobStatus.Waiting && job.Held)))
@@ -646,22 +841,28 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
                 return true;
             }
 
-            if (j.Group == job.Group && j.Info.Status == JobStatus.Paused)
+            if (j.Group == job.Group && (j.Info.Status == JobStatus.Paused || (j.Info.Status == JobStatus.Waiting && j.Held)))
             {
-                return false; // a paused job blocks only its own game
+                return false; // a paused or waiting job blocks only its own game, and its game's later jobs keep their order
             }
         }
 
         return true;
     }
 
+    /// <summary>Held while a game runs (WhilePlaying = Pause): pausable jobs don't start; uninstall/move/import still do.</summary>
+    private static bool HeldBy(string? hold, PersistedJob job) => hold is not null && JobPlan.CanPause(job.Request.Kind);
+
     /// <summary>
     /// Picks the next runnable job and marks it running in the same critical section, so a concurrent pause/cancel sees
-    /// either a queued job (and changes it directly) or a running one (and stops it) — never a job in between.
+    /// either a queued job (and changes it directly) or a running one (and stops it) — never a job in between. Jobs whose
+    /// gate says "not now" (their game runs, EGL is busy with them, their saves sync) are skipped and shown as waiting
+    /// with the reason, so they never hold the single writer slot (H3); they are looked at again on every wake-up.
     /// </summary>
     private Running? Claim(CancellationToken shutdown)
     {
         var hold = _options.Policy?.HoldReason;
+        List<(PersistedJob Job, JobInfo Seen)> candidates;
         lock (_lock)
         {
             if (_running is not null || _paused || _disposed)
@@ -669,38 +870,263 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
                 return null;
             }
 
-            foreach (var job in _jobs)
+            candidates = [.. _jobs.Where(j => Claimable(j) && !HeldBy(hold, j)).Select(j => (j, j.Info))];
+        }
+
+        // The gate looks at processes and files: never under the queue's lock.
+        var (pick, verdicts) = EvaluateGates(candidates, claim: true);
+        Running? claimed = null;
+        bool changed;
+        lock (_lock)
+        {
+            changed = Apply(verdicts, pick);
+            if (pick is not null && _running is null && !_paused && !_disposed && Claimable(pick) && !HeldBy(_options.Policy?.HoldReason, pick))
             {
-                if (!Claimable(job))
-                {
-                    continue;
-                }
-
-                if (hold is not null && JobPlan.CanPause(job.Request.Kind))
-                {
-                    continue; // held while a game runs; uninstall/move/import still proceed
-                }
-
-                var running = new Running(job, CancellationTokenSource.CreateLinkedTokenSource(shutdown));
-                _running = running;
-                job.Held = false;
-                job.Info = job.Info with
+                claimed = new Running(pick, CancellationTokenSource.CreateLinkedTokenSource(shutdown), pick.Info.StartedAt, pick.Info.Phase);
+                _running = claimed;
+                pick.Held = false;
+                pick.Info = pick.Info with
                 {
                     Status = JobStatus.Running,
                     BlockedReason = null,
                     Error = null,
                     Outcome = null,
-                    StartedAt = job.Info.StartedAt ?? _time.GetUtcNow(),
-                    Phase = job.Info.Phase ?? JobPhase.Preparing,
+                    StartedAt = pick.Info.StartedAt ?? _time.GetUtcNow(),
+                    Phase = pick.Info.Phase ?? JobPhase.Preparing,
                 };
-                return running;
+            }
+        }
+
+        if (changed)
+        {
+            PersistInBackground();
+            RaiseChanged();
+        }
+
+        ArmRecheck();
+        return claimed;
+    }
+
+    /// <summary>
+    /// Asks the gate about each candidate in queue order. With <paramref name="claim"/>, stops at the first that may start
+    /// (the pick). A job that must wait blocks the rest of its game, which isn't asked.
+    /// </summary>
+    private (PersistedJob? Pick, List<(PersistedJob Job, JobInfo Seen, string? Reason)> Verdicts) EvaluateGates(
+        List<(PersistedJob Job, JobInfo Seen)> candidates, bool claim)
+    {
+        var verdicts = new List<(PersistedJob, JobInfo, string?)>();
+        var waitingGroups = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (job, seen) in candidates)
+        {
+            if (waitingGroups.Contains(job.Group))
+            {
+                continue;
             }
 
+            var reason = GateReason(seen);
+            verdicts.Add((job, seen, reason));
+            if (reason is not null)
+            {
+                waitingGroups.Add(job.Group);
+            }
+            else if (claim)
+            {
+                return (job, verdicts);
+            }
+        }
+
+        return (null, verdicts);
+    }
+
+    private string? GateReason(JobInfo job)
+    {
+        if (_gate is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return _gate.ReasonNotToStart(job);
+        }
+        catch (Exception e)
+        {
+            // Let the job try: the hooks re-check at the claim and report a real problem as the job's error.
+            _log.Warn("jobs", $"The start check of {job.Kind} {job.AppName} failed; letting it run.", e);
             return null;
         }
     }
 
+    /// <summary>Records the gate's verdicts on jobs nobody changed meanwhile (the Info record is replaced on every change). Under the lock.</summary>
+    private bool Apply(List<(PersistedJob Job, JobInfo Seen, string? Reason)> verdicts, PersistedJob? pick)
+    {
+        var changed = false;
+        foreach (var (job, seen, reason) in verdicts)
+        {
+            if (!ReferenceEquals(job.Info, seen) || job == pick || _running?.Job == job)
+            {
+                continue;
+            }
+
+            if (reason is not null)
+            {
+                if (job.Info.Status == JobStatus.Waiting && job.Held && job.Info.BlockedReason == reason)
+                {
+                    continue;
+                }
+
+                _log.Info("jobs", $"{job.Info.Kind} {job.Info.AppName} {job.Info.Id} waiting: {reason}");
+                job.Held = true;
+                job.Info = job.Info with { Status = JobStatus.Waiting, BlockedReason = reason };
+                changed = true;
+            }
+            else if (job.Info.Status == JobStatus.Waiting)
+            {
+                // Free to start: back in line (nothing is pre-empted; it runs when the slot frees up, in queue order).
+                job.Held = false;
+                job.Info = job.Info with { Status = JobStatus.Queued, BlockedReason = null };
+                changed = true;
+            }
+        }
+
+        return changed;
+    }
+
+    /// <summary>While a job waits at its gate, look again after <see cref="JobQueueOptions.GateRecheckInterval"/> (no event says "EGL is done").</summary>
+    private void ArmRecheck()
+    {
+        lock (_lock)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            var hold = _options.Policy?.HoldReason;
+            var waiting = _jobs.Any(j => j.Info.Status == JobStatus.Waiting && j.Held && j != _running?.Job && !HeldBy(hold, j));
+            if (!waiting)
+            {
+                _recheck?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+                return;
+            }
+
+            _recheck ??= _time.CreateTimer(_ => OnRecheck(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            _recheck.Change(_options.GateRecheckInterval, Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    private void OnRecheck()
+    {
+        bool busy;
+        lock (_lock)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            busy = _running is not null;
+        }
+
+        if (!busy)
+        {
+            Wake(); // the loop claims (and re-asks every gate)
+            return;
+        }
+
+        // Something else runs: only refresh the waiting jobs, so a job whose game closed shows as queued, not stale.
+        if (Interlocked.Exchange(ref _refreshing, 1) == 1)
+        {
+            return;
+        }
+
+        try
+        {
+            var hold = _options.Policy?.HoldReason;
+            List<(PersistedJob Job, JobInfo Seen)> waiting;
+            lock (_lock)
+            {
+                waiting = [.. _jobs.Where(j => j.Info.Status == JobStatus.Waiting && j.Held && j != _running?.Job && !HeldBy(hold, j)).Select(j => (j, j.Info))];
+            }
+
+            var (_, verdicts) = EvaluateGates(waiting, claim: false);
+            bool changed;
+            lock (_lock)
+            {
+                changed = Apply(verdicts, null);
+            }
+
+            if (changed)
+            {
+                PersistInBackground();
+                RaiseChanged();
+            }
+
+            ArmRecheck();
+        }
+        catch (Exception e)
+        {
+            _log.Error("jobs", "Re-checking waiting jobs failed.", e);
+        }
+        finally
+        {
+            Volatile.Write(ref _refreshing, 0);
+        }
+    }
+
+    /// <summary>Runs one claimed job; whatever happens inside, the writer slot is released and waiters are released (M2).</summary>
     private async Task RunAsync(Running running, CancellationToken shutdown)
+    {
+        try
+        {
+            await RunClaimedAsync(running, shutdown);
+        }
+        catch (Exception e)
+        {
+            _log.Error("jobs", $"{running.Job.Info.Kind} {running.Job.Info.AppName} {running.Job.Info.Id}: finishing the task failed.", e);
+        }
+        finally
+        {
+            Settle(running);
+        }
+    }
+
+    /// <summary>Releases the slot if the run didn't get to (an internal error): the job fails visibly instead of looking like it runs forever.</summary>
+    private void Settle(Running running)
+    {
+        var job = running.Job;
+        var released = false;
+        lock (_lock)
+        {
+            if (_running == running)
+            {
+                _running = null;
+                released = true;
+                if (!_disposed && job.Info.Status is JobStatus.Running or JobStatus.Waiting)
+                {
+                    job.Held = false;
+                    job.Info = job.Info with
+                    {
+                        Status = JobStatus.Failed,
+                        FinishedAt = _time.GetUtcNow(),
+                        BlockedReason = null,
+                        Error = Errors.Unknown("Glider hit an internal error while running this task.") with { AppName = job.Request.AppName },
+                        Outcome = new JobOutcome(OutcomeKind.Failed, "Glider hit an internal error while running this task."),
+                    };
+                }
+            }
+        }
+
+        if (released)
+        {
+            PersistInBackground();
+            RaiseChanged();
+        }
+
+        running.Done.TrySetResult();
+    }
+
+    private async Task RunClaimedAsync(Running running, CancellationToken shutdown)
     {
         var job = running.Job;
         using var cts = running.Cts;
@@ -729,11 +1155,12 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
 
         _log.Info("jobs", $"Running {job.Info.Kind} {job.Info.AppName} {job.Info.Id} (step {job.Step}).");
         await PersistAsync();
-        Changed?.Invoke();
+        RaiseChanged();
         using var liveCts = new CancellationTokenSource();
         var live = LiveModeLoopAsync(liveCts.Token); // idle full speed has no event: look again every few seconds
 
         GliderError? error = null;
+        string? gatedReason = null;
         var result = Result.Failed;
         try
         {
@@ -756,7 +1183,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
 
             result = error is null ? Result.Succeeded : Result.Failed;
         }
-        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        catch (Exception e) when (cts.IsCancellationRequested && e is OperationCanceledException or JobGatedException)
         {
             result = running.Intent switch
             {
@@ -765,6 +1192,12 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
                 StopIntent.Hold => Result.Held,
                 _ => Result.Interrupted,
             };
+        }
+        catch (JobGatedException e)
+        {
+            // A gate closed between the queue's check and the claim: back to waiting, the next job runs (H3).
+            result = Result.Gated;
+            gatedReason = e.Reason;
         }
         catch (GliderException e)
         {
@@ -785,8 +1218,15 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         tracker.Flush();
         if (tracker.DiskBoundWriteBytesPerSecond is > 0 and var diskRate && DriveOf(job) is { } drive)
         {
-            Services.DriveSpeeds.Record(_paths, drive + "\\", diskRate); // the install picker warns about drives that proved slow
-            _log.Info("jobs", $"{job.Info.AppName}: the drive {drive} was the limit; it sustained about {diskRate / 1e6:0.0} MB/s.");
+            try
+            {
+                Services.DriveSpeeds.Record(_paths, drive + "\\", diskRate); // the install picker warns about drives that proved slow
+                _log.Info("jobs", $"{job.Request.AppName}: the drive {drive} was the limit; it sustained about {diskRate / 1e6:0.0} MB/s.");
+            }
+            catch (Exception e)
+            {
+                _log.Warn("jobs", "Could not record the drive's speed.", e);
+            }
         }
 
         var baseline = tracker.Snapshot();
@@ -817,13 +1257,17 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
                 },
                 Result.Paused => info with { Status = JobStatus.Paused, Progress = progress is null ? null : progress with { Limiter = Limiter.Paused, LimiterReason = "Paused." } },
                 Result.Held => info with { Status = JobStatus.Waiting, BlockedReason = running.HoldReason, Progress = progress is null ? null : progress with { Limiter = Limiter.Paused, LimiterReason = running.HoldReason } },
+                // Never started: as it was before the claim, plus why it waits.
+                Result.Gated => info with { Status = JobStatus.Waiting, BlockedReason = gatedReason, StartedAt = running.StartedBefore, Phase = running.PhaseBefore, Progress = progress },
                 Result.Cancelled => info with { Status = JobStatus.Cancelled, FinishedAt = _time.GetUtcNow(), Progress = progress },
                 _ => info with { Progress = progress }, // interrupted by shutdown: keep "running" so the next start resumes it
             };
-            job.Held = result == Result.Held;
+            job.Held = result is Result.Held or Result.Gated;
         }
 
-        _log.Info("jobs", $"{job.Info.Kind} {job.Info.AppName} {job.Info.Id}: {result}{(error is null ? "" : $" ({error.Code}: {error.Detail})")}.");
+        _log.Info("jobs", result == Result.Gated
+            ? $"{job.Info.Kind} {job.Info.AppName} {job.Info.Id} waiting: {gatedReason}"
+            : $"{job.Info.Kind} {job.Info.AppName} {job.Info.Id}: {result}{(error is null ? "" : $" ({error.Code}: {error.Detail})")}.");
 
         // Hooks run before the terminal status is published, so the UI never sees "completed" while the install record
         // or the EGL write-back are still stale.
@@ -866,7 +1310,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             await PersistAsync();
         }
 
-        Changed?.Invoke();
+        RaiseChanged();
         running.Done.TrySetResult();
     }
 
@@ -1035,7 +1479,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             job.Info = job.Info with { Verify = report };
         }
 
-        Changed?.Invoke();
+        RaiseChanged();
     }
 
     /// <summary>install/update/repair, then the verify policy, then at most one automatic repair of what verify found.</summary>
@@ -1224,7 +1668,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             }
 
             PersistInBackground();
-            Changed?.Invoke();
+            RaiseChanged();
         }
     }
 
@@ -1236,12 +1680,13 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
 
         PersistInBackground();
-        Changed?.Invoke();
+        RaiseChanged();
     }
 
     private void OnProgress(JobProgress progress)
     {
         var persist = false;
+        var cancellableChanged = false;
         lock (_lock)
         {
             var job = _jobs.FirstOrDefault(j => j.Info.Id == progress.JobId);
@@ -1254,6 +1699,12 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             if (_running?.Job == job && _running.Tracker is { } t)
             {
                 job.Baseline = t.Snapshot();
+                if (job.Request.Kind == JobKind.Move && !_running.Copying)
+                {
+                    // Progress during a move comes from the cross-volume copy, whose partial copy is discarded on cancel.
+                    _running.Copying = true;
+                    cancellableChanged = true;
+                }
             }
 
             var now = _time.GetTimestamp();
@@ -1269,7 +1720,12 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             PersistInBackground();
         }
 
-        ProgressChanged?.Invoke(progress);
+        if (cancellableChanged)
+        {
+            RaiseChanged();
+        }
+
+        RaiseProgress(progress);
     }
 
     /// <summary>
@@ -1346,6 +1802,25 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
     }
 
+    /// <summary>The job as the UI sees it: <see cref="JobInfo.Cancellable"/> follows the running step (M8). Under the lock.</summary>
+    private JobInfo View(PersistedJob job)
+    {
+        var cancellable = CanCancel(job);
+        return job.Info.Cancellable == cancellable ? job.Info : job.Info with { Cancellable = cancellable };
+    }
+
+    private JobInfo InfoOf(PersistedJob job)
+    {
+        lock (_lock)
+        {
+            return View(job);
+        }
+    }
+
+    /// <summary>Under the lock.</summary>
+    private bool CanCancel(PersistedJob job) =>
+        _running is { } r && r.Job == job ? JobPlan.CanCancel(job.Request.Kind, running: true, copying: r.Copying) : JobPlan.CanCancel(job.Request.Kind, running: false, copying: false);
+
     private PersistedJob Find(string jobId)
     {
         lock (_lock)
@@ -1365,28 +1840,72 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         }
     }
 
+    /// <summary>Fire-and-forget save: <see cref="PersistAsync"/> never throws, so nothing goes unobserved (L10).</summary>
     private void PersistInBackground() => _ = PersistAsync();
 
-    private async Task PersistAsync()
+    /// <summary>
+    /// Saves the queue. <paramref name="changed"/> = false (restore, shutdown) saves only if the file on disk is one this
+    /// build fully read; otherwise (M1) the first real change copies that file to <c>jobs.json.unreadable-&lt;time&gt;</c>
+    /// before replacing it, so a failed v0.1 migration can still be retried from it. Never throws: a failed save is
+    /// logged, and the next change tries again.
+    /// </summary>
+    private async Task PersistAsync(bool changed = true)
     {
         PersistedJobFile snapshot;
-        lock (_lock)
-        {
-            if (!_restored)
-            {
-                return;
-            }
-
-            snapshot = new PersistedJobFile { Paused = _paused, Jobs = _jobs.Select(j => j.Clone()).ToList() };
-        }
-
         try
         {
+            lock (_lock)
+            {
+                if (!_restored)
+                {
+                    return;
+                }
+
+                if (_unreadOnDisk)
+                {
+                    if (!changed)
+                    {
+                        return;
+                    }
+
+                    // Under the lock, so no other save can replace the file before its bytes are kept.
+                    PreserveUnreadFile();
+                    _unreadOnDisk = false;
+                }
+
+                snapshot = new PersistedJobFile { Paused = _paused, Jobs = _jobs.Select(j => j.Clone()).ToList() };
+            }
+
             await _store.SaveAsync(snapshot);
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ObjectDisposedException)
+        catch (Exception e)
         {
-            _log.Warn("jobs", "Could not save jobs.json.", e);
+            if (e is IOException or UnauthorizedAccessException or ObjectDisposedException)
+            {
+                _log.Warn("jobs", "Could not save jobs.json.", e);
+            }
+            else
+            {
+                _log.Error("jobs", "Could not save jobs.json.", e);
+            }
+        }
+    }
+
+    private void PreserveUnreadFile()
+    {
+        var path = _store.FilePath;
+        var copy = $"{path}.unreadable-{_time.GetUtcNow():yyyyMMdd-HHmmss}";
+        try
+        {
+            if (File.Exists(path) && !File.Exists(copy))
+            {
+                File.Copy(path, copy);
+                _log.Warn("jobs", $"Kept the jobs.json this version couldn't fully read as {Path.GetFileName(copy)}.");
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _log.Warn("jobs", "Could not keep a copy of the unreadable jobs.json; its previous version stays in jobs.json.bak.", e);
         }
     }
 
@@ -1436,14 +1955,23 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         Paused,
         Cancelled,
         Held,
+        Gated,
         Interrupted,
     }
 
-    private sealed class Running(PersistedJob job, CancellationTokenSource cts)
+    private sealed class Running(PersistedJob job, CancellationTokenSource cts, DateTimeOffset? startedBefore, JobPhase? phaseBefore)
     {
         public PersistedJob Job { get; } = job;
 
         public CancellationTokenSource Cts { get; } = cts;
+
+        /// <summary>The job's StartedAt/Phase before this claim: restored when its gate sends it back without running.</summary>
+        public DateTimeOffset? StartedBefore { get; } = startedBefore;
+
+        public JobPhase? PhaseBefore { get; } = phaseBefore;
+
+        /// <summary>A move reported copy progress in this run (its copy phase: cancelling discards the partial copy).</summary>
+        public bool Copying { get; set; }
 
         public StopIntent Intent { get; set; } = StopIntent.Shutdown;
 

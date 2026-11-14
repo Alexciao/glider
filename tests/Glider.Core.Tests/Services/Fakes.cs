@@ -584,20 +584,39 @@ public sealed class FakeJobQueue(CallLog log) : IJobQueue
 
     public void RaiseProgress(JobProgress p) => ProgressChanged?.Invoke(p);
 
-    /// <summary>Minimal engine: gate → Waiting/Running → Completed (+hooks) or Failed.</summary>
+    /// <summary>Minimal engine: gate (waiting with its reason, re-asked every few ms) → Running → Completed (+hooks) or Failed.</summary>
     public async Task<JobInfo> RunAsync(string jobId, IJobHooks hooks, CancellationToken ct = default)
     {
-        try
+        while (true)
         {
-            await hooks.BeforeRunAsync(Get(jobId), reason =>
-                Set(Get(jobId) with { Status = reason is null ? JobStatus.Running : JobStatus.Waiting, BlockedReason = reason }), ct);
-        }
-        catch (GliderException e)
-        {
-            var failed = Get(jobId) with { Status = JobStatus.Failed, Error = e.Error };
-            Set(failed);
-            await hooks.OnFailedAsync(failed, ct);
-            return failed;
+            var reason = (hooks as Glider.Core.Jobs.IJobGate)?.ReasonNotToStart(Get(jobId));
+            try
+            {
+                if (reason is null)
+                {
+                    await hooks.BeforeRunAsync(Get(jobId), r =>
+                        Set(Get(jobId) with { Status = r is null ? JobStatus.Running : JobStatus.Waiting, BlockedReason = r }), ct);
+                    break;
+                }
+            }
+            catch (Glider.Core.Jobs.JobGatedException e)
+            {
+                reason = e.Reason;
+            }
+            catch (GliderException e)
+            {
+                var failed = Get(jobId) with { Status = JobStatus.Failed, Error = e.Error };
+                Set(failed);
+                await hooks.OnFailedAsync(failed, ct);
+                return failed;
+            }
+
+            if (Get(jobId).Status != JobStatus.Waiting || Get(jobId).BlockedReason != reason)
+            {
+                Set(Get(jobId) with { Status = JobStatus.Waiting, BlockedReason = reason });
+            }
+
+            await Task.Delay(5, ct);
         }
 
         Set(Get(jobId) with { Status = JobStatus.Running, BlockedReason = null });

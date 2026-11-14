@@ -213,9 +213,11 @@ public sealed class DeferredEventSink : IEventSink
 }
 
 /// <summary>Bridges construction cycles: the job queue needs hooks, the hooks come from GliderService (which needs the queue).</summary>
-public sealed class DeferredJobHooks : IJobHooks
+public sealed class DeferredJobHooks : IJobHooks, Jobs.IJobGate
 {
     public IJobHooks? Target { get; set; }
+
+    public string? ReasonNotToStart(JobInfo job) => (Target as Jobs.IJobGate)?.ReasonNotToStart(job);
 
     private IJobHooks Hooks => Target ?? throw new InvalidOperationException("DeferredJobHooks.Target not set");
 
