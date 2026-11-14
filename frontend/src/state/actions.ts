@@ -21,7 +21,7 @@ import { driveOf, dirname } from "./format";
 import { getGame, useLibrary } from "./library";
 import { toast } from "./notices";
 import { goGame } from "./router";
-import { getSnapshot, historyJobs, useApp } from "./store";
+import { getSnapshot, historyJobs, isActiveJob, useApp } from "./store";
 import { useUi, type ErrorSurface } from "./ui";
 
 /* ------------------------------------------------------------------ errors */
@@ -91,6 +91,20 @@ export async function refreshSnapshot(): Promise<void> {
 
 const patchQueue = (fn: (jobs: JobInfo[]) => JobInfo[]): void =>
   useApp.getState().patch((s) => ({ ...s, queue: { ...s.queue, jobs: fn(s.queue.jobs) } }));
+
+/**
+ * Where a job lands when moved to `toIndex` among the unfinished jobs (the backend's meaning of `jobs.reorder`): the
+ * optimistic local order, so a drop does not flash back to the old order until the next snapshot.
+ */
+export function reorderActive(jobs: readonly JobInfo[], id: string, toIndex: number): JobInfo[] {
+  const active = jobs.filter(isActiveJob);
+  const rest = jobs.filter((j) => !isActiveJob(j));
+  const from = active.findIndex((j) => j.id === id);
+  if (from < 0) return [...jobs];
+  const [moved] = active.splice(from, 1);
+  active.splice(Math.max(0, Math.min(active.length, toIndex)), 0, moved!);
+  return [...active, ...rest];
+}
 
 const patchJob = (id: string, status: JobStatus): void => patchQueue((jobs) => jobs.map((j) => (j.id === id ? { ...j, status } : j)));
 
@@ -214,11 +228,13 @@ export const actions = {
   },
 
   async moveJobToTop(id: string): Promise<void> {
+    patchQueue((jobs) => reorderActive(jobs, id, jobs[0]?.status === "running" && jobs[0].id !== id ? 1 : 0));
     const q = await run(`job:${id}`, () => rpc().call("jobs.moveToTop", { jobId: id }), inline("downloads"));
     if (q) void refreshSnapshot();
   },
 
   async reorderJob(id: string, toIndex: number): Promise<void> {
+    patchQueue((jobs) => reorderActive(jobs, id, toIndex));
     const q = await run(`job:${id}`, () => rpc().call("jobs.reorder", { jobId: id, toIndex }), inline("downloads"));
     if (q) void refreshSnapshot();
   },

@@ -1,6 +1,8 @@
+import { useEffect, useState } from "react";
 import { create } from "zustand";
 import type { JobProgress, JobSample } from "../ipc/contract.gen";
 import { rpc } from "../ipc/rpc";
+import type { ChartData } from "../ui/ThroughputChart";
 
 /**
  * Progress lives apart from the snapshot so 10 Hz events never re-render the app, and is keyed by jobId:
@@ -64,6 +66,32 @@ class Track {
     return out;
   }
 
+  /** Whether any sample had network traffic (a repair's verify step or an install's prepare step has none). */
+  get hasNetwork(): boolean {
+    return this.samples.some((s) => s.networkBytesPerSecond > 0);
+  }
+
+  /**
+   * Column data for the chart, starting at the first sample that moved data (so idle preparing/verifying seconds and a
+   * verify's multi-GB/s disk reads do not squash the transfer that follows them).
+   */
+  chart(withNetwork: boolean): ChartData {
+    const all = this.samples;
+    let from = all.findIndex((s) => (withNetwork ? s.networkBytesPerSecond : s.diskBytesPerSecond) > 0);
+    if (from < 0) from = all.length;
+    const n = all.length - from;
+    const t = new Float64Array(n);
+    const net = new Float64Array(n);
+    const disk = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const s = all[from + i]!;
+      t[i] = s.t;
+      net[i] = s.networkBytesPerSecond;
+      disk[i] = s.diskBytesPerSecond;
+    }
+    return { t, values: withNetwork ? [net, disk] : [disk] };
+  }
+
   private notify(): void {
     this.listeners.forEach((l) => l());
   }
@@ -106,6 +134,9 @@ export function seedProgress(progress: readonly (JobProgress | null | undefined)
 /** Chronological values of one channel (bytes/s), oldest first; 1 sample ≈ 1 second. */
 export const readHistory = (jobId: string, channel: HistoryChannel = "network"): Float32Array => track(jobId).read(channel);
 export const subscribeHistory = (jobId: string, notify: () => void): (() => void) => track(jobId).subscribe(notify);
+/** Chart columns for a job: [network, disk] when the job has moved network data, else [disk]. */
+export const readChart = (jobId: string, withNetwork: boolean): ChartData => track(jobId).chart(withNetwork);
+export const historyHasNetwork = (jobId: string): boolean => track(jobId).hasNetwork;
 export const historySamples = (jobId: string): readonly JobSample[] => track(jobId).samples;
 
 /** Load the backend's history for a job once (idempotent). Failures are silent: the live feed still fills the chart. */
@@ -136,6 +167,36 @@ export function pruneProgress(liveJobIds: ReadonlySet<string>): void {
 export function useJobProgress(jobId: string | undefined, fallback: JobProgress | null | undefined): JobProgress | null {
   const live = useProgress((s) => (jobId ? s.latest[jobId] : undefined));
   return live ?? fallback ?? null;
+}
+
+/**
+ * Like `useJobProgress`, but the component re-renders at most once per `intervalMs` (default 2 Hz) and not at all while
+ * `enabled` is false (hidden window). The numbers on a download card are read, not watched at 10 Hz; the live chart and
+ * progress sheen need nothing from React. Catches up with one render when re-enabled.
+ */
+export function useJobProgressThrottled(jobId: string | undefined, fallback: JobProgress | null | undefined, enabled = true, intervalMs = 500): JobProgress | null {
+  const [snap, setSnap] = useState<{ jobId: string | undefined; p: JobProgress | null }>(() => ({ jobId, p: (jobId ? useProgress.getState().latest[jobId] : undefined) ?? null }));
+  useEffect(() => {
+    if (!jobId || !enabled) return;
+    let timer = 0;
+    let last = 0;
+    const flush = () => {
+      timer = 0;
+      last = performance.now();
+      setSnap({ jobId, p: useProgress.getState().latest[jobId] ?? null });
+    };
+    // Catch up right away on (re)enable or job change, then at most once per interval.
+    flush();
+    const off = useProgress.subscribe((s, prev) => {
+      if (timer || s.latest[jobId] === prev.latest[jobId]) return;
+      timer = window.setTimeout(flush, Math.max(0, intervalMs - (performance.now() - last)));
+    });
+    return () => {
+      off();
+      window.clearTimeout(timer);
+    };
+  }, [jobId, enabled, intervalMs]);
+  return (snap.jobId === jobId ? snap.p : null) ?? fallback ?? null;
 }
 
 export function resetProgressForTests(): void {

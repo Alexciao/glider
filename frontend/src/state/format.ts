@@ -135,3 +135,25 @@ export function joinPath(base: string, leaf: string): string {
 export function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
 }
+
+/** Two decimals from GB up ("2.41 GB"), so a live progress readout keeps a steady width; smaller units as `formatBytes`. */
+export function formatBytesPrecise(bytes: number): string {
+  if (!Number.isFinite(bytes)) return "—";
+  const { v, u } = scale(bytes);
+  if (u >= 3) return `${v.toFixed(2)} ${UNITS[u]}`;
+  if (u === 0) return `${Math.round(v)} B`;
+  return `${Number(v.toFixed(1))} ${UNITS[u]}`;
+}
+
+/** Axis-friendly speed: whole numbers from 10 up ("60 MB/s"), one decimal below ("1.5 MB/s"). */
+export function formatSpeedCompact(bytesPerSecond: number): string {
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond < 0) return "—";
+  const { v, u } = scale(bytesPerSecond);
+  if (u === 0) return `${Math.round(v)} B/s`;
+  return `${v >= 10 ? Math.round(v) : Number(v.toFixed(1))} ${UNITS[u]}/s`;
+}
+
+/** "31,204", grouped by the viewer's locale. */
+export function formatCount(n: number): string {
+  return Number.isFinite(n) ? Math.round(n).toLocaleString() : "—";
+}
