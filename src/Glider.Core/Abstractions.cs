@@ -243,6 +243,14 @@ public interface ILegendary
     /// <summary>`launch --json` (+ `--skip-version-check` when we already checked, `--offline` to skip Epic).</summary>
     Task<LaunchCommand> GetLaunchCommandAsync(string appName, bool skipVersionCheck, string extraArgs, bool offline, CancellationToken ct);
 
+    /// <summary>
+    /// As above, with the game's "Executable" setting: a path relative to the install folder that replaces the manifest's launch exe
+    /// (<c>--override-exe</c>; Legendary also moves the working directory to that exe's folder). Null = the default executable.
+    /// Implementations that cannot override ignore it.
+    /// </summary>
+    Task<LaunchCommand> GetLaunchCommandAsync(string appName, bool skipVersionCheck, string extraArgs, bool offline, string? executableOverride, CancellationToken ct) =>
+        GetLaunchCommandAsync(appName, skipVersionCheck, extraArgs, offline, ct);
+
     /// <summary>Path of Legendary's current manifest file for the installed version (for EGL write-back).</summary>
     string? GetInstalledManifestPath(string appName, string version);
 

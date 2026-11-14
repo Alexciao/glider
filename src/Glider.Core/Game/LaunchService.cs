@@ -77,7 +77,7 @@ internal sealed class LaunchService
     internal Task PlaytimeFlushed => _playtimeFlush;
 
     /// <summary>What a prepared command must still match when the user clicks Play.</summary>
-    private sealed record LaunchKey(string AppName, string InstallPath, string Version, string LaunchArgs, string? AccountId, bool Offline);
+    private sealed record LaunchKey(string AppName, string InstallPath, string Version, string LaunchArgs, string? AccountId, bool Offline, string? Executable = null);
 
     private sealed record PreparedLaunch(LaunchKey Key, LaunchCommand Command, DateTimeOffset At);
 
@@ -108,7 +108,7 @@ internal sealed class LaunchService
                 var started = _c.Time.GetTimestamp();
                 try
                 {
-                    var cmd = await _c.Legendary.GetLaunchCommandAsync(app, skipVersionCheck: true, key.LaunchArgs, key.Offline, ct);
+                    var cmd = await _c.Legendary.GetLaunchCommandAsync(app, skipVersionCheck: true, key.LaunchArgs, key.Offline, key.Executable, ct);
                     lock (_prepGate)
                     {
                         _prepared = new PreparedLaunch(key, cmd, _c.Now);
@@ -152,7 +152,22 @@ internal sealed class LaunchService
             return null;
         }
 
-        return new LaunchKey(app, path, version, _c.Games.Get(app).Settings.LaunchArgs ?? "", auth.Account?.AccountId, off);
+        var settings = _c.Games.Get(app).Settings;
+        return new LaunchKey(app, path, version, EffectiveArguments(app, settings), auth.Account?.AccountId, off,
+            string.IsNullOrWhiteSpace(settings.ExecutableOverride) ? null : settings.ExecutableOverride);
+    }
+
+    /// <summary>The chosen launch option's arguments (declared by the game's Epic metadata), then the user's own.</summary>
+    private string EffectiveArguments(string app, GameSettings settings)
+    {
+        var user = settings.LaunchArgs ?? "";
+        if (settings.LaunchOption is { Length: > 0 } name &&
+            _c.Library.CatalogItem(app)?.LaunchOptions.FirstOrDefault(o => string.Equals(o.Name, name, StringComparison.Ordinal)) is { Args.Length: > 0 } option)
+        {
+            return user.Length == 0 ? option.Args : option.Args + " " + user;
+        }
+
+        return user;
     }
 
     /// <summary>Offline when asked, or (Auto) when Epic is unreachable and the game may run offline.</summary>
@@ -222,7 +237,7 @@ internal sealed class LaunchService
             return (p.Command, true);
         }
 
-        return (await _c.Legendary.GetLaunchCommandAsync(key.AppName, skipVersionCheck: true, key.LaunchArgs, key.Offline, ct), false);
+        return (await _c.Legendary.GetLaunchCommandAsync(key.AppName, skipVersionCheck: true, key.LaunchArgs, key.Offline, key.Executable, ct), false);
     }
 
     // ------------------------------------------------------------------ launch
@@ -309,6 +324,11 @@ internal sealed class LaunchService
             SetRun(app, summary.Title, RunState.Launching, null, offline);
             var key = Key(app, offline, requireSignedIn: false)!;
             var (cmd, prepared) = await TakeLaunchCommandAsync(key, ct);
+            if (_c.Games.Get(app).Settings.WorkingDirectory is { Length: > 0 } workingDirectory)
+            {
+                cmd = cmd with { WorkingDirectory = workingDirectory }; // the setting wins over the executable's folder
+            }
+
             Sessions.Begin(app, GameProfiles.For(app));
             RunningProcess process;
             try

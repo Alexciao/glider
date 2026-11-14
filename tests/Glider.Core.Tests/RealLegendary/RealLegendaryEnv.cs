@@ -46,6 +46,21 @@ internal sealed class RealLegendaryEnv : IDisposable
 
     public string InstalledJson => Path.Combine(Config, "installed.json");
 
+    /// <summary>
+    /// Environment that makes every network call of the exe fail at once ("connection refused" on a closed local port) instead of reaching Epic:
+    /// Python's requests honours it. A warm-up or a library sync that a test did not ask for then ends as a plain network failure, and a fake
+    /// token is never sent anywhere (Legendary deletes user.json when Epic rejects its token; a refused connection leaves it alone).
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> NoNetwork { get; } = new Dictionary<string, string>
+    {
+        ["HTTPS_PROXY"] = "http://127.0.0.1:9",
+        ["HTTP_PROXY"] = "http://127.0.0.1:9",
+        ["ALL_PROXY"] = "http://127.0.0.1:9",
+        ["NO_PROXY"] = "",
+    };
+
+    public static LegendaryRunnerOptions OfflineRunner { get; } = new() { ExtraEnvironment = NoNetwork };
+
     public LegendaryCli Cli(Action<LegendaryOptionsBuilder>? configure = null)
     {
         var b = new LegendaryOptionsBuilder();
@@ -96,6 +111,11 @@ internal sealed class RealLegendaryEnv : IDisposable
         };
         psi.Environment["LEGENDARY_CONFIG_PATH"] = Config;
         psi.Environment["PYTHONUTF8"] = "1";
+        foreach (var (k, v) in NoNetwork)
+        {
+            psi.Environment[k] = v;
+        }
+
         foreach (var a in args)
         {
             psi.ArgumentList.Add(a);
@@ -122,8 +142,12 @@ internal sealed class LegendaryOptionsBuilder
 
     public string? PinnedVersion { get; set; }
 
+    /// <summary>Lets the exe reach Epic's public endpoints (only the tests marked as network tests).</summary>
+    public bool AllowNetwork { get; set; }
+
     public LegendaryOptions Build() => new()
     {
+        Runner = AllowNetwork ? new LegendaryRunnerOptions() : RealLegendaryEnv.OfflineRunner,
         StallTimeout = TimeSpan.FromMinutes(5),
         QuickTimeout = TimeSpan.FromMinutes(1),
         PinnedVersion = PinnedVersion,

@@ -648,7 +648,10 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
     /// Launch lane: never takes installed.json.lock, so a running download never delays it; online it passes the auth gate
     /// ahead of everyone else (L§1.8). <c>--offline</c> skips login, the version check and the exchange code.
     /// </summary>
-    public async Task<LaunchCommand> GetLaunchCommandAsync(string appName, bool skipVersionCheck, string extraArgs, bool offline, CancellationToken ct)
+    public Task<LaunchCommand> GetLaunchCommandAsync(string appName, bool skipVersionCheck, string extraArgs, bool offline, CancellationToken ct) =>
+        GetLaunchCommandAsync(appName, skipVersionCheck, extraArgs, offline, null, ct);
+
+    public async Task<LaunchCommand> GetLaunchCommandAsync(string appName, bool skipVersionCheck, string extraArgs, bool offline, string? executableOverride, CancellationToken ct)
     {
         List<string> args = ["launch", appName, "--json"];
         if (skipVersionCheck)
@@ -659,6 +662,13 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
         if (offline)
         {
             args.Add("--offline");
+        }
+
+        if (!string.IsNullOrWhiteSpace(executableOverride))
+        {
+            // Relative to the install folder and must exist there (core.py:850-855); Legendary derives the working directory from it.
+            args.Add("--override-exe");
+            args.Add(executableOverride.Trim().Replace('\\', '/'));
         }
 
         // User args are appended by us, not passed through Legendary: argparse would swallow anything that looks
@@ -674,7 +684,14 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
         using var doc = LegendaryFiles.JsonFromStdout(run.Stdout);
         if (doc is null || LegendaryFiles.Str(doc.RootElement, "game_executable") is null)
         {
-            throw new GliderException(ErrorClassifier.Classify(LegendaryCommandKind.Launch, run)!);
+            var error = ErrorClassifier.Classify(LegendaryCommandKind.Launch, run)!;
+            if (offline && error.Code == ErrorCode.LegendaryFailed && !File.Exists(LegendaryFiles.UserJson(Config)))
+            {
+                // Even `launch --offline` reads the account (name, id) from user.json (core.py:896) and crashes with a TypeError without it.
+                error = Errors.NotSignedIn();
+            }
+
+            throw new GliderException(error);
         }
 
         return ParseLaunch(doc.RootElement, CommandLineSplitter.Split(extraArgs));

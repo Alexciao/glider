@@ -63,6 +63,8 @@ internal static class VerifyFixture
                 ["CanRunOffline"] = "true",
                 ["FolderName"] = App,
                 ["AdditionalCommandLine"] = "-meta_arg",
+                ["extraLaunchOption_000_Name"] = "Safe mode",
+                ["extraLaunchOption_000_Args"] = "-safe -nosound",
             }), Version)
             .Install(App, folder, Version, executable: "Game.exe", title: "Glider Verify")
             .Save();
