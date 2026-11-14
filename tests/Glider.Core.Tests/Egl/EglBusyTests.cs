@@ -13,6 +13,30 @@ public sealed class EglBusyTests
     }
 
     [Fact]
+    public void RepeatedBusyChecksDoNotReparseUnchangedManifests()
+    {
+        using var t = new EglTestTree();
+        var game = t.CreateGame(t.Drive("D", "Fortnite"));
+        t.WriteItem(game, guid: "11111111111111111111111111111111");
+        t.Processes.EglRunning = true;
+        using var svc = t.CreateService();
+
+        Assert.False(svc.IsBusyWith(game));
+        var parsed = svc.ItemParseCount;
+        Assert.True(parsed > 0);
+        for (var i = 0; i < 5; i++)
+        {
+            Assert.False(svc.IsBusyWith(game));
+        }
+
+        Assert.Equal(parsed, svc.ItemParseCount); // the hot path (launch, hover, job start) hit the cache
+
+        t.WriteItem(game, guid: "11111111111111111111111111111111", edit: j => j["bIsIncompleteInstall"] = true); // EGL rewrites the manifest: the cache must notice
+        Assert.Equal(EglService.InstallingReason, svc.GetBusyReason(game));
+        Assert.True(svc.ItemParseCount > parsed);
+    }
+
+    [Fact]
     public void LauncherRunningIsAProcessLookup()
     {
         using var t = new EglTestTree();

@@ -34,8 +34,10 @@ internal sealed class LaunchService
     private readonly Dictionary<string, (PlaytimeTracker Tracker, CancellationTokenSource Loop)> _playtime = new(StringComparer.Ordinal);
     private PreparedLaunch? _prepared;
     private Task _preparing = Task.CompletedTask;
+    private LaunchKey? _preparingKey;
     private bool _hidByUs;
     private Task _watchLoop = Task.CompletedTask;
+    private bool _watching;
     private Task _playtimeFlush = Task.CompletedTask;
 
     public LaunchService(ServiceContext context, EacService eac, Action<string> sessionEnded)
@@ -70,6 +72,9 @@ internal sealed class LaunchService
         }
     }
 
+    /// <summary>Runs when a watch pass found no session, before the loop decides to stop (tests: begin a session in that window).</summary>
+    internal Action? AfterWatchPass { get; set; }
+
     /// <summary>Completes when the current watch loop ends (tests).</summary>
     internal Task WatchLoop => _watchLoop;
 
@@ -102,6 +107,7 @@ internal sealed class LaunchService
             }
 
             _prepared = null;
+            _preparingKey = key;
             var ct = _c.Shutdown;
             _preparing = Task.Run(async () =>
             {
@@ -220,7 +226,8 @@ internal sealed class LaunchService
         Task inflight;
         lock (_prepGate)
         {
-            inflight = _preparing;
+            // Join only this launch's own prepare: another game's fetch (up to QuickTimeout) is none of its business.
+            inflight = _preparingKey == key ? _preparing : Task.CompletedTask;
         }
 
         await inflight.WaitAsync(ct); // a hover just started it: joining beats a second spawn
@@ -417,23 +424,44 @@ internal sealed class LaunchService
     {
         lock (_gate)
         {
-            if (!_watchLoop.IsCompleted)
+            if (_watching)
             {
                 return;
             }
 
+            _watching = true;
             _watchLoop = Task.Run(async () =>
             {
                 try
                 {
-                    await Sessions.RunAsync(_c.Options.ProcessPollInterval, _c.Shutdown);
-                }
-                catch (OperationCanceledException)
-                {
+                    while (true)
+                    {
+                        await Sessions.RunAsync(_c.Options.ProcessPollInterval, _c.Shutdown);
+                        AfterWatchPass?.Invoke();
+
+                        // A session begun after the last tick found none (but before this task completed) must not be left
+                        // unpolled: decide "stop" and clear the flag under the same lock StartWatching takes.
+                        lock (_gate)
+                        {
+                            if (!Sessions.AnyActive)
+                            {
+                                _watching = false;
+                                return;
+                            }
+                        }
+                    }
                 }
                 catch (Exception e)
                 {
-                    _c.Log.Error("launch", "process watch failed", e);
+                    lock (_gate)
+                    {
+                        _watching = false;
+                    }
+
+                    if (e is not OperationCanceledException)
+                    {
+                        _c.Log.Error("launch", "process watch failed", e);
+                    }
                 }
             });
         }
@@ -510,6 +538,34 @@ internal sealed class LaunchService
                 entry.Loop.Cancel();
                 _ = QueueFlush(app, entry.Tracker, final: true);
             }
+        }
+    }
+
+    /// <summary>
+    /// Quit while a game runs: write the playtime of every live session now (the 30 s timer would never fire again), waiting
+    /// at most <paramref name="timeout"/>. Never throws.
+    /// </summary>
+    public void FlushPlaytimeForShutdown(TimeSpan timeout)
+    {
+        Task pending;
+        lock (_gate)
+        {
+            foreach (var (app, entry) in _playtime.ToList())
+            {
+                _playtime.Remove(app);
+                entry.Loop.Cancel();
+                _ = QueueFlush(app, entry.Tracker, final: true);
+            }
+
+            pending = _playtimeFlush;
+        }
+
+        try
+        {
+            pending.Wait(timeout);
+        }
+        catch (Exception e) when (e is AggregateException or ObjectDisposedException)
+        {
         }
     }
 

@@ -43,6 +43,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
     private readonly PrerequisiteService _prereqs;
     private readonly HttpArtFetcher? _ownedFetcher;
     private Task _periodic = Task.CompletedTask;
+    private Task _reconcile = Task.CompletedTask;
     private int _started;
 
     public GliderService(
@@ -220,7 +221,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _network.Start();
         WarmupTask = Task.Run(() => _prewarm.RunAsync(ct), ct);
         _shortcuts.Attach();
-        _ = Task.Run(() => ReconcileShellAsync(ct), ct);
+        _reconcile = Task.Run(() => ReconcileShellAsync(ct), ct);
         _periodic = RunPeriodicAfterWarmupAsync(ct);
         if (_c.Options.FreeGamesBackground)
         {
@@ -314,9 +315,22 @@ public sealed class GliderService : IGliderRpc, IDisposable
     /// <summary>Marks this run as having migrated older data (AppInfo.MigratedFrom).</summary>
     public void SetMigratedFrom(string? version) => _c.Hub.Mutate(s => s with { MigratedFrom = version });
 
+    /// <summary>How long shutdown waits for background work to notice the cancellation before it disposes what that work uses.</summary>
+    internal static readonly TimeSpan ShutdownWait = TimeSpan.FromSeconds(3);
+
     public void Dispose()
     {
         _shutdown.Cancel();
+        _launch.FlushPlaytimeForShutdown(TimeSpan.FromSeconds(2)); // a running game's playtime since the last 30 s flush
+        try
+        {
+            // The loops below use the semaphores and timers disposed next: let them finish (they all honour the token).
+            Task.WaitAll([WarmupTask, _periodic, _reconcile], ShutdownWait);
+        }
+        catch (Exception e) when (e is AggregateException or ObjectDisposedException)
+        {
+        }
+
         try
         {
             _c.Library.SaveCacheAsync().Wait(TimeSpan.FromSeconds(2));

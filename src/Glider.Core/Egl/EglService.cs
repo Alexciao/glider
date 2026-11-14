@@ -105,6 +105,7 @@ public sealed class EglService : IEglService, IDisposable
             try
             {
                 var bytes = strict ? ReadStrict(f) : ReadSmall(f);
+                Interlocked.Increment(ref ItemParseCount);
                 var raw = EglJson.TryParseObject(bytes, out var error);
                 if (raw is null)
                 {
@@ -421,7 +422,58 @@ public sealed class EglService : IEglService, IDisposable
 
     /// <summary>Human reason EGL is busy with the install, or null. Requires EGL to be running.</summary>
     public string? GetBusyReason(string installPath) =>
-        IsLauncherRunning() ? BusyEvidence(installPath, GameItems()) : null;
+        IsLauncherRunning() ? BusyEvidence(installPath, CachedGameItems()) : null;
+
+    private readonly Lock _itemCacheGate = new();
+    private (string Signature, List<ItemFile> Items)? _itemCache;
+
+    /// <summary>Counts parsed manifests (tests: proves the hot-path cache is hit).</summary>
+    internal int ItemParseCount;
+
+    /// <summary>
+    /// <see cref="GameItems"/> for the hot paths (launch, Play hover, job start): re-read only when a .item was added, removed or
+    /// rewritten (name, length and write time are listed without opening any file). Write paths still read strictly and fresh.
+    /// </summary>
+    private List<ItemFile> CachedGameItems()
+    {
+        string signature;
+        try
+        {
+            var dir = _env.ManifestsDir;
+            if (!Directory.Exists(dir))
+            {
+                return [];
+            }
+
+            var sb = new System.Text.StringBuilder();
+            foreach (var f in new DirectoryInfo(dir).EnumerateFiles("*.item", SearchOption.TopDirectoryOnly).OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                sb.Append(f.Name).Append('|').Append(f.Length).Append('|').Append(f.LastWriteTimeUtc.Ticks).Append(';');
+            }
+
+            signature = sb.ToString();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return GameItems();
+        }
+
+        lock (_itemCacheGate)
+        {
+            if (_itemCache is { } c && c.Signature == signature)
+            {
+                return c.Items;
+            }
+        }
+
+        var items = GameItems();
+        lock (_itemCacheGate)
+        {
+            _itemCache = (signature, items);
+        }
+
+        return items;
+    }
 
     /// <summary>File-system evidence of an EGL operation on the install (ignores whether EGL runs).</summary>
     internal string? BusyEvidence(string installPath, IReadOnlyCollection<ItemFile> items)

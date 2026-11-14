@@ -61,9 +61,9 @@ public sealed class GliderServiceOptions
     /// <summary>A cached size for the same folder and version is trusted this long unless a job just changed the files.</summary>
     public TimeSpan SizeCacheMaxAge { get; init; } = TimeSpan.FromHours(12);
 
-    /// <summary>Host wires these from the engine's AutoTune; the fallbacks mirror Legendary's own defaults.</summary>
-    public int AutoWorkers { get; init; } = Math.Min(2 * Environment.ProcessorCount, 16);
-    public int AutoSharedMemoryMb { get; init; } = 2048;
+    /// <summary>Host wires these from the engine's AutoTune; the fallbacks are AutoTune's own answer for this machine.</summary>
+    public int AutoWorkers { get; init; } = Infrastructure.AutoTune.ForCurrentMachine().Workers;
+    public int AutoSharedMemoryMb { get; init; } = Infrastructure.AutoTune.ForCurrentMachine().SharedMemoryMb;
 
     public string AppVersion { get; init; } = DefaultAppVersion();
 

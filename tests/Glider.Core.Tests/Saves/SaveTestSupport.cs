@@ -173,11 +173,11 @@ internal sealed class FakeCloud : ILegendarySaves
     }
 
     /// <summary>installed.json's save_path, the way Legendary writes it.</summary>
-    public void StoreSavePath(string path)
+    public void StoreSavePath(string path, string? app = null)
     {
         var file = Path.Combine(_config, "installed.json");
         var root = JsonNode.Parse(File.ReadAllText(file))!.AsObject();
-        root[App]!.AsObject()["save_path"] = path;
+        root[app ?? App]!.AsObject()["save_path"] = path;
         File.WriteAllText(file, root.ToJsonString());
     }
 }
@@ -213,6 +213,16 @@ internal sealed class SaveRig : IDisposable
         Rig.Games.Put(App, Rig.Games.Get(App) with { Install = new InstallRecord(App, InstallPath, "1.0", 100, DateTimeOffset.UnixEpoch, false, null, false) });
         Filters = SaveFilters.FromMetadata(include, exclude);
         Cloud.Filters = Filters;
+    }
+
+    /// <summary>Installs a second cloud-save game that shares this rig's fake cloud and save folder (lane tests).</summary>
+    public void AddGame(string app)
+    {
+        var attributes = new Dictionary<string, string> { ["CloudSaveFolder"] = "{AppData}/Saver" };
+        Rig.Library.Add(app, LibraryFixture.Item("Save Game " + app, "ns-" + app, "item-" + app, null, attributes), "1.0");
+        var path = Rig.MakeOtherGameFolder(app);
+        Rig.Legendary.Set(app, Glider.Core.Tests.Services.FakeLegendary.MakeInstalled(path, "1.0", app, "Game.exe"));
+        Rig.Games.Put(app, Rig.Games.Get(app) with { Install = new InstallRecord(app, path, "1.0", 100, DateTimeOffset.UnixEpoch, false, null, false) });
     }
 
     public Rig Rig { get; }
