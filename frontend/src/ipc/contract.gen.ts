@@ -151,7 +151,6 @@ export interface EglInstall {
   drift: EglDrift;
   reason: string | null;
   artUrl: string | null;
-  gliderVersion: string | null;
 }
 
 export type EglInstallStatus = "importable" | "imported" | "stale" | "busy" | "notOwned";

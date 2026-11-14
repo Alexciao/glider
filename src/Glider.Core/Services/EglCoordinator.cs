@@ -141,8 +141,7 @@ internal sealed class EglCoordinator
                 status,
                 imported ? s.EglDrift.GetValueOrDefault(f.AppName, EglDrift.None) : EglDrift.None,
                 reason,
-                summary?.Art.TallThumb ?? summary?.Art.Tall,
-                imported ? summary?.InstalledVersion : null));
+                summary?.Art.TallThumb ?? summary?.Art.Tall));
         }
 
         foreach (var f in scan.Installs)

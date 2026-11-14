@@ -644,9 +644,7 @@ public sealed record EglInstall(
     /// <summary>Why it can't be imported (null when it can).</summary>
     string? Reason,
     /// <summary>Cover art (art.glider URL) when the game is in the library.</summary>
-    string? ArtUrl,
-    /// <summary>Imported games: the version Glider has (when it differs from <see cref="Version"/>, see <see cref="Drift"/>).</summary>
-    string? GliderVersion = null);
+    string? ArtUrl);
 
 public sealed record EglImportRequest(IReadOnlyList<string> Ids, VerifyMode Verify);
 
