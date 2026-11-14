@@ -82,6 +82,7 @@ internal static partial class SelfTest
             await Step("toast", () => Ui(rt, () => rt.Platform.ShowToast("Glider self-test", "Host toast via Shell_NotifyIcon (safe to ignore).")));
             await Step("placement", () => Ui(rt, () => PlacementTest(rt, win)));
             await Step("store", () => StoreTest(rt, win, dir));
+            await Step("store-hidden", () => StoreHiddenTest(rt, win));
             await Step("login", () => LoginTest(rt, dir));
             await Step("close", () => CloseTest(rt, win));
             await Step("hide-suspend", () => HideSuspendTest(rt, win));
@@ -468,6 +469,82 @@ internal static partial class SelfTest
         Report["store.hide"] = $"{hidden.Phase} visible={hidden.Visible}";
         await store.DestroyAsync();
         Report["store.destroy"] = $"{store.State.Phase} created={store.State.Created} snapshotLeft={File.Exists(Path.Combine(rt.Paths.Cache, "store-cover.png"))}";
+    }
+
+    /// <summary>
+    /// The Store open on its tab while the window sits in the tray (review H5): the page must end up suspended, and come back live when
+    /// the window does. Anonymous (the public Store home, no sign-in); bounded: ≤ ~50 s even when nothing works. Two paths: the real
+    /// tray hide (MainWindow suspends everything ~8 s after hiding) and the Store's own suspend timer, shortened from 60 s to 3 s.
+    /// </summary>
+    private static async Task StoreHiddenTest(HostRuntime rt, MainWindow win)
+    {
+        var store = rt.Platform.StoreHost ?? throw new InvalidOperationException("no store host");
+        var state = await store.ShowAsync(Glider.Core.Store.StoreUrls.Home("en-US"), new Glider.Core.Contracts.StoreBounds(72, 40, 800, 520));
+        for (var i = 0; i < 40 && state.Phase is Glider.Core.Contracts.StorePhase.Loading or Glider.Core.Contracts.StorePhase.Creating; i++)
+        {
+            await Task.Delay(500);
+            state = store.State;
+        }
+
+        var view = rt.Platform.StoreIfCreated ?? throw new InvalidOperationException($"the Store view was not created (phase {state.Phase})");
+        Report["storeHidden.beforeHide"] = $"{state.Phase} visible={state.Visible}";
+
+        // A: window to the tray with the Store tab still "active".
+        await Ui(rt, win.HideToTray);
+        var started = DateTime.UtcNow;
+        var suspended = await WaitFor(rt, () => view.IsSuspendedForTests, TimeSpan.FromSeconds(20));
+        Report["storeHidden.trayPhase"] = $"{store.State.Phase} visible={store.State.Visible}";
+        Report["storeHidden.suspendedInTray"] = suspended ? $"yes after {(DateTime.UtcNow - started).TotalSeconds:0.#} s" : "NO within 20 s";
+        await Ui(rt, win.RestoreFromTray);
+        await Task.Delay(1200);
+        var resumed = false;
+        await Ui(rt, () => resumed = !view.IsSuspendedForTests);
+        Report["storeHidden.resumedOnRestore"] = resumed ? $"yes, {store.State.Phase} visible={store.State.Visible}" : "NO, still suspended";
+        if (!suspended || !resumed)
+        {
+            throw new InvalidOperationException($"tray hide: suspended={suspended}, resumed={resumed}");
+        }
+
+        // B: the Store's own timer (a real tray hide is also suspended by MainWindow after ~8 s, which would mask it).
+        await Ui(rt, () => view.SuspendDelay = TimeSpan.FromSeconds(3));
+        try
+        {
+            await Ui(rt, view.OnWindowHidden);
+            started = DateTime.UtcNow;
+            suspended = await WaitFor(rt, () => view.IsSuspendedForTests, TimeSpan.FromSeconds(12));
+            Report["storeHidden.suspendTimer"] = suspended ? $"suspended after {(DateTime.UtcNow - started).TotalSeconds:0.#} s (timer set to 3 s)" : "NO within 12 s";
+            await Ui(rt, view.OnWindowShown);
+            await Task.Delay(800);
+            await Ui(rt, () => resumed = !view.IsSuspendedForTests);
+            Report["storeHidden.timerResumed"] = resumed;
+            if (!suspended || !resumed)
+            {
+                throw new InvalidOperationException($"suspend timer: suspended={suspended}, resumed={resumed}");
+            }
+        }
+        finally
+        {
+            await Ui(rt, () => view.SuspendDelay = Glider.Core.Store.StoreLifecycle.SuspendAfter);
+            await store.DestroyAsync();
+        }
+    }
+
+    private static async Task<bool> WaitFor(HostRuntime rt, Func<bool> condition, TimeSpan timeout)
+    {
+        var until = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < until)
+        {
+            var ok = false;
+            await Ui(rt, () => ok = condition());
+            if (ok)
+            {
+                return true;
+            }
+
+            await Task.Delay(500);
+        }
+
+        return false;
     }
 
     private static async Task LoginTest(HostRuntime rt, string dir)
