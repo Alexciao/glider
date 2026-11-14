@@ -46,6 +46,18 @@ public sealed class RunControl
     /// <summary>Raised after a change, outside the lock.</summary>
     public event Action? Changed;
 
+    /// <summary>Raw network rate (bytes/s) from the latest progress block; the speed limiter closes its loop on it.</summary>
+    public double RawBytesPerSecond { get; private set; }
+
+    /// <summary>Raised for every <see cref="ReportRawRate"/> (about once a second while downloading).</summary>
+    public event Action<double>? RateReported;
+
+    public void ReportRawRate(double bytesPerSecond)
+    {
+        RawBytesPerSecond = bytesPerSecond;
+        RateReported?.Invoke(bytesPerSecond);
+    }
+
     /// <summary>Returns true when something changed.</summary>
     public bool Update(DownloadMode mode, long? speedLimitBytesPerSecond)
     {

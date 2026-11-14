@@ -68,6 +68,9 @@ internal sealed record LegendaryCommand(LegendaryCommandKind Kind, IReadOnlyList
     /// <summary>Called for every published progress block (from the pump thread, under the run's lock: keep it tiny).</summary>
     public Action<LegendaryProgress>? OnProgress { get; init; }
 
+    /// <summary>Control file of the Glider fork (<c>--control-file</c>); null on stock Legendary.</summary>
+    public string? ControlFile { get; init; }
+
     /// <summary>Kill the run early when the facts so far show it is doomed (e.g. SDL data failed on a fresh install).</summary>
     public Func<LegendaryOutputFacts, bool>? AbortWhen { get; init; }
 
@@ -479,7 +482,7 @@ internal sealed class LegendaryProcessRunner : IDisposable
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private RunTuner StartTuner(WindowsJobObject job, LegendaryCommand command, RunState state)
     {
-        var tuner = new RunTuner(job, command.Resources!.Control!, command.Resources.WholeTree, command.DownloadWorkers, _log);
+        var tuner = new RunTuner(job, command.Resources!.Control!, command.Resources.WholeTree, command.DownloadWorkers, _log, controlFile: command.ControlFile);
         state.OnDownloadManager = tuner.SetDownloadManager;
         state.OnWriterStarting = tuner.WriterStarting;
         tuner.Kick(); // the job now has its first process
@@ -761,6 +764,7 @@ internal sealed class LegendaryProcessRunner : IDisposable
             _havePublished = true;
             _lastPublished = p;
             _command.OnProgress?.Invoke(p);
+            _command.Resources?.Control?.ReportRawRate(p.DownloadBytesPerSecond);
             if (kind == ProgressKind.Download && Facts.Phase is JobPhase.Preparing or JobPhase.Verifying)
             {
                 Facts.Phase = JobPhase.Downloading;

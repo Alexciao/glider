@@ -41,6 +41,11 @@ internal static class Program
             return 0;
         }
 
+        if (args.Length == 2 && args[0] == "--fake-worker")
+        {
+            return FakeWorker(int.Parse(args[1], CultureInfo.InvariantCulture));
+        }
+
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         _ansi = Encoding.GetEncoding(1252, EncoderFallback.ExceptionFallback, DecoderFallback.ReplacementFallback);
         _config = Environment.GetEnvironmentVariable("LEGENDARY_CONFIG_PATH") ?? "";
@@ -98,6 +103,7 @@ internal static class Program
                 case "hang": Thread.Sleep(Timeout.Infinite); break;
                 case "exit": return int.Parse(rest, CultureInfo.InvariantCulture);
                 case "child": SpawnChild(rest.Trim()); break;
+                case "worker": SpawnWorker(rest.Trim()); break;
                 case "readstdin": if (ReadStdin() is { } code) { return code; } break;
                 case "download": Download(KeyValues(rest)); break;
                 case "verify": Verify(KeyValues(rest)); break;
@@ -307,6 +313,38 @@ internal static class Program
     }
 
     // ------------------------------------------------------------------ behaviours
+
+    /// <summary>`worker PORT`: a child that GETs 1 MiB bodies from 127.0.0.1:PORT forever over one keep-alive connection (a stand-in DLWorker).</summary>
+    private static void SpawnWorker(string port)
+    {
+        var psi = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
+        psi.ArgumentList.Add("--fake-worker");
+        psi.ArgumentList.Add(port);
+        Process.Start(psi);
+    }
+
+    private static int FakeWorker(int port)
+    {
+        using var client = new System.Net.Sockets.TcpClient("127.0.0.1", port);
+        using var stream = client.GetStream();
+        var request = Encoding.ASCII.GetBytes("GET /chunk HTTP/1.1\r\nHost: x\r\n\r\n");
+        var buffer = new byte[64 * 1024];
+        while (true)
+        {
+            stream.Write(request);
+            long remaining = 1 << 20; // the server answers every request with exactly 1 MiB, no headers
+            while (remaining > 0)
+            {
+                var n = stream.Read(buffer);
+                if (n <= 0)
+                {
+                    return 0;
+                }
+
+                remaining -= n;
+            }
+        }
+    }
 
     private static void SpawnChild(string tag = "")
     {

@@ -345,6 +345,7 @@ public sealed class LegendaryCli : ILegendary, IDisposable
                 Resources = resources,
                 DownloadWorkers = args.MaxWorkers > 0 ? args.MaxWorkers : null,
                 OnProgress = monitor.OnProgress,
+                ControlFile = _options.Fork ? ControlFile(args.AppName) : null,
                 StallTimeout = _options.StallTimeout,
                 Timeout = Timeout.InfiniteTimeSpan,
                 // A failed SDL download makes Legendary fall back to a stale hardcoded tag table (core.py:449-453): a fresh

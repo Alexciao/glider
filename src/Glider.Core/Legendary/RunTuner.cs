@@ -45,9 +45,13 @@ internal sealed class RunTuner : IDisposable
     private int _downloadManager;
     private long _writerLineAt;
     private int _writerPid;
+    private readonly string? _controlFile;
+    private IRateActuator? _actuator;
+    private IReadOnlySet<int> _workerPids = new HashSet<int>();
 
-    public RunTuner(WindowsJobObject job, RunControl control, bool wholeTree, int? workers, ILog log, Func<IReadOnlyList<ProcessEntry>>? snapshot = null)
+    public RunTuner(WindowsJobObject job, RunControl control, bool wholeTree, int? workers, ILog log, Func<IReadOnlyList<ProcessEntry>>? snapshot = null, string? controlFile = null)
     {
+        _controlFile = controlFile;
         _job = job;
         _control = control;
         _wholeTree = wholeTree;
@@ -55,6 +59,8 @@ internal sealed class RunTuner : IDisposable
         _log = log;
         _snapshot = snapshot ?? Game.ProcessSnapshot.Take;
         _control.Changed += Kick;
+        _control.Changed += OnControlChanged;
+        _control.RateReported += OnRate;
         _loop = Task.Run(LoopAsync);
     }
 
@@ -87,6 +93,8 @@ internal sealed class RunTuner : IDisposable
     public void Dispose()
     {
         _control.Changed -= Kick;
+        _control.Changed -= OnControlChanged;
+        _control.RateReported -= OnRate;
         _stop.Cancel();
         try
         {
@@ -96,8 +104,53 @@ internal sealed class RunTuner : IDisposable
         {
         }
 
+        _actuator?.Dispose();
         _stop.Dispose();
         _kick.Dispose();
+    }
+
+    /// <summary>The limiter's view: one retarget per progress block (≈1 Hz), only once the writer is known so it can never be held back.</summary>
+    private void OnRate(double bytesPerSecond)
+    {
+        var limit = _control.SpeedLimitBytesPerSecond;
+        if (limit is null && _actuator is null)
+        {
+            return;
+        }
+
+        Retarget(limit, bytesPerSecond);
+    }
+
+    private void OnControlChanged()
+    {
+        var limit = _control.SpeedLimitBytesPerSecond;
+        if (limit is null && _actuator is not null)
+        {
+            Retarget(null, 0); // limit removed: release the workers at once
+        }
+    }
+
+    private void Retarget(long? limit, double measured)
+    {
+        try
+        {
+            lock (_applied)
+            {
+                if (_workerPids.Count == 0 && _controlFile is null)
+                {
+                    return; // writer not identified yet: nothing may be throttled
+                }
+
+                _actuator ??= _controlFile is not null && _workers is { } w
+                    ? new ControlFileActuator(_controlFile, w)
+                    : new DutyCycleActuator();
+                _actuator.Retarget(limit, measured, _workerPids);
+            }
+        }
+        catch (Exception e) when (e is IOException or InvalidOperationException or ObjectDisposedException)
+        {
+            _log.Debug("legendary", $"Speed limiter: {e.Message}");
+        }
     }
 
     private async Task LoopAsync()
@@ -132,18 +185,37 @@ internal sealed class RunTuner : IDisposable
 
         var mode = _control.Mode;
         var writer = Writer(pids);
+        if (writer.Count > 0)
+        {
+            var workers = ProcessRoles.Workers(pids, _downloadManager, writer, _snapshot());
+            lock (_applied)
+            {
+                _workerPids = workers;
+            }
+        }
+
         foreach (var pid in pids)
         {
             var settings = ModeSettings.For(mode, writer.Contains(pid), _wholeTree);
             var created = ProcessTuning.CreationTicks(pid);
-            if (_applied.TryGetValue(pid, out var last) && last.Settings == settings && last.Created == created)
+            (ProcessSettings Settings, long? Created) last;
+            bool known;
+            lock (_applied)
+            {
+                known = _applied.TryGetValue(pid, out last);
+            }
+
+            if (known && last.Settings == settings && last.Created == created)
             {
                 continue; // already so, and not a reused pid
             }
 
             if (ProcessTuning.TryApply(pid, settings))
             {
-                _applied[pid] = (settings, created);
+                lock (_applied)
+                {
+                    _applied[pid] = (settings, created);
+                }
             }
         }
     }
