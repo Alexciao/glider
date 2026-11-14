@@ -20,7 +20,7 @@
     "      error: the call must fail with this code; notError: if it fails, not with this code (success is fine); no error key: must succeed.",
     "      result: subset match (objects by key, arrays by length and element, {\"$in\": [..]} = any of, {\"$same\": label} = a saved value).",
     "      save: label (the result's \"id\") or {label: dotted path into the result}.",
-    "  { \"env\": op, ... }   failRunning {code} | eglBusy {game, busy} | startGame {game} | connectivity {value} | setting {whilePlaying}",
+    "  { \"env\": op, ... }   failRunning {code: legendaryFailed|network} | eglBusy {game, busy} | startGame {game} | connectivity {value} | setting {whilePlaying}",
     "  then: checked until it holds (the lane runs on its own threads): jobs = unfinished jobs in order as \"label:status\";",
     "      finished = finished jobs as \"label:status\" (any order); paused = QueueState.paused; reasons = {label: text the blockedReason contains};",
     "      cancellable = {label: bool}."
@@ -136,9 +136,9 @@
       "steps": [
         { "call": "game.install", "params": { "appName": "@c", "basePath": "@base", "components": null, "dlc": [], "priority": false }, "save": "jc",
           "then": { "jobs": ["jc:running"] } },
-        { "env": "failRunning", "code": "network", "then": { "jobs": [], "finished": ["jc:failed"] } },
+        { "env": "failRunning", "code": "legendaryFailed", "then": { "jobs": [], "finished": ["jc:failed"] } },
         { "call": "jobs.resume", "params": { "jobId": "$jc" }, "result": { "status": { "$in": ["queued", "running"] } }, "then": { "jobs": ["jc:running"], "finished": [] } },
-        { "env": "failRunning", "code": "network", "then": { "finished": ["jc:failed"] } },
+        { "env": "failRunning", "code": "legendaryFailed", "then": { "finished": ["jc:failed"] } },
         { "call": "jobs.cancel", "params": { "jobId": "$jc" }, "result": { "status": "cancelled" }, "then": { "jobs": [], "finished": ["jc:cancelled"] } },
         { "call": "jobs.resume", "params": { "jobId": "$jc" }, "error": "invalidRequest" }
       ]
@@ -193,15 +193,27 @@
       ]
     },
     {
-      "name": "Epic Games Launcher busy with a game holds that game's job with a reason; the next game's job runs, and the held one is queued again once Epic is done",
+      "name": "Epic Games Launcher busy with a game holds that game's job with a reason while the next game's job runs; when Epic is done it is queued again",
       "world": "library",
       "steps": [
         { "env": "eglBusy", "game": "@a", "busy": true },
         { "call": "game.update", "params": { "appName": "@a" }, "save": "ja", "then": { "jobs": ["ja:waiting"], "reasons": { "ja": "Epic Games Launcher" } } },
         { "call": "game.install", "params": { "appName": "@c", "basePath": "@base", "components": null, "dlc": [], "priority": false }, "save": "jc",
           "then": { "jobs": ["jc:running", "ja:waiting"] } },
-        { "call": "jobs.resume", "params": { "jobId": "$ja" }, "result": { "status": { "$in": ["queued", "waiting"] } }, "then": { "jobs": ["jc:running", "ja:waiting"] } },
-        { "env": "eglBusy", "game": "@a", "busy": false, "then": { "jobs": ["jc:running", "ja:queued"] } }
+        { "env": "eglBusy", "game": "@a", "busy": false, "then": { "jobs": ["jc:running", "ja:queued"] } },
+        { "call": "jobs.cancel", "params": { "jobId": "$jc" }, "result": { "status": "cancelled" }, "then": { "jobs": ["ja:running"], "finished": ["jc:cancelled"] } }
+      ]
+    },
+    {
+      "name": "Resume puts a waiting job back in line; the gate is asked again when the writer slot is free",
+      "world": "library",
+      "steps": [
+        { "env": "eglBusy", "game": "@a", "busy": true },
+        { "call": "game.update", "params": { "appName": "@a" }, "save": "ja", "then": { "jobs": ["ja:waiting"] } },
+        { "call": "game.install", "params": { "appName": "@c", "basePath": "@base", "components": null, "dlc": [], "priority": false }, "save": "jc",
+          "then": { "jobs": ["jc:running", "ja:waiting"] } },
+        { "call": "jobs.resume", "params": { "jobId": "$ja" }, "result": { "status": "queued" }, "then": { "jobs": ["jc:running", "ja:queued"] } },
+        { "call": "jobs.cancel", "params": { "jobId": "$jc" }, "result": { "status": "cancelled" }, "then": { "jobs": ["ja:waiting"], "reasons": { "ja": "Epic Games Launcher" } } }
       ]
     },
     {

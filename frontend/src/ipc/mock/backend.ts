@@ -809,14 +809,15 @@ export class MockBackend {
 
   /**
    * Re-evaluate what blocks each unfinished job, then start whatever can start. A running pausable job is stopped by the hold
-   * ("Paused while X is running"); queued ones just stay queued under a hold. Everything else a job waits for is its own gate.
+   * ("Paused while X is running"); queued ones just stay queued under a hold. Everything else a job waits for is its own gate,
+   * and like Core's lane the mock only asks a queued job's gate when the writer slot is free (waiting jobs are re-checked any time).
    */
   private reconcile(emit = true): void {
     let changed = false;
     const hold = this.holdReason();
     for (const e of [...this.queue]) {
       const s = e.info.status;
-      if (s === "paused") continue;
+      if (s === "paused" || s === "queued") continue;
       let reason: string | null;
       if (s === "running") {
         // Epic's own install lock can appear mid-run; a hold stops the run.
@@ -841,24 +842,38 @@ export class MockBackend {
       clearInterval(this.ticker);
       this.ticker = null;
     }
-    this.pump();
-    if (changed || emit) this.emitState();
+    const pumped = this.pump();
+    if (changed || pumped || emit) this.emitState();
   }
 
-  /** Start the next runnable job (one writer at a time). A paused/waiting job blocks only the later jobs of its own game. */
-  private pump(): void {
-    if (this.queuePaused) return;
-    if (this.queue.some((e) => e.info.status === "running")) return;
+  /**
+   * Start the next runnable job (one writer at a time), like `JobQueue.Claim`: in queue order, a paused/waiting job blocks only the later
+   * jobs of its own game, and a job whose gate says "not now" is marked waiting (true when that changed something) without taking the slot.
+   */
+  private pump(): boolean {
+    if (this.queuePaused) return false;
+    if (this.queue.some((e) => e.info.status === "running")) return false;
     const hold = this.holdReason();
     const blocked = new Set<string>();
-    for (const e of this.queue) {
+    let changed = false;
+    for (const e of [...this.queue]) {
       const group = this.baseOf(e.info.appName);
-      if (e.info.status === "paused" || e.info.status === "waiting") blocked.add(group);
-      else if (e.info.status === "queued" && !blocked.has(group) && !(hold && PAUSABLE.includes(e.info.kind))) {
-        this.startJob(e);
-        return;
+      if (e.info.status === "paused" || e.info.status === "waiting") {
+        blocked.add(group);
+        continue;
       }
+      if (e.info.status !== "queued" || blocked.has(group) || (hold && PAUSABLE.includes(e.info.kind))) continue;
+      const reason = this.gateReason(e);
+      if (reason) {
+        e.info = { ...e.info, status: "waiting", blockedReason: reason };
+        blocked.add(group);
+        changed = true;
+        continue;
+      }
+      this.startJob(e);
+      return true;
     }
+    return changed;
   }
 
   private startJob(e: JobEntry): void {

@@ -892,6 +892,17 @@ describe("jobs: lifecycle and queue", () => {
     expect(cleared.jobs.every((j) => ["running", "queued", "paused", "waiting"].includes(j.status))).toBe(true);
   });
 
+  it("cancellable follows Core: a running move is cancellable only while it copies across volumes; an uninstall never", async () => {
+    const mv = setup({ scenario: "frozenMoving" });
+    const m = active(await mv.snapshot())[0]!;
+    expect(m).toMatchObject({ kind: "move", status: "running", phase: "moving" });
+    const from = (await library(mv)).get(m.appName)!.installPath!;
+    const crossVolume = from[0] !== m.targetPath![0];
+    expect(m.cancellable).toBe(crossVolume);
+    const rm = setup({ scenario: "frozenRemoving" });
+    expect(active(await rm.snapshot())[0]).toMatchObject({ kind: "uninstall", cancellable: false });
+  });
+
   it("keeps at most 20 finished jobs in the queue state", async () => {
     const h = setup({ scenario: "returning", ...fast });
     const lib = await library(h);
