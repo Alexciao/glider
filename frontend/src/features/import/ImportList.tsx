@@ -68,7 +68,7 @@ function Result({ row, onRetry }: { row: ImportRowModel; onRetry: () => void }) 
     case "imported":
       return (
         <span className="flex shrink-0 items-center gap-1.5 text-xs text-success-text">
-          <CircleCheck size={13} aria-hidden />
+          <CircleCheck size={14} aria-hidden />
           {phrase}
         </span>
       );

@@ -126,7 +126,7 @@ export function SaveConflictDialog({
       <div className="pb-2">
         <div className={cx("grid grid-cols-2 gap-3 transition-opacity duration-150", !c && "opacity-60")}>
           <SideCard
-            icon={<HardDrive size={15} />}
+            icon={<HardDrive size={16} />}
             label="On this PC"
             iso={c?.localModifiedAt ?? null}
             size={c?.localSizeBytes ?? null}
@@ -136,7 +136,7 @@ export function SaveConflictDialog({
             disabled={!c || working}
           />
           <SideCard
-            icon={<Cloud size={15} />}
+            icon={<Cloud size={16} />}
             label="In the cloud"
             iso={c?.cloudModifiedAt ?? null}
             size={c?.cloudSizeBytes ?? null}

@@ -19,7 +19,7 @@ function FavoriteButton({ game }: { game: GameSummary }) {
         aria-label="Favorite"
         onClick={() => void actions.setFavorite(game.appName, !on)}
         className={cx(
-          "grid size-12 shrink-0 place-items-center rounded-2xl border border-border-strong bg-surface-3 backdrop-blur-md",
+          "grid size-12 shrink-0 place-items-center rounded-xl border border-border-strong bg-surface-3 backdrop-blur-md",
           "transition-[background-color,color,scale] duration-150 ease-out hover:bg-surface-active active:scale-[0.96]",
           on ? "text-warning-text" : "text-fg-muted hover:text-fg",
         )}

@@ -15,19 +15,19 @@ function PillBody({ job, more }: { job: JobInfo; more: number }) {
   const percent = progress?.percent ?? 0;
   const running = job.status === "running";
 
-  let icon = <Spinner size={13} className="text-accent" />;
+  let icon = <Spinner size={14} className="text-accent" />;
   let text: string = `${jobVerb(job.kind, progress?.phase ?? job.phase)} ${job.title}`;
   let detail: string | null = null;
   if (job.status === "paused") {
-    icon = <Pause size={13} className="text-warning-text" />;
+    icon = <Pause size={14} className="text-warning-text" />;
     text = "Paused";
     detail = formatPercent(percent);
   } else if (job.status === "waiting") {
-    icon = <Clock size={13} className="text-warning-text" />;
+    icon = <Clock size={14} className="text-warning-text" />;
     text = "Waiting";
     detail = job.blockedReason;
   } else if (job.status === "queued") {
-    icon = <Clock size={13} className="text-fg-subtle" />;
+    icon = <Clock size={14} className="text-fg-subtle" />;
     text = "Queued";
   } else if (progress) {
     // The verb already names the phase ("Verifying Fortnite"); the phase is only added when it says something new ("Finalizing").

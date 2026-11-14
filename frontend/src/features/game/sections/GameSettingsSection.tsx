@@ -3,7 +3,7 @@ import { ChevronRight } from "lucide-react";
 import type { AutoUpdatePolicy, GameDetail, GameSettings, LaunchMode } from "../../../ipc/contract.gen";
 import { actions } from "../../../state/actions";
 import { useSnap } from "../../../state/store";
-import { Button, SegmentedControl, Select, TextArea, TextField, cx } from "../../../ui";
+import { Button, SegmentedControl, Select, Switch, TextArea, TextField, cx } from "../../../ui";
 
 const MODES = [
   { value: "auto", label: "Auto" },
@@ -50,6 +50,7 @@ export function GameSettingsSection({ detail, onSettings }: { detail: GameDetail
   const [open, setOpen] = useState(false);
   const s = detail.settings;
   const globalPolicy = useSnap((st) => st.settings.autoUpdate);
+  const globalSaves = useSnap((st) => st.settings.cloudSaves);
   const uid = useId();
   const [argsText, setArgsText] = useState(s.launchArgs);
   const [seenArgs, setSeenArgs] = useState(s.launchArgs);
@@ -133,6 +134,14 @@ export function GameSettingsSection({ detail, onSettings }: { detail: GameDetail
             <Field label="Launch mode">
               <SegmentedControl aria-label="Launch mode" value={s.launchMode} options={MODES} onValueChange={(v) => onSettings({ launchMode: v })} className="w-60" />
             </Field>
+            {detail.saves?.supported && (
+              <Field label="Cloud saves">
+                <div className="flex items-center gap-3">
+                  <Switch aria-label="Sync cloud saves" checked={detail.saves.enabled && globalSaves} disabled={!globalSaves} onCheckedChange={(v) => onSettings({ cloudSaves: v })} />
+                  {!globalSaves && <span className="text-xs text-fg-muted">Off for every game in Settings</span>}
+                </div>
+              </Field>
+            )}
             <Field label="Updates">
               <Select
                 aria-label="Updates"

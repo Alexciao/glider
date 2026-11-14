@@ -53,7 +53,7 @@ function BackLink() {
   const previous = useRouter((s) => s.previous);
   const label = previous?.page === "home" ? "Home" : "Library";
   return (
-    <Button variant="ghost" size="md" icon={<ArrowLeft size={15} />} onClick={() => navigate(previous?.page === "home" ? "home" : "library")} className="-ml-3 mb-3 text-fg-muted">
+    <Button variant="ghost" size="md" icon={<ArrowLeft size={16} />} onClick={() => navigate(previous?.page === "home" ? "home" : "library")} className="-ml-3 mb-3 text-fg-muted">
       {label}
     </Button>
   );
@@ -143,7 +143,7 @@ function GamePage({ game }: { game: GameSummary }) {
       </div>
 
       <div className="mt-8 flex max-w-[720px] flex-col gap-8">
-        {detail && <SavesSection game={game} detail={detail} onSettings={onSettings} />}
+        {detail && <SavesSection game={game} detail={detail} />}
         <AboutSection game={game} detail={detail} />
         {detail ? <DlcSection game={game} detail={detail} /> : loading && !error && <RowsSkeleton rows={3} />}
         {detail && installed && <GameSettingsSection detail={detail} onSettings={onSettings} />}

@@ -208,9 +208,10 @@ describe("Game page: only what the game has", () => {
     await waitFor(() => expect(useApp.getState().snapshot!.queue.jobs.some((j) => j.kind === "modify")).toBe(true));
   });
 
-  it("Cloud saves: the switch turns them off for this game only", async () => {
+  it("Cloud saves: the switch in Game settings turns them off for this game only", async () => {
     const { user } = await mount("returning", (b) => <GameView appName={b.find(idleInstalled).appName} />);
-    const sw = await screen.findByRole("switch", { name: "Cloud saves for this game" });
+    await user.click(await screen.findByRole("button", { name: "Game settings" }));
+    const sw = await screen.findByRole("switch", { name: "Sync cloud saves" });
     expect(sw).toBeChecked();
     await user.click(sw);
     await waitFor(() => expect(screen.getByText("Off")).toBeInTheDocument());
@@ -266,12 +267,12 @@ describe("Save conflict", () => {
 });
 
 describe("Third-party launcher outcomes", () => {
-  it("needs activation: Play explains it and Activate links the game", async () => {
+  it("needs linking: Play explains it and Link account links the game", async () => {
     const { user } = await mount("returning", (b) => <GameView appName={b.find((g) => g.thirdParty === "ubisoft" && g.installStatus === "installed").appName} />);
     await user.click(screen.getByRole("button", { name: "Play" }));
-    expect(await screen.findByText("Activate with Ubisoft Connect")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Activate" }));
-    await waitFor(() => expect(screen.queryByText("Activate with Ubisoft Connect")).not.toBeInTheDocument(), { timeout: 5000 });
+    expect(await screen.findByText("Link your Ubisoft Connect account")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Link account" }));
+    await waitFor(() => expect(screen.queryByText("Link your Ubisoft Connect account")).not.toBeInTheDocument(), { timeout: 5000 });
   });
 
   it("a game Epic doesn't install plays through its launcher and says what happened", async () => {

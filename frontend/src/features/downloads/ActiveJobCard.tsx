@@ -71,7 +71,7 @@ function PauseResume({ job, size = "md" }: { job: JobInfo; size?: "sm" | "md" })
       size={size}
       variant={paused ? "primary" : "secondary"}
       loading={busy}
-      icon={<Icon size={size === "sm" ? 12 : 13} fill="currentColor" strokeWidth={0} />}
+      icon={<Icon size={size === "sm" ? 12 : 14} fill="currentColor" strokeWidth={0} />}
       onClick={() => void (paused ? actions.resumeJob(job.id) : actions.pauseJob(job.id))}
     >
       {paused ? "Resume" : "Pause"}

@@ -44,7 +44,7 @@ function Chip({ action, active, onRun }: { action: ItemAction; active: boolean; 
       )}
     >
       {action.label}
-      {active && <CornerDownLeft size={11} className="opacity-70" />}
+      {active && <CornerDownLeft size={12} className="opacity-70" />}
     </span>
   );
 }

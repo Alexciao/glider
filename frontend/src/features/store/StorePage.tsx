@@ -84,7 +84,7 @@ export function StorePage() {
     <div className="flex h-full flex-col">
       <div className="flex h-10 shrink-0 items-center gap-1 border-b px-2">
         <IconButton label="Back" size="sm" disabled={!view?.canGoBack} onClick={() => void rpc().call("store.back").catch(() => {})}>
-          <ArrowLeft size={15} />
+          <ArrowLeft size={16} />
         </IconButton>
         <IconButton label="Reload" size="sm" onClick={reload}>
           {view?.loading ? <Spinner size={14} /> : <RotateCw size={14} />}
@@ -92,7 +92,7 @@ export function StorePage() {
         <div className="ml-2 flex min-w-0 items-center gap-1.5 text-xs text-fg-muted">
           {view?.host && (
             <>
-              <Lock size={11} className={cx(view.secure ? "text-fg-subtle" : "text-warning-text")} aria-label={view.secure ? "Secure connection" : "Not secure"} />
+              <Lock size={12} className={cx(view.secure ? "text-fg-subtle" : "text-warning-text")} aria-label={view.secure ? "Secure connection" : "Not secure"} />
               <span className="truncate" title={view.url ?? undefined}>
                 {view.host}
               </span>

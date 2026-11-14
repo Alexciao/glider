@@ -28,7 +28,7 @@ export function LibraryFoldersSection({ s }: { s: SettingsT }) {
             onOpen={(p) => void actions.openPath(p)}
           />
           <div className="pt-3">
-            <Button size="sm" variant="secondary" icon={<FolderPlus size={13} />} onClick={() => void addLibraryFolder(s)}>
+            <Button size="sm" variant="secondary" icon={<FolderPlus size={14} />} onClick={() => void addLibraryFolder(s)}>
               Add folder…
             </Button>
           </div>
@@ -98,7 +98,7 @@ export function UpdatesSection({ s }: { s: SettingsT }) {
             description={library.syncing ? "Checking…" : library.lastSyncedAt ? `Checked ${formatRelativeTime(library.lastSyncedAt)}` : undefined}
             control={
               <>
-                <Button size="sm" variant="secondary" icon={<RefreshCw size={13} />} loading={checking || library.syncing} disabled={!signedIn} onClick={() => void actions.checkForUpdates()}>
+                <Button size="sm" variant="secondary" icon={<RefreshCw size={14} />} loading={checking || library.syncing} disabled={!signedIn} onClick={() => void actions.checkForUpdates()}>
                   Check now
                 </Button>
                 {n > 0 && (

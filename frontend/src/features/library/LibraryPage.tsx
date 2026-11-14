@@ -124,7 +124,7 @@ export function LibraryPage() {
                 onClick={() => void actions.refreshLibrary()}
                 className="inline-flex items-center gap-1.5 rounded-sm text-sm text-warning-text outline-none transition-opacity duration-150 hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
               >
-                <TriangleAlert size={13} aria-hidden />
+                <TriangleAlert size={14} aria-hidden />
                 Couldn&apos;t sync. Try again
               </button>
             ) : filtered && total > 0 && !showSkeleton ? (
@@ -134,7 +134,7 @@ export function LibraryPage() {
             ) : null}
           </div>
           {total > 0 && (
-            <IconButton label={busySyncing ? "Syncing library…" : "Sync library"} onClick={() => void actions.refreshLibrary()} disabled={busySyncing} className="disabled:opacity-100">
+            <IconButton label={busySyncing ? "Syncing library…" : "Sync library"} onClick={() => void actions.refreshLibrary()} disabled={busySyncing} className="-mr-2 disabled:opacity-100">
               {busySyncing ? <Spinner size={14} className="text-fg-muted" /> : <RefreshCw size={14} />}
             </IconButton>
           )}

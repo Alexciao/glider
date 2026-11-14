@@ -87,7 +87,7 @@ const Spacer = () => <span className="flex-1" />;
 
 function BackButton({ to }: { to: OnboardingStep }) {
   return (
-    <Button variant="ghost" size="lg" icon={<ArrowLeft size={15} />} onClick={() => void go(to)}>
+    <Button variant="ghost" size="lg" icon={<ArrowLeft size={16} />} onClick={() => void go(to)}>
       Back
     </Button>
   );
@@ -206,7 +206,7 @@ function Scan() {
       <Button
         variant="ghost"
         size="lg"
-        icon={<FolderSearch size={15} />}
+        icon={<FolderSearch size={16} />}
         loading={session.locating}
         disabled={phase === "scanning" || phase === "importing" || session.starting}
         onClick={() => void session.locate()}
@@ -242,7 +242,7 @@ function Scan() {
               ? summary.imported + summary.needsRepair > 0
                 ? "Nothing was downloaded."
                 : undefined
-              : "Importing links them where they are, so nothing is downloaded again."}
+              : "Importing keeps them where they are, so nothing is downloaded again."}
         </Heading>
         <div className="mt-5" aria-live="polite">
           <ImportList session={session} launcherInstalled={launcherInstalled} />
@@ -294,8 +294,8 @@ function Folders() {
               none ? "h-32 flex-col" : "mt-2 h-12",
             )}
           >
-            <FolderPlus size={none ? 22 : 16} strokeWidth={none ? 1.5 : 2} />
-            {none ? "Add a library folder" : "Add a folder…"}
+            <FolderPlus size={none ? 24 : 16} strokeWidth={none ? 1.5 : 2} />
+            {none ? "Add a library folder" : "Add folder…"}
           </button>
         </div>
       </div>

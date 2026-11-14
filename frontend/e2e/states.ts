@@ -164,9 +164,9 @@ const RAW_STATES: ShotState[] = [
       await wait(600);
       await btn(p, "Add a library folder").click();
       await wait(500);
-      await btn(p, "Add a folder…").click();
+      await btn(p, "Add folder…").click();
       await wait(500);
-      await btn(p, "Add a folder…").click();
+      await btn(p, "Add folder…").click();
       await wait(700);
     },
   },
@@ -538,7 +538,7 @@ const RAW_STATES: ShotState[] = [
     setup: async (p) => {
       await go(p, "settings", "egl");
       await wait(400);
-      await btn(p, "Import games…").click();
+      await btn(p, "Import…").click();
       await wait(800);
     },
   },
@@ -717,8 +717,17 @@ const RAW_STATES: ShotState[] = [
   { name: "game-update", query: "scenario=returning", setup: async (p) => void (await goPicked(p, "g.installStatus==='installed'&&g.updateAvailable&&g.thirdParty==='none'")) },
   { name: "game-broken", query: "scenario=returning", setup: async (p) => void (await goPicked(p, "g.installStatus==='broken'")) },
   { name: "game-running", query: "scenario=playing", setup: async (p) => goGame(p) },
-  { name: "game-third-party", query: "scenario=returning", setup: async (p) => void (await goPicked(p, "g.installStatus==='installed'&&g.thirdParty!=='none'")) },
-  { name: "game-needs-activation", query: "scenario=returning", setup: async (p) => void (await goPicked(p, "g.installStatus==='installed'&&g.thirdParty==='ubisoft'")) },
+  { name: "game-third-party", query: "scenario=returning", setup: async (p) => void (await goPicked(p, "g.thirdParty!=='none'&&g.installStatus!=='installed'")) },
+  {
+    name: "game-needs-activation",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await goPicked(p, "g.installStatus==='installed'&&g.thirdParty==='ubisoft'");
+      await wait(500);
+      await btn(p, "Play").click();
+      await wait(1200);
+    },
+  },
   { name: "game-save-conflict", query: "scenario=returning", setup: async (p) => void (await goPicked(p, "g.saveStatus==='conflict'")) },
   { name: "game-dlc", query: "scenario=returning", setup: async (p) => void (await goPicked(p, "g.kind==='game'&&g.installStatus==='installed'&&g.dlcCount>0&&g.thirdParty==='none'")) },
   { name: "game-loading", query: "scenario=returning&latency=40", setup: async (p) => goGame(p, "Fortnite"), settle: 120 },

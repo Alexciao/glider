@@ -74,7 +74,7 @@ export function FolderChooser({
           disabled={disabled}
           className="group flex h-10 w-full items-center gap-3 rounded-lg border border-border-strong bg-surface-2 px-3 text-left text-sm transition-colors duration-150 hover:bg-surface-3 data-[state=open]:bg-surface-3 disabled:opacity-45"
         >
-          <HardDrive size={15} className="shrink-0 text-fg-muted" aria-hidden />
+          <HardDrive size={16} className="shrink-0 text-fg-muted" aria-hidden />
           <span className="min-w-0 flex-1">{value ? <PathText path={current?.path ?? value} className="font-medium text-fg" tailSegments={1} /> : <span className="text-fg-subtle">Choose a folder</span>}</span>
           {current && <span className="shrink-0 text-xs text-fg-muted tabular-nums">{room(current)}</span>}
           <ChevronDown size={14} className="shrink-0 text-fg-subtle transition-transform duration-150 group-data-[state=open]:rotate-180" aria-hidden />
@@ -127,12 +127,12 @@ export function SpaceMeter({
   const known = neededBytes != null && freeBytes != null;
   const fill = known && freeBytes > 0 ? Math.min(1, neededBytes / freeBytes) : 0;
   return (
-    <div className="rounded-lg border border-border bg-surface-1 p-4">
-      <dl className="grid gap-4" style={{ gridTemplateColumns: `repeat(${stats.length}, minmax(0, 1fr))` }}>
-        {stats.map((st, i) => (
+    <div>
+      <dl className="flex flex-wrap gap-x-10 gap-y-3">
+        {stats.map((st) => (
           <div key={st.label} className="min-w-0">
             <dt className="text-xs text-fg-muted">{st.label}</dt>
-            <dd className={cx("mt-0.5 text-md font-semibold tabular-nums transition-opacity duration-150", loading && "opacity-50", !fits && i === stats.length - 1 && "text-danger-text")}>
+            <dd className={cx("mt-0.5 text-md font-semibold tabular-nums transition-opacity duration-150", loading && "opacity-50")}>
               {st.value ?? <span className="g-skeleton mt-1 inline-block h-5 w-16 align-middle" aria-hidden />}
             </dd>
           </div>
@@ -141,7 +141,7 @@ export function SpaceMeter({
       <div
         role="img"
         aria-label={known ? `${formatBytes(neededBytes)} of ${formatBytes(freeBytes)} free` : "Checking free space"}
-        className="mt-4 h-1.5 overflow-hidden rounded-full bg-surface-3"
+        className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-3"
       >
         <div
           className={cx("h-full w-full origin-left rounded-full transition-[transform,background-color] duration-300 ease-out", fits ? "bg-accent" : "bg-danger")}

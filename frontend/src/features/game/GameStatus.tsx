@@ -1,6 +1,6 @@
 import { AnimatePresence, m } from "motion/react";
 import { useNow } from "../../state/hooks";
-import { Spinner, StatusDot, cx, labelSwap } from "../../ui";
+import { Spinner, StatusDot, cx, labelSwap, tween } from "../../ui";
 import type { StatusModel } from "./actionModel";
 import { formatPlayingFor } from "./format";
 
@@ -42,7 +42,7 @@ export function GameStatus({ status, moment, className }: { status: StatusModel;
           initial={labelSwap.initial}
           animate={labelSwap.animate}
           exit={labelSwap.exit}
-          transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
+          transition={tween.base}
           className="flex min-w-0 items-center gap-2.5"
         >
           {status.spinner ? <Spinner size={14} className="shrink-0 text-fg-muted" /> : moment ? <ReadyCheck /> : <StatusDot tone={status.tone} />}

@@ -92,17 +92,17 @@ public static class Errors
     /// <summary>The game is linked to another store's account, and that link hasn't been made (or confirmed) through Glider yet.</summary>
     public static GliderError ActivationRequired(string store, string? title = null, string? appName = null) => new(ErrorCode.ActivationRequired,
         $"Link your {store} account",
-        $"{Name(title)} needs your Epic account linked with {store} before it can start. Activate it once; Glider asks Epic to unlock the game on {store}.",
+        $"{Name(title)} needs your Epic account linked with {store} before it can start. Link it once; Glider asks Epic to unlock the game on {store}.",
         FixAction.Activate, null, appName);
 
     /// <summary>Epic reports no linked account for the store: the activation page was opened in the browser.</summary>
     public static GliderError AccountNotLinked(string store, string? title = null, string? appName = null) => new(ErrorCode.ActivationRequired,
         $"No {store} account is linked",
-        $"Epic doesn't know your {store} account yet. Link it in the page that just opened in your browser, then activate again.",
+        $"Epic doesn't know your {store} account yet. Link it in the page that just opened in your browser, then try again.",
         FixAction.Activate, null, appName);
 
     public static GliderError ActivationFailed(string store, string? detail = null, string? title = null, string? appName = null) => new(ErrorCode.ActivationRequired,
-        $"Couldn't activate on {store}",
+        $"Couldn't link {store}",
         $"Epic didn't unlock {NameLower(title)} on {store}. Try again in a moment.",
         FixAction.Activate, detail, appName);
 

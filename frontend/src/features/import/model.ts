@@ -58,7 +58,7 @@ export function rowResult(job: JobInfo | null | undefined): RowResult {
       if (job.outcome?.kind === "needsRepair") return { state: "needsRepair", message: job.outcome.message, error: null };
       return { state: "imported", message: job.outcome?.message ?? null, error: null };
     case "failed":
-      return { state: "failed", message: job.error?.message ?? job.outcome?.message ?? "Glider couldn't link this install.", error: job.error };
+      return { state: "failed", message: job.error?.message ?? job.outcome?.message ?? "Glider couldn't import this install.", error: job.error };
     case "cancelled":
       return { state: "cancelled", message: null, error: null };
   }

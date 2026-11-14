@@ -39,7 +39,7 @@ export function SegmentedControl<T extends string>({
       orientation="horizontal"
       {...aria}
       className={cx(
-        "relative grid rounded-lg border border-border bg-surface-1 p-0.5",
+        "relative grid rounded-md border border-border bg-surface-1 p-0.5",
         size === "sm" ? "h-7" : "h-8",
         className,
       )}
@@ -47,7 +47,7 @@ export function SegmentedControl<T extends string>({
     >
       <span
         aria-hidden
-        className="pointer-events-none absolute inset-y-0.5 left-0.5 rounded-md border border-border-strong bg-surface-3 shadow-sm transition-transform duration-200 ease-out"
+        className="pointer-events-none absolute inset-y-0.5 left-0.5 rounded-sm border border-border-strong bg-surface-3 shadow-sm transition-transform duration-200 ease-out"
         style={{ width: `calc((100% - 4px) / ${n})`, transform: `translateX(${index * 100}%)` }}
       />
       {options.map((o) => (
@@ -56,7 +56,7 @@ export function SegmentedControl<T extends string>({
           value={o.value}
           aria-label={o.ariaLabel}
           className={cx(
-            "relative z-10 whitespace-nowrap rounded-md px-3 text-center font-medium transition-colors duration-150 ease-out",
+            "relative z-10 whitespace-nowrap rounded-sm px-3 text-center font-medium transition-colors duration-150 ease-out",
             size === "sm" ? "text-xs" : "text-sm",
             o.value === value ? "text-fg" : "text-fg-muted hover:text-fg",
           )}

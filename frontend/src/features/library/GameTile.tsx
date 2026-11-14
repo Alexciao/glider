@@ -21,8 +21,8 @@ interface Badge {
 function badgeFor(g: GameSummary): Badge | null {
   if (g.activeJobId) return null;
   if (g.runState !== "idle") return { label: "Playing", node: <span className={cx("grid size-5 place-items-center rounded-full", glass)}><span className="size-2 animate-[g-breathe_1.8s_ease-in-out_infinite] rounded-full bg-[oklch(0.82_0.15_155)]" /></span> };
-  if (g.installStatus === "broken") return { label: "Needs repair", node: <span className={cx("grid size-5 place-items-center rounded-full text-[oklch(0.8_0.15_25)]", glass)}><TriangleAlert size={11} strokeWidth={2.5} /></span> };
-  if (g.installStatus === "installed" && g.updateAvailable) return { label: "Update available", node: <span className="grid size-5 place-items-center rounded-full bg-accent text-accent-fg ring-1 ring-inset ring-white/20"><ArrowDownToLine size={11} strokeWidth={2.5} /></span> };
+  if (g.installStatus === "broken") return { label: "Needs repair", node: <span className={cx("grid size-5 place-items-center rounded-full text-[oklch(0.8_0.15_25)]", glass)}><TriangleAlert size={12} strokeWidth={2.5} /></span> };
+  if (g.installStatus === "installed" && g.updateAvailable) return { label: "Update available", node: <span className="grid size-5 place-items-center rounded-full bg-accent text-accent-fg ring-1 ring-inset ring-white/20"><ArrowDownToLine size={12} strokeWidth={2.5} /></span> };
   if (g.installStatus === "installed") return { label: "Installed", node: <span className={cx("grid size-5 place-items-center rounded-full text-[oklch(0.82_0.15_155)]", glass)}><Check size={12} strokeWidth={2.75} /></span> };
   if (g.thirdParty !== "none" && g.thirdPartyName) return { label: g.thirdPartyName, node: <span className={cx("inline-flex h-5 items-center rounded-full px-2 text-2xs font-medium text-white/90", glass)}>{g.thirdPartyName}</span> };
   return null;
@@ -108,7 +108,7 @@ export const GameTile = memo(function GameTile({ game, index, count, x, y, width
                   variant="primary"
                   tabIndex={-1}
                   aria-label={`${quick.label} ${game.title}`}
-                  icon={quick.kind === "play" ? <Play size={12} className="fill-current" /> : quick.kind === "install" ? <Download size={13} /> : <Wrench size={13} />}
+                  icon={quick.kind === "play" ? <Play size={12} className="fill-current" /> : quick.kind === "install" ? <Download size={14} /> : <Wrench size={14} />}
                   onClick={() => void runQuick(quick.kind, game.appName)}
                   className="pointer-events-auto absolute inset-x-2 bottom-2 z-[3] shadow-md"
                 >

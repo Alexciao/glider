@@ -94,7 +94,7 @@ export function NumberField({ value, min, max, step = 1, suffix, onCommit, disab
         onClick={() => bump(-1)}
         className="grid w-7 place-items-center text-fg-muted transition-colors duration-150 hover:bg-surface-hover hover:text-fg disabled:opacity-35"
       >
-        <Minus size={13} />
+        <Minus size={14} />
       </button>
       <input
         inputMode="numeric"
@@ -128,7 +128,7 @@ export function NumberField({ value, min, max, step = 1, suffix, onCommit, disab
         onClick={() => bump(1)}
         className="grid w-7 place-items-center text-fg-muted transition-colors duration-150 hover:bg-surface-hover hover:text-fg disabled:opacity-35"
       >
-        <Plus size={13} />
+        <Plus size={14} />
       </button>
     </div>
   );

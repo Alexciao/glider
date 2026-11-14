@@ -20,7 +20,7 @@ export function ReadinessResult({ result }: { result: EglReadiness }) {
   if (result.ready) {
     return (
       <p className="mt-1 flex items-center gap-2 text-sm text-success-text" role="status">
-        <CircleCheck aria-hidden size={15} />
+        <CircleCheck aria-hidden size={16} />
         Nothing depends on it. You can uninstall it.
       </p>
     );
@@ -58,7 +58,7 @@ function ReadinessCheck() {
       <Line
         label="Ready to uninstall Epic Games Launcher?"
         control={
-          <Button size="sm" variant="secondary" loading={checking} icon={result ? <RefreshCw size={13} /> : undefined} onClick={run}>
+          <Button size="sm" variant="secondary" loading={checking} icon={result ? <RefreshCw size={14} /> : undefined} onClick={run}>
             {result ? "Check again" : "Check"}
           </Button>
         }
@@ -105,7 +105,7 @@ export function EglSection({ s }: { s: SettingsT }) {
             description={ready > 0 ? `${plural(ready, "game")} ready to import` : "Nothing new to import"}
             control={
               <>
-                <Button size="sm" variant="ghost" loading={rescanning} icon={<RefreshCw size={13} />} onClick={() => void actions.rescanEgl()}>
+                <Button size="sm" variant="ghost" loading={rescanning} icon={<RefreshCw size={14} />} onClick={() => void actions.rescanEgl()}>
                   Rescan
                 </Button>
                 <Button size="sm" variant="secondary" disabled={!signedIn} onClick={() => setImportOpen(true)}>
