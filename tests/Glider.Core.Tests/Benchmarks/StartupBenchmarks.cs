@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Glider.Core.Contracts;
 using Glider.Core.Infrastructure;
 using Glider.Core.Library;
@@ -52,10 +53,12 @@ public sealed class StartupBenchmarks
     /// <summary>
     /// Legendary's metadata folder as a real account has it: one <c>metadata/&lt;app&gt;.json</c> per game, sized like the public
     /// catalog responses in docs/research/fixtures/legendary/catalog-v0.21.1 (75 % a 27 KB AAA item, 20 % a 2 KB one, 5 % a 77 KB
-    /// one: about 24 KB on average, 12 MB for 500 games), plus one entitlement per game. Call before <c>rig.Service</c> is first used.
+    /// one), written indented like Legendary's <c>json.dump(indent=2)</c>: about 24 KB on average, 12 MB for 500 games. One entitlement
+    /// per game. Call before <c>rig.Service</c> is first used.
     /// </summary>
     internal static long WriteRealShapedMetadata(Rig rig, IReadOnlyList<string> apps)
     {
+        var indent = new JsonSerializerOptions { WriteIndented = true };
         var big = LibraryFixture.CatalogItem(LibraryFixture.AlienCatalog);
         var small = LibraryFixture.CatalogItem(LibraryFixture.CastlevaniaCatalog);
         var huge = LibraryFixture.CatalogItem(LibraryFixture.FortniteCatalog);
@@ -70,6 +73,8 @@ public sealed class StartupBenchmarks
                 item["namespace"] = $"ns{n:D5}";
                 item.Remove("mainGameItem");
             });
+            var path = Path.Combine(rig.Paths.LegendaryConfig, "metadata", apps[i] + ".json");
+            File.WriteAllText(path, JsonNode.Parse(File.ReadAllText(path))!.ToJsonString(indent));
             rig.Library.Entitle($"ns{n:D5}", null, "2024-05-06T07:08:09.000Z", $"item{n:D5}");
         }
 
