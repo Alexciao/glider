@@ -1,0 +1,131 @@
+name: legendary-fork
+
+# Builds the Glider fork of Legendary (docs/download-perf.md section 5.4): pinned upstream commit + tools/bench/legendary-0.21.1-glider.patch,
+# as a PyInstaller one-file exe, the same way upstream's own workflow builds it. On a tag "legendary-fork-<version>" the exe, its SHA-256,
+# the patch and the corresponding source (GPLv3 section 6) are published together as one release.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["legendary-fork-*"]
+  pull_request:
+    paths:
+      - ".github/workflows/legendary-fork.yml"
+      - "tools/legendary-fork/**"
+      - "tools/bench/legendary-0.21.1-glider.patch"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Read the pin
+        id: pin
+        shell: pwsh
+        run: |
+          $pin = Get-Content tools/legendary-fork/PIN.json -Raw | ConvertFrom-Json
+          "upstream=$($pin.upstream)" >> $env:GITHUB_OUTPUT
+          "commit=$($pin.commit)"     >> $env:GITHUB_OUTPUT
+          "version=$($pin.forkVersion)" >> $env:GITHUB_OUTPUT
+          $actual = (Get-FileHash $pin.patch -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $pin.patchSha256) { throw "patch hash $actual does not match PIN.json ($($pin.patchSha256))" }
+
+      - name: Fetch upstream at the pinned commit
+        shell: pwsh
+        run: |
+          git init legendary-src
+          git -C legendary-src remote add origin "${{ steps.pin.outputs.upstream }}"
+          git -C legendary-src fetch --depth 1 origin "${{ steps.pin.outputs.commit }}"
+          git -C legendary-src checkout --detach FETCH_HEAD
+          if ((git -C legendary-src rev-parse HEAD) -ne "${{ steps.pin.outputs.commit }}") { throw "upstream commit mismatch" }
+
+      - name: Apply the Glider patch
+        shell: pwsh
+        run: |
+          git -C legendary-src apply --check "$env:GITHUB_WORKSPACE/tools/bench/legendary-0.21.1-glider.patch"
+          git -C legendary-src apply        "$env:GITHUB_WORKSPACE/tools/bench/legendary-0.21.1-glider.patch"
+          # The version normally comes from the installed package metadata, which a one-file build has no copy of: pin it as a literal
+          # (this is also what `legendary --version` and the user agent report).
+          $init = Get-Content legendary-src/legendary/__init__.py -Raw
+          $patched = $init -replace "__version__ = version\('legendary-gl'\)", "__version__ = '${{ steps.pin.outputs.version }}'"
+          if ($patched -eq $init) { throw "legendary/__init__.py did not contain the expected version line" }
+          Set-Content legendary-src/legendary/__init__.py $patched -NoNewline
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version-file: legendary-src/pyproject.toml
+
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          enable-cache: true
+
+      - name: Dependencies and PyInstaller (from uv.lock)
+        working-directory: legendary-src
+        env:
+          UV_SYSTEM_PYTHON: 1
+        run: uv sync --frozen --extra pyinstaller_build --no-install-local
+
+      - name: Build legendary.exe
+        working-directory: legendary-src/legendary
+        env:
+          UV_SYSTEM_PYTHON: 1
+          PYTHONOPTIMIZE: 1
+        run: uv run --module PyInstaller --onefile --name legendary -i ../assets/windows_icon.ico cli.py
+
+      - name: Smoke test the exe (no login)
+        shell: pwsh
+        run: |
+          $exe = "legendary-src/legendary/dist/legendary.exe"
+          $v = (& $exe --version 2>&1 | Out-String).Trim(); Write-Host $v
+          if ($v -notmatch [regex]::Escape('${{ steps.pin.outputs.version }}')) { throw "unexpected version output: $v" }
+          $help = (& $exe install --help 2>&1 | Out-String)
+          if ($help -notmatch '--control-file') { throw "the patch's --control-file option is missing from install --help" }
+
+      - name: Collect release files (exe, SHA-256, patch, source)
+        shell: pwsh
+        run: |
+          $v = '${{ steps.pin.outputs.version }}'
+          New-Item out -ItemType Directory | Out-Null
+          Copy-Item legendary-src/legendary/dist/legendary.exe out/legendary.exe
+          (Get-FileHash out/legendary.exe -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content out/legendary.exe.sha256 -NoNewline
+          Copy-Item tools/bench/legendary-0.21.1-glider.patch out/glider-legendary.patch
+          Copy-Item tools/legendary-fork/SOURCE-OFFER.txt out/SOURCE-OFFER.txt
+          # GPLv3 section 6: the corresponding source (upstream commit + patch applied, the exact tree that was built), from the same place as the binary.
+          $tree = "source-tree/legendary-$v"
+          New-Item $tree -ItemType Directory -Force | Out-Null
+          git -C legendary-src ls-files -z --cached --others --exclude-standard | ForEach-Object { $_ -split "`0" } | Where-Object { $_ } | ForEach-Object {
+            $dest = Join-Path $tree $_; New-Item (Split-Path $dest) -ItemType Directory -Force | Out-Null; Copy-Item "legendary-src/$_" $dest
+          }
+          tar -czf "out/legendary-$v-source.tar.gz" -C source-tree "legendary-$v"
+          Get-ChildItem out | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: legendary-fork
+          path: out/*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/legendary-fork-')
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: legendary-fork
+          path: out
+      - name: Publish the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $sha = Get-Content out/legendary.exe.sha256 -Raw
+          gh release create "${{ github.ref_name }}" out/* --repo "${{ github.repository }}" `
+            --title "${{ github.ref_name }}" `
+            --notes "Glider fork of Legendary (GPLv3). legendary.exe SHA-256: $sha. Changes: glider-legendary.patch. Source: legendary-*-source.tar.gz; see SOURCE-OFFER.txt."

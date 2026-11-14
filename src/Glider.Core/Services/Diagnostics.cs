@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using Glider.Core.Contracts;
+using Glider.Core.Legendary;
 
 namespace Glider.Core.Services;
 
@@ -111,8 +112,15 @@ internal static class Licenses
         new("velopack", "Velopack", "", "MIT", "https://github.com/velopack/velopack"),
     ];
 
+    /// <summary>The Glider fork of Legendary is modified GPLv3 software: say so, and say where the patch and the source offer are.</summary>
+    internal const string ForkNotice = "This build of Glider bundles a modified Legendary (the Glider fork: CDN failover, a runtime control file and clearer progress output). " +
+                                        "The complete changes are in legendary/glider-legendary.patch next to legendary.exe, and legendary/SOURCE-OFFER.txt says how to get the corresponding source. " +
+                                        "Both are free software under the GNU General Public License v3 or later.";
+
     public static LicensesResult Load(string directory) => new(Items
-        .Select(i => new LicenseInfo(i.Name, i.Version, i.License, i.Url, ReadText(directory, i.Id)))
+        .Select(i => i.Id == "legendary" && LegendaryPin.IsFork
+            ? new LicenseInfo("Legendary (modified by Glider)", LegendaryPin.Version ?? i.Version, i.License, i.Url, ForkNotice + "\n\n" + ReadText(directory, i.Id))
+            : new LicenseInfo(i.Name, i.Version, i.License, i.Url, ReadText(directory, i.Id)))
         .ToList());
 
     private static string? ReadText(string dir, string id)
