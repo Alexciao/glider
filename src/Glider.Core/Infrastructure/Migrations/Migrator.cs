@@ -13,10 +13,18 @@ public sealed class SchemaFile
 {
     public int SchemaVersion { get; set; }
 
+    /// <summary>The Glider version whose data was converted (v0.1's "0.1"), kept across later schema bumps; null for a fresh install.</summary>
     public string? MigratedFrom { get; set; }
 
+    /// <summary>When that conversion ran.</summary>
     public DateTimeOffset? MigratedAt { get; set; }
+
+    /// <summary>Every step this data went through, oldest first (a schema-2 marker without it gets its v0.1 step back-filled).</summary>
+    public List<SchemaStep>? History { get; set; }
 }
+
+/// <summary>One migration step: <c>from</c> is a Glider version ("0.1") or a schema number ("2").</summary>
+public sealed record SchemaStep(string From, int To, DateTimeOffset At, string? Note = null);
 
 public enum MigrationStatus
 {
@@ -32,13 +40,16 @@ public enum MigrationStatus
 public sealed record MigrationResult(MigrationStatus Status, string? MigratedFrom, string? BackupDirectory, Exception? Error = null);
 
 /// <summary>
-/// Versioned migrations of Glider's own data (%LocalAppData%\Glider\state and cache). Runs before any store loads. Each
-/// step is idempotent; schema.json is the commit marker and is written last, so a failed or interrupted run is simply
-/// retried at the next start. Legendary's folder and webview2\ are never touched.
+/// Versioned migrations of Glider's own data (state and cache in the data root). Runs before any store loads. Each step is
+/// idempotent; schema.json is the commit marker and is written last, so a failed or interrupted run is simply retried at the
+/// next start. Legendary's folder and webview2\ are never touched.
+/// <para>Schema 3 is the data-root move out of Velopack's install root. The move itself runs in the host before Core starts
+/// (<see cref="DataRootMover"/>: it has to happen before WebView2, logging or any store opens a file), so by the time this runs
+/// the files are already in the new root; v0.1 data is converted to schema 2 there, then the marker records schema 3.</para>
 /// </summary>
 public static class Migrator
 {
-    public const int CurrentSchema = 2;
+    public const int CurrentSchema = DataRoot.Schema;
 
     public static string SchemaPath(AppPaths paths) => Path.Combine(paths.State, "schema.json");
 
@@ -53,16 +64,40 @@ public static class Migrator
                 return new MigrationResult(MigrationStatus.UpToDate, null, null);
             }
 
-            if (!MigrationV1ToV2.HasV1Data(paths))
+            var now = time.GetUtcNow();
+            if (schema is null && !MigrationV1ToV2.HasV1Data(paths))
             {
-                await WriteSchemaAsync(paths, new SchemaFile { SchemaVersion = CurrentSchema, MigratedFrom = null, MigratedAt = time.GetUtcNow() }, ct);
+                await WriteSchemaAsync(paths, new SchemaFile { SchemaVersion = CurrentSchema, MigratedFrom = null, MigratedAt = now, History = [] }, ct);
                 return new MigrationResult(MigrationStatus.Fresh, null, null);
             }
 
-            var backup = await MigrationV1ToV2.RunAsync(paths, log, time, ct);
-            await WriteSchemaAsync(paths, new SchemaFile { SchemaVersion = CurrentSchema, MigratedFrom = MigrationV1ToV2.From, MigratedAt = time.GetUtcNow() }, ct);
-            log.Info("migration", $"Migrated Glider {MigrationV1ToV2.From} data to schema {CurrentSchema}; backup in {backup}.");
-            return new MigrationResult(MigrationStatus.Migrated, MigrationV1ToV2.From, backup);
+            var history = schema?.History ?? [];
+            if (schema is { History: null, MigratedFrom: { } earlier })
+            {
+                history.Add(new SchemaStep(earlier, 2, schema.MigratedAt ?? now)); // a schema-2 marker has no history: back-fill its step
+            }
+
+            string? backup = null;
+            string? convertedFrom = null;
+            if (schema is null)
+            {
+                backup = await MigrationV1ToV2.RunAsync(paths, log, time, ct);
+                convertedFrom = MigrationV1ToV2.From;
+                history.Add(new SchemaStep(MigrationV1ToV2.From, 2, now, "backup " + Path.GetFileName(backup)));
+                log.Info("migration", $"Converted Glider {MigrationV1ToV2.From} data to schema 2; backup in {backup}.");
+            }
+
+            var moved = DataRoot.ReadMarker(paths.Root)?.MovedFrom;
+            history.Add(new SchemaStep("2", 3, now, moved is null ? "data root " + paths.Root : $"data root moved from {moved} to {paths.Root}"));
+            await WriteSchemaAsync(paths, new SchemaFile
+            {
+                SchemaVersion = CurrentSchema,
+                MigratedFrom = schema?.MigratedFrom ?? convertedFrom,
+                MigratedAt = schema is null ? now : schema.MigratedAt,
+                History = history,
+            }, ct);
+            log.Info("migration", $"Data is at schema {CurrentSchema} in {paths.Root}.");
+            return new MigrationResult(MigrationStatus.Migrated, convertedFrom, backup);
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
@@ -197,6 +232,23 @@ internal static class MigrationV1ToV2
 
     private static async Task<string> BackupAsync(AppPaths paths, TimeProvider time, CancellationToken ct)
     {
+        var sources = new List<(string Source, string Relative)>();
+        if (Directory.Exists(paths.State))
+        {
+            sources.AddRange(Directory.EnumerateFiles(paths.State).Select(f => (f, Path.Combine("state", Path.GetFileName(f)))));
+        }
+
+        if (Directory.Exists(paths.Cache))
+        {
+            sources.AddRange(Directory.EnumerateFiles(paths.Cache, "*.json").Select(f => (f, Path.Combine("cache", Path.GetFileName(f)))));
+        }
+
+        // A retry after a failed start must not pile up identical copies (review L8): reuse the newest backup that matches byte for byte.
+        if (await NewestMatchingBackupAsync(paths, sources, ct) is { } reused)
+        {
+            return reused;
+        }
+
         var stamp = time.GetUtcNow().ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture);
         var dir = Path.Combine(paths.MigrationBackups, $"v{From}-{stamp}");
         for (var n = 2; Directory.Exists(dir); n++)
@@ -204,20 +256,10 @@ internal static class MigrationV1ToV2
             dir = Path.Combine(paths.MigrationBackups, $"v{From}-{stamp}-{n}");
         }
 
-        var sources = new List<(string Source, string Target)>();
-        if (Directory.Exists(paths.State))
-        {
-            sources.AddRange(Directory.EnumerateFiles(paths.State).Select(f => (f, Path.Combine(dir, "state", Path.GetFileName(f)))));
-        }
-
-        if (Directory.Exists(paths.Cache))
-        {
-            sources.AddRange(Directory.EnumerateFiles(paths.Cache, "*.json").Select(f => (f, Path.Combine(dir, "cache", Path.GetFileName(f)))));
-        }
-
-        foreach (var (source, target) in sources)
+        foreach (var (source, relative) in sources)
         {
             ct.ThrowIfCancellationRequested();
+            var target = Path.Combine(dir, relative);
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             var bytes = await File.ReadAllBytesAsync(source, ct);
             await File.WriteAllBytesAsync(target, bytes, ct);
@@ -228,6 +270,54 @@ internal static class MigrationV1ToV2
         }
 
         return dir;
+    }
+
+    /// <summary>The newest v0.1 backup holding exactly these files with exactly these bytes, or null.</summary>
+    private static async Task<string?> NewestMatchingBackupAsync(AppPaths paths, List<(string Source, string Relative)> sources, CancellationToken ct)
+    {
+        if (!Directory.Exists(paths.MigrationBackups))
+        {
+            return null;
+        }
+
+        var expected = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (source, relative) in sources)
+        {
+            expected[relative] = await HashAsync(source, ct);
+        }
+
+        // Names sort by their UTC timestamp ("v0.1-yyyyMMdd-HHmmss-fff[-n]").
+        foreach (var candidate in Directory.EnumerateDirectories(paths.MigrationBackups, $"v{From}-*").OrderByDescending(d => d, StringComparer.Ordinal))
+        {
+            var files = Directory.EnumerateFiles(candidate, "*", SearchOption.AllDirectories).ToList();
+            if (files.Count != expected.Count)
+            {
+                continue;
+            }
+
+            var match = true;
+            foreach (var file in files)
+            {
+                if (!expected.TryGetValue(Path.GetRelativePath(candidate, file), out var hash) || hash != await HashAsync(file, ct))
+                {
+                    match = false;
+                    break;
+                }
+            }
+
+            if (match)
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task<string> HashAsync(string path, CancellationToken ct)
+    {
+        await using var s = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
+        return Convert.ToHexString(await System.Security.Cryptography.SHA256.HashDataAsync(s, ct));
     }
 
     // ------------------------------------------------------------------ games.json

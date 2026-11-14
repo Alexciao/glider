@@ -70,8 +70,9 @@ public sealed class MigrationTests : IDisposable
         Assert.Equal(MigrationStatus.Migrated, result.Status);
         Assert.Equal("0.1", result.MigratedFrom);
         var schema = Migrator.ReadSchema(Paths)!;
-        Assert.Equal(2, schema.SchemaVersion);
+        Assert.Equal(3, schema.SchemaVersion);
         Assert.Equal("0.1", schema.MigratedFrom);
+        Assert.Equal([("0.1", 2), ("2", 3)], schema.History!.Select(h => (h.From, h.To)));
 
         // games.json: Fortnite's install record, playtime and last played.
         using var games = await GamesStore.LoadAsync(Paths, _log, TestContext.Current.CancellationToken);
@@ -281,7 +282,8 @@ public sealed class MigrationTests : IDisposable
         var result = await Migrate();
         Assert.Equal(MigrationStatus.Fresh, result.Status);
         Assert.Null(result.MigratedFrom);
-        Assert.Equal(2, Migrator.ReadSchema(Paths)!.SchemaVersion);
+        Assert.Equal(3, Migrator.ReadSchema(Paths)!.SchemaVersion);
+        Assert.Empty(Migrator.ReadSchema(Paths)!.History!);
         Assert.False(Directory.Exists(Paths.MigrationBackups));
         Assert.Equal(MigrationStatus.UpToDate, (await Migrate()).Status);
     }
@@ -311,6 +313,157 @@ public sealed class MigrationTests : IDisposable
         Assert.Equal("0.1", snap.App.MigratedFrom);
         Assert.True(snap.Onboarding.Completed);
     }
+
+    [Fact]
+    public async Task ASchema2MarkerIsBumpedTo3_KeepingWhereTheDataCameFrom()
+    {
+        Directory.CreateDirectory(Paths.State);
+        File.WriteAllText(Migrator.SchemaPath(Paths), """{"schemaVersion":2,"migratedFrom":"0.1","migratedAt":"2026-10-01T08:00:00+00:00"}""");
+        File.WriteAllText(Path.Combine(Paths.State, "games.json"), """{"schemaVersion":2,"games":{}}""");
+        var games = File.ReadAllBytes(Path.Combine(Paths.State, "games.json"));
+
+        var result = await Migrate();
+
+        Assert.Equal(MigrationStatus.Migrated, result.Status);
+        Assert.Null(result.MigratedFrom); // nothing was converted this run
+        Assert.Null(result.BackupDirectory);
+        var schema = Migrator.ReadSchema(Paths)!;
+        Assert.Equal(3, schema.SchemaVersion);
+        Assert.Equal("0.1", schema.MigratedFrom);
+        Assert.Equal(DateTimeOffset.Parse("2026-10-01T08:00:00+00:00", System.Globalization.CultureInfo.InvariantCulture), schema.MigratedAt);
+        Assert.Equal([("0.1", 2), ("2", 3)], schema.History!.Select(h => (h.From, h.To)));
+        Assert.Equal(games, File.ReadAllBytes(Path.Combine(Paths.State, "games.json")));
+        Assert.Equal(MigrationStatus.UpToDate, (await Migrate()).Status);
+    }
+
+    [Fact]
+    public async Task RepeatedFailuresReuseAMatchingBackup()
+    {
+        SeedV01();
+        MigrationV1ToV2.FailAfter = "backup"; // fails before writing anything: every retry sees the same bytes
+        try
+        {
+            for (var i = 0; i < 3; i++)
+            {
+                Assert.Equal(MigrationStatus.Failed, (await Migrate()).Status);
+            }
+        }
+        finally
+        {
+            MigrationV1ToV2.FailAfter = null;
+        }
+
+        var backup = Assert.Single(Directory.GetDirectories(Paths.MigrationBackups));
+        var result = await Migrate();
+        Assert.Equal(MigrationStatus.Migrated, result.Status);
+        Assert.Equal(backup, result.BackupDirectory);
+        Assert.Single(Directory.GetDirectories(Paths.MigrationBackups));
+    }
+
+    [Fact]
+    public async Task AFailureAfterWritingKeepsTheOriginalBackup_AndAddsAtMostOneMore()
+    {
+        SeedV01((Variant: "settings.json", Target: "state/settings.json"));
+        var original = Hashes(Paths.State);
+        MigrationV1ToV2.FailAfter = "jobs"; // settings.json and games.json were rewritten before the failure
+        try
+        {
+            for (var i = 0; i < 3; i++)
+            {
+                Assert.Equal(MigrationStatus.Failed, (await Migrate()).Status);
+            }
+        }
+        finally
+        {
+            MigrationV1ToV2.FailAfter = null;
+        }
+
+        var backups = Directory.GetDirectories(Paths.MigrationBackups).Order(StringComparer.Ordinal).ToList();
+        Assert.Equal(2, backups.Count); // the pristine v0.1 bytes, then the half-migrated state that every later retry matches
+        Assert.Equal(original, Hashes(Path.Combine(backups[0], "state")));
+    }
+
+    /// <summary>
+    /// A v0.1 user installing this build: the host moves %LocalAppData%\Glider's data to GliderData first (Velopack's files stay),
+    /// then Core converts v0.1 → schema 2 in the new root and records schema 3.
+    /// </summary>
+    [Fact]
+    public async Task AV01RootIsMovedThenMigrated_IntoAWorkingLayout()
+    {
+        var layout = new MoveLayout(_dir.Combine("LocalAppData"));
+        layout.SeedVelopackOnly();
+        var old = new AppPaths(layout.Old, _dir.Combine("legendary.exe"));
+        SeedV01(old);
+        Directory.CreateDirectory(Path.Combine(old.LegendaryConfig, "tmp"));
+        File.WriteAllText(Path.Combine(old.LegendaryConfig, "tmp", "Fortnite.resume"), "resume");
+        File.WriteAllText(Path.Combine(old.LegendaryConfig, "user.json"), "{}");
+        Directory.CreateDirectory(Path.Combine(old.WebView2, "EBWebView"));
+        Directory.CreateDirectory(old.Logs);
+        File.WriteAllText(Path.Combine(old.Logs, "glider-20261101.log"), "v0.1 log");
+        var v01State = Hashes(old.State);
+        var velopack = layout.VelopackHashes();
+
+        var moved = DataRoot.Prepare(null, DataRootMoverTests.Options(), layout.LocalAppData);
+
+        Assert.Equal(DataRootMoveStatus.Moved, moved.Status);
+        Assert.Equal(layout.New, moved.Root);
+        var paths = new AppPaths(moved.Root, old.LegendaryExe);
+        Assert.Equal(v01State, Hashes(paths.State)); // moved as is: the conversion happens next, in the new root
+
+        var migrated = await Migrator.RunAsync(paths, _log, ct: TestContext.Current.CancellationToken);
+
+        Assert.Equal(MigrationStatus.Migrated, migrated.Status);
+        Assert.Equal("0.1", migrated.MigratedFrom);
+        Assert.StartsWith(Path.Combine(layout.New, "backups", "migration"), migrated.BackupDirectory, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(v01State, Hashes(Path.Combine(migrated.BackupDirectory!, "state")));
+        var schema = Migrator.ReadSchema(paths)!;
+        Assert.Equal(3, schema.SchemaVersion);
+        Assert.Equal("0.1", schema.MigratedFrom);
+        Assert.Equal([("0.1", 2), ("2", 3)], schema.History!.Select(h => (h.From, h.To)));
+        Assert.Contains(layout.Old, schema.History![1].Note, StringComparison.Ordinal);
+        using (var games = await GamesStore.LoadAsync(paths, _log, TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(@"D:\Games\Fortnite", games.Get(Fortnite).Install!.InstallPath);
+        }
+
+        Assert.Equal("resume", File.ReadAllText(Path.Combine(paths.LegendaryConfig, "tmp", "Fortnite.resume")));
+        Assert.Equal("v0.1 log", File.ReadAllText(Path.Combine(paths.Logs, "glider-20261101.log")));
+        Assert.Equal(velopack, layout.VelopackHashes());
+        Assert.All(DataRoot.Directories, d => Assert.False(Directory.Exists(Path.Combine(layout.Old, d))));
+        Assert.True(File.Exists(Path.Combine(layout.Old, DataRoot.PointerFile)));
+        Assert.Equal(layout.New, DataRoot.Resolve(layout.Old, layout.New));
+
+        // The next start: nothing moves, nothing migrates.
+        Assert.Equal(DataRootMoveStatus.AlreadyMoved, DataRoot.Prepare(null, DataRootMoverTests.Options(), layout.LocalAppData).Status);
+        Assert.Equal(MigrationStatus.UpToDate, (await Migrator.RunAsync(paths, _log, ct: TestContext.Current.CancellationToken)).Status);
+
+        // And the runtime starts on it, reporting the v0.1 upgrade and the new data folder.
+        using var env = new FakeLegendaryEnv();
+        var fresh = new MoveLayout(_dir.Combine("LocalAppData2"));
+        fresh.SeedVelopackOnly();
+        SeedV01(new AppPaths(fresh.Old, env.Paths.LegendaryExe));
+        var root = DataRoot.Prepare(null, DataRootMoverTests.Options(), fresh.LocalAppData).Root;
+        await using var runtime = await StartRuntime(new AppPaths(root, env.Paths.LegendaryExe));
+        Assert.Equal(MigrationStatus.Migrated, runtime.Migration.Status);
+        var snap = await runtime.Rpc.GetSnapshot();
+        Assert.Equal("0.1", snap.App.MigratedFrom);
+        Assert.Equal(fresh.New, snap.App.DataDirectory);
+        Assert.True(snap.Onboarding.Completed);
+    }
+
+    private Task<Glider.Core.Services.GliderRuntime> StartRuntime(AppPaths paths) =>
+        Glider.Core.Services.GliderRuntime.StartAsync(paths, new Services.FakeHost(new Services.CallLog()), new Services.FakeSink(),
+            new EglEnvironment(_dir.Combine("ProgramData")), options: new Glider.Core.Services.GliderRuntimeOptions
+            {
+                ProcessMonitor = new Services.FakeProcesses(),
+                ProcessStarter = new Services.FakeProcesses(),
+                DiskInfo = new Services.FakeDisk(),
+                FreeGamesBackground = false,
+                Legendary = new Glider.Core.Legendary.LegendaryOptions { PinnedVersion = "0.21.1" },
+                OverlayRegistry = new Services.FakeOverlayRegistry(),
+                OverlayEnvironment = new Glider.Core.Overlay.OverlayEnvironment(null),
+                ThirdPartyLaunchers = new Services.FakeLaunchers(),
+            }, ct: TestContext.Current.CancellationToken);
 
     private static string Normalized(string path) =>
         JsonSerializer.Serialize(JsonDocument.Parse(File.ReadAllBytes(path)).RootElement);
