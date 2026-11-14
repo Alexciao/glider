@@ -97,7 +97,8 @@ public sealed record LegendaryLibrary(
 /// <summary>
 /// Reads Legendary's files directly (L§2.5): every <c>metadata/*.json</c>, <c>assets.json</c>, <c>installed.json</c>,
 /// <c>entitlements.json</c>. Legendary rewrites them in place without locks, so each parse is retried (3× / 100 ms) and a
-/// file that stays unreadable keeps its previous value. Unchanged metadata files (same size and mtime) are not re-parsed.
+/// file that stays unreadable keeps its previous value. Unchanged files (same size and mtime) are not re-parsed:
+/// every metadata file, and assets.json, installed.json and entitlements.json, are parsed once and then only when they change.
 /// Glider never writes any of them.
 /// </summary>
 public sealed class LegendaryLibraryReader
@@ -110,6 +111,7 @@ public sealed class LegendaryLibraryReader
     private readonly ILog? _log;
     private readonly TimeSpan _retryDelay;
     private readonly ConcurrentDictionary<string, (long Length, DateTime Mtime, CatalogItem? Item)> _metadataCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, (long Length, DateTime Mtime, object Value)> _fileCache = new(StringComparer.OrdinalIgnoreCase);
 
     public LegendaryLibraryReader(string configDir, ILog? log = null, TimeSpan? retryDelay = null)
     {
@@ -188,9 +190,17 @@ public sealed class LegendaryLibraryReader
     private async Task<T?> ReadOrKeepAsync<T>(string path, Func<JsonElement, T?> parse, T? previous, CancellationToken ct, bool missingIsEmpty = false)
         where T : class
     {
-        if (!File.Exists(path))
+        var info = new FileInfo(path);
+        if (!info.Exists)
         {
+            _fileCache.TryRemove(path, out _);
             return missingIsEmpty ? parse(JsonDocument.Parse("{}").RootElement) : null;
+        }
+
+        var (length, mtime) = (info.Length, info.LastWriteTimeUtc); // taken before the read: a write in between is seen as a change next time
+        if (_fileCache.TryGetValue(path, out var hit) && hit.Length == length && hit.Mtime == mtime && hit.Value is T cached)
+        {
+            return cached;
         }
 
         using var doc = await ReadJsonAsync(path, ct).ConfigureAwait(false);
@@ -200,7 +210,13 @@ public sealed class LegendaryLibraryReader
             return previous;
         }
 
-        return parse(doc.RootElement) ?? previous;
+        var value = parse(doc.RootElement);
+        if (value is not null)
+        {
+            _fileCache[path] = (length, mtime, value);
+        }
+
+        return value ?? previous;
     }
 
     /// <summary>Parse with retry: Legendary may be rewriting the file in place this very moment.</summary>

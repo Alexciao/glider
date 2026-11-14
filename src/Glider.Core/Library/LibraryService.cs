@@ -29,6 +29,15 @@ internal sealed class LibraryService : IArtSource, IDisposable
 {
     private const string Category = "library";
 
+    /// <summary>The longest a foreground flush (library.get, game.getDetail) waits for a rebuild that is already running.</summary>
+    private static readonly TimeSpan FlushTimeBox = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>With no cached library at all, library.get has nothing to show until Legendary's files are parsed: it waits that long for them.</summary>
+    private static readonly TimeSpan FirstReadTimeBox = TimeSpan.FromSeconds(2);
+
+    /// <summary>cache/library.json is rewritten at most this often (after the quiet delay), and only when a summary changed since the last write.</summary>
+    private static readonly TimeSpan MinCacheWriteInterval = TimeSpan.FromSeconds(30);
+
     private readonly ServiceContext _c;
     private readonly LegendaryLibraryReader _reader;
     private readonly string _cachePath;
@@ -47,6 +56,14 @@ internal sealed class LibraryService : IArtSource, IDisposable
     private bool _pendingRebuild;
     private bool _pendingReread;
     private bool _flushArmed;
+    private readonly CatalogMemo _memo = new();
+    private readonly SemaphoreSlim _cacheWrite = new(1, 1);
+    private bool _cacheDirty;
+    private bool _cacheArmed;
+    private DateTimeOffset _lastCacheWrite = DateTimeOffset.MinValue;
+    private long _cacheWrites;
+    private GameSummary[]? _sorted;
+    private long _sortedRevision = -1;
     private bool _disposed;
     private Task _syncTask = Task.CompletedTask;
     private Task _sizesTask = Task.CompletedTask;
@@ -57,7 +74,7 @@ internal sealed class LibraryService : IArtSource, IDisposable
         _reader = new LegendaryLibraryReader(context.Paths.LegendaryConfig, context.Log, context.Options.LibraryRetryDelay);
         _cachePath = PathFor(context.Paths);
         _artIndexPath = Path.Combine(context.Paths.Cache, "art", "index.json");
-        _flushTimer = context.Time.CreateTimer(_ => _ = FlushAsync(background: true), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        _flushTimer = context.Time.CreateTimer(_ => _ = FlushAsync(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _cacheTimer = context.Time.CreateTimer(_ => _ = SaveCacheAsync(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
     }
 
@@ -130,6 +147,12 @@ internal sealed class LibraryService : IArtSource, IDisposable
 
     /// <summary>Completes when the current update-size measurements finished (tests).</summary>
     internal Task SizesTask => _sizesTask;
+
+    /// <summary>Summaries the last rebuild computed vs. took over unchanged (tests).</summary>
+    internal (int Rebuilt, int Reused) LastBuild => (_memo.Rebuilt, _memo.Reused);
+
+    /// <summary>How many times cache/library.json was written this session (tests).</summary>
+    internal long CacheWrites => Interlocked.Read(ref _cacheWrites);
 
     public LibraryStatus Status()
     {
@@ -248,7 +271,7 @@ internal sealed class LibraryService : IArtSource, IDisposable
         var delay = _c.Options.LibraryCoalesceInterval;
         if (delay <= TimeSpan.Zero)
         {
-            _ = Task.Run(() => FlushAsync(background: true));
+            _ = Task.Run(() => FlushAsync());
         }
         else
         {
@@ -256,9 +279,22 @@ internal sealed class LibraryService : IArtSource, IDisposable
         }
     }
 
-    /// <summary>Runs any pending rebuild now and publishes its delta (if anything changed).</summary>
-    public async Task FlushAsync(bool background = false)
+    /// <summary>
+    /// Runs any pending rebuild now and publishes its delta (if anything changed). Before Legendary's files were read once, a cached
+    /// library is all there is and a flush leaves the rebuild to the pre-warm's re-read: nothing that asks for a flush (library.get,
+    /// game.getDetail) may end up parsing 500 metadata files, or waiting behind the pre-warm that does.
+    /// </summary>
+    public async Task FlushAsync()
     {
+        lock (_gate)
+        {
+            if (!_filesRead && !_pendingReread && _published.Count > 0 && !_disposed)
+            {
+                _flushArmed = false; // the rebuild stays pending (Invalidate set it) until the first read
+                return;
+            }
+        }
+
         await _rebuild.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -276,7 +312,7 @@ internal sealed class LibraryService : IArtSource, IDisposable
                 _pendingReread = false;
             }
 
-            await RebuildCoreAsync(reread, background).ConfigureAwait(false);
+            await RebuildCoreAsync(reread).ConfigureAwait(false);
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
@@ -300,16 +336,15 @@ internal sealed class LibraryService : IArtSource, IDisposable
         await FlushAsync().ConfigureAwait(false);
     }
 
-    private async Task RebuildCoreAsync(bool reread, bool background = false)
+    private async Task RebuildCoreAsync(bool reread)
     {
         LegendaryLibrary lib;
         lock (_gate)
         {
-            if (background && !reread && !_filesRead && _published.Count > 0)
+            if (!reread && !_filesRead && _published.Count > 0)
             {
                 // Cold start from the cache: an invalidation (startup publishes state) must not be the thing that reads
-                // Legendary's files. Pre-warm does the first read (a reread); anyone who needs the files sooner asks
-                // with an explicit (non-background) flush, which finds the rebuild still pending.
+                // Legendary's files. Pre-warm does the first read (a reread).
                 _pendingRebuild = true;
                 return;
             }
@@ -342,7 +377,7 @@ internal sealed class LibraryService : IArtSource, IDisposable
             lib = _lib;
         }
 
-        var map = GameCatalog.Build(lib, Context());
+        var map = GameCatalog.Build(lib, Context(), _memo); // only games whose inputs changed are recomputed
         LibraryDelta? delta = null;
         var updatesChanged = false;
         lock (_gate)
@@ -451,12 +486,40 @@ internal sealed class LibraryService : IArtSource, IDisposable
 
     // ------------------------------------------------------------------ library.get / detail
 
+    /// <summary>
+    /// The whole library at the current revision. It never waits for a parse of Legendary's files: at cold start it is the cached
+    /// library (cache/library.json) and the file-based rebuild follows as a delta, which the UI applies in order. Only with no cache
+    /// at all (first run) does it wait, bounded, for that first read. A rebuild already under way is awaited for a moment at most.
+    /// </summary>
     public async Task<LibraryDelta> GetAsync()
     {
-        await FlushAsync().ConfigureAwait(false);
+        bool cold;
         lock (_gate)
         {
-            return new LibraryDelta(_revision, true, [.. _published.Values.OrderBy(g => g.AppName, StringComparer.Ordinal)], []);
+            cold = !_filesRead && _published.Count > 0;
+        }
+
+        if (!cold)
+        {
+            try
+            {
+                await FlushAsync().WaitAsync(FilesRead ? FlushTimeBox : FirstReadTimeBox).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                // Still rebuilding: answer with what is published; the delta follows.
+            }
+        }
+
+        lock (_gate)
+        {
+            if (_sorted is null || _sortedRevision != _revision)
+            {
+                _sorted = [.. _published.Values.OrderBy(g => g.AppName, StringComparer.Ordinal)];
+                _sortedRevision = _revision;
+            }
+
+            return new LibraryDelta(_revision, true, _sorted, []);
         }
     }
 
@@ -675,30 +738,74 @@ internal sealed class LibraryService : IArtSource, IDisposable
 
     // ------------------------------------------------------------------ cache
 
+    /// <summary>
+    /// A summary changed: cache/library.json is stale. It is rewritten off the hot path after a quiet delay and never more often than
+    /// <see cref="MinCacheWriteInterval"/> (the file is only a cold-start hint; the next start re-reads Legendary's files anyway), and
+    /// at shutdown. Nothing is written when nothing changed since the last write.
+    /// </summary>
     private void ScheduleCacheSave()
     {
-        var delay = _c.Options.LibraryCacheDelay;
-        if (delay <= TimeSpan.Zero)
+        TimeSpan wait;
+        lock (_gate)
         {
-            _ = SaveCacheAsync();
+            _cacheDirty = true;
+            if (_cacheArmed || _disposed)
+            {
+                return;
+            }
+
+            _cacheArmed = true;
+            var delay = _c.Options.LibraryCacheDelay;
+            wait = delay <= TimeSpan.Zero ? TimeSpan.Zero : TimeSpan.FromTicks(Math.Max(delay.Ticks, (MinCacheWriteInterval - (_c.Now - _lastCacheWrite)).Ticks));
+        }
+
+        if (wait <= TimeSpan.Zero)
+        {
+            _ = Task.Run(SaveCacheAsync);
         }
         else
         {
-            _cacheTimer.Change(delay, Timeout.InfiniteTimeSpan);
+            _cacheTimer.Change(wait, Timeout.InfiniteTimeSpan);
         }
     }
 
+    /// <summary>Writes cache/library.json if a summary changed since the last write (awaits a write already under way).</summary>
     public async Task SaveCacheAsync()
     {
+        await _cacheWrite.WaitAsync().ConfigureAwait(false);
         try
         {
-            var file = new LibraryCacheFile { SavedAt = _c.Now, Games = [.. Games.Values.OrderBy(g => g.AppName, StringComparer.Ordinal)] };
+            GameSummary[] games;
+            lock (_gate)
+            {
+                _cacheArmed = false;
+                if (!_cacheDirty)
+                {
+                    return;
+                }
+
+                _cacheDirty = false;
+                games = [.. _published.Values.OrderBy(g => g.AppName, StringComparer.Ordinal)];
+                _lastCacheWrite = _c.Now;
+            }
+
+            var file = new LibraryCacheFile { SavedAt = _c.Now, Games = [.. games] };
             var bytes = JsonSerializer.SerializeToUtf8Bytes(file, EngineJsonContext.Default.LibraryCacheFile);
             await AtomicFile.WriteAllBytesAsync(_cachePath, bytes).ConfigureAwait(false);
+            Interlocked.Increment(ref _cacheWrites);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ObjectDisposedException)
         {
+            lock (_gate)
+            {
+                _cacheDirty = true; // try again with the next change
+            }
+
             _c.Log.Warn(Category, "couldn't write cache/library.json", e);
+        }
+        finally
+        {
+            _cacheWrite.Release();
         }
     }
 
