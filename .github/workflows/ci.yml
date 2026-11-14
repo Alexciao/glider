@@ -75,6 +75,8 @@ jobs:
 
       - name: Package (Velopack)
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }} # build.ps1 fetches Legendary again
         run: ./build/build.ps1 -Pack -Version "0.1.0-ci.${{ github.run_number }}"
 
       - uses: actions/upload-artifact@v7
