@@ -30,7 +30,10 @@ for (const theme of ["dark", "light"] as const) {
           const wrapper = el.closest("[class*='focus-within']") as HTMLElement | null;
           const wrapperRing = wrapper ? getComputedStyle(wrapper).boxShadow !== "none" : false;
           const label = el.getAttribute("aria-label") || el.textContent?.trim().slice(0, 24) || el.tagName;
-          return { label, outlined: own.outlineStyle !== "none" && parseFloat(own.outlineWidth) > 0, wrapperRing };
+          // A split button draws one ring around the whole group (each segment stays a tab stop).
+          const group = el.closest("[data-split]") as HTMLElement | null;
+          const groupRing = group ? getComputedStyle(group).outlineStyle !== "none" && parseFloat(getComputedStyle(group).outlineWidth) > 0 : false;
+          return { label, outlined: own.outlineStyle !== "none" && parseFloat(own.outlineWidth) > 0, wrapperRing: wrapperRing || groupRing };
         });
         if (info && !info.outlined && !info.wrapperRing) missing.push(info.label);
       }

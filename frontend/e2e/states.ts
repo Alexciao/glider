@@ -32,6 +32,16 @@ const go = (page: Page, p: string, section?: string) =>
 /** v2 has one page per game: the v0.1 "library" screens are Fortnite's game page. */
 const goGame = (page: Page, appName = "Fortnite") =>
   page.evaluate((a) => (window as unknown as { __glider: G }).__glider.router.getState().go(`game/${a}`), appName);
+/** A plain installed game that is ready to play (not Fortnite, which has an update pending), and a fresh one with DLC. */
+const PLAYABLE = "g.kind==='game'&&g.installStatus==='installed'&&g.thirdParty==='none'&&!g.updateAvailable&&g.canRunOffline&&g.saveStatus==='inSync'&&g.appName!=='Fortnite'";
+const FRESH = "g.kind==='game'&&g.installStatus==='notInstalled'&&g.thirdParty==='none'&&g.dlcCount>0";
+/** Opens the page of the first game matching a predicate (source text evaluated in the page) and returns its appName. */
+const goPicked = async (page: Page, pred: string): Promise<string> => {
+  const app = (await page.evaluate(`(() => [...window.__glider.library.getState().games.values()].find((g) => ${pred}))()?.appName ?? null`)) as string | null;
+  if (!app) throw new Error(`no game matches ${pred}`);
+  await goGame(page, app);
+  return app;
+};
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const finishOnboarding = async (page: Page) => {
   await g(page, (h) => h.rpc("onboarding.complete"));
@@ -151,7 +161,7 @@ const RAW_STATES: ShotState[] = [
       await wait(700);
       await go(p, "downloads");
       await wait(400);
-      await btn(p, "Pause").click();
+      await p.getByRole("button", { name: "Pause", exact: true }).click();
       await wait(500);
       await goGame(p);
     },
@@ -164,6 +174,7 @@ const RAW_STATES: ShotState[] = [
     name: "library-launching",
     query: "scenario=returning&freeze=1",
     setup: async (p) => {
+      await goPicked(p, PLAYABLE);
       await wait(500);
       await btn(p, "Play").click();
       await wait(1100);
@@ -173,6 +184,7 @@ const RAW_STATES: ShotState[] = [
     name: "library-error-launch-failed",
     query: "scenario=returning",
     setup: async (p) => {
+      await goPicked(p, PLAYABLE);
       await wait(500);
       await g(p, (h) => h.mock.failNext("launchFailed"));
       await btn(p, "Play").click();
@@ -283,6 +295,8 @@ const RAW_STATES: ShotState[] = [
     query: "scenario=returning",
     setup: async (p) => {
       await wait(600);
+      await goPicked(p, PLAYABLE);
+      await wait(300);
       await p.keyboard.press("Tab");
       await btn(p, /^Play$/).focus();
       await wait(200);
@@ -402,7 +416,7 @@ const RAW_STATES: ShotState[] = [
     query: "scenario=returning",
     setup: async (p) => {
       await wait(500);
-      await g(p, (h) => h.ui.getState().openDialog({ kind: "uninstall" }));
+      await g(p, (h) => h.ui.getState().openDialog({ kind: "uninstall", appName: "Fortnite" }));
       await wait(450);
     },
   },
@@ -411,9 +425,9 @@ const RAW_STATES: ShotState[] = [
     query: "scenario=returning",
     setup: async (p) => {
       await wait(500);
-      await g(p, (h) => h.ui.getState().openDialog({ kind: "uninstall" }));
+      await g(p, (h) => h.ui.getState().openDialog({ kind: "uninstall", appName: "Fortnite" }));
       await wait(450);
-      await p.getByRole("radio", { name: /Uninstall and delete files/ }).click();
+      await p.getByRole("radio", { name: /Delete the files/ }).click();
       await wait(300);
     },
   },
@@ -422,10 +436,11 @@ const RAW_STATES: ShotState[] = [
     query: "scenario=returning",
     setup: async (p) => {
       await wait(500);
-      await g(p, (h) => h.ui.getState().openDialog({ kind: "move" }));
+      await g(p, (h) => h.ui.getState().openDialog({ kind: "move", appName: "Fortnite" }));
       await wait(450);
-      await btn(p, "Choose…").click();
-      await wait(1300);
+      await btn(p, "Move to").click();
+      await p.getByRole("menuitem").first().click();
+      await wait(1000);
     },
   },
   {
@@ -437,10 +452,11 @@ const RAW_STATES: ShotState[] = [
         await h.rpc("settings.update", { ...s, eglSync: false });
       });
       await wait(400);
-      await g(p, (h) => h.ui.getState().openDialog({ kind: "move" }));
+      await g(p, (h) => h.ui.getState().openDialog({ kind: "move", appName: "Fortnite" }));
       await wait(450);
-      await btn(p, "Choose…").click();
-      await wait(1300);
+      await btn(p, "Move to").click();
+      await p.getByRole("menuitem").first().click();
+      await wait(1000);
     },
   },
   {
@@ -455,25 +471,21 @@ const RAW_STATES: ShotState[] = [
   },
   {
     name: "dialog-install",
-    query: "scenario=firstRunSignedIn",
+    query: "scenario=returning",
     setup: async (p) => {
-      await finishOnboarding(p);
+      await goPicked(p, FRESH);
       await wait(500);
-      await btn(p, "Install").first().click();
+      await btn(p, /^Install$/).click();
       await wait(1100);
     },
   },
   {
     name: "dialog-install-insufficient",
-    query: "scenario=firstRunSignedIn",
+    query: "scenario=diskFull",
     setup: async (p) => {
-      await finishOnboarding(p);
+      await goPicked(p, FRESH);
       await wait(500);
-      await btn(p, "Install").first().click();
-      await wait(900);
-      await btn(p, "Change…").click();
-      await wait(900);
-      await btn(p, "Change…").click();
+      await btn(p, /^Install$/).click();
       await wait(1500);
     },
   },
