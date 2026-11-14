@@ -63,7 +63,10 @@ jobs:
         working-directory: frontend
         run: pnpm test
 
+      # The fork's release lives in this private repo: FetchLegendary downloads it through the API with this token.
       - name: Fetch pinned Legendary
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: dotnet run build/FetchLegendary.cs
 
       - name: Legendary smoke test (real exe, no auth)
@@ -72,6 +75,8 @@ jobs:
 
       - name: Package (Velopack)
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }} # build.ps1 fetches Legendary again
         run: ./build/build.ps1 -Pack -Version "0.1.0-ci.${{ github.run_number }}"
 
       - uses: actions/upload-artifact@v7

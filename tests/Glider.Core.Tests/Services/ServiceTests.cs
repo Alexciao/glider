@@ -392,10 +392,16 @@ public class AuthAndSettingsTests
         Directory.CreateDirectory(Path.Combine(rig.Root, "licenses"));
         File.WriteAllText(Path.Combine(rig.Root, "licenses", "legendary.txt"), "GNU GPL v3");
         var l = (await rig.Service.GetLicenses()).Items;
-        var leg = l.Single(i => i.Name == "Legendary");
+        var leg = l.Single(i => i.Name.StartsWith("Legendary", StringComparison.Ordinal));
+        Assert.Equal(Glider.Core.Legendary.LegendaryPin.IsFork, leg.Name.Contains("modified by Glider", StringComparison.Ordinal));
         Assert.Equal("https://github.com/legendary-gl/legendary/tree/0.21.1", leg.Url);
         Assert.StartsWith("GPL-3.0", leg.License, StringComparison.Ordinal);
-        Assert.Equal("GNU GPL v3", leg.Text);
+        Assert.EndsWith("GNU GPL v3", leg.Text, StringComparison.Ordinal);
+        if (Glider.Core.Legendary.LegendaryPin.IsFork)
+        {
+            Assert.Contains("glider-legendary.patch", leg.Text, StringComparison.Ordinal);
+            Assert.Contains("SOURCE-OFFER.txt", leg.Text, StringComparison.Ordinal);
+        }
     }
 
     [Fact]

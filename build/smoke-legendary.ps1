@@ -5,6 +5,7 @@ param([switch]$Fork)  # test the Glider fork: pin from legendary-fork.json, and 
 $ErrorActionPreference = 'Stop'
 $root = Resolve-Path (Join-Path $PSScriptRoot '..')
 $pin  = Get-Content (Join-Path $PSScriptRoot $(if ($Fork) { 'legendary-fork.json' } else { 'legendary.json' })) -Raw | ConvertFrom-Json
+$Fork = $Fork -or ($pin.version -like '*-glider*')  # the default pin is the fork once adopted
 $exe  = Join-Path $root 'src/Glider.App/legendary/legendary.exe'
 if (-not (Test-Path $exe)) { throw "legendary.exe missing; run: dotnet run build/FetchLegendary.cs" }
 
@@ -20,7 +21,7 @@ try {
     if ($Fork) {
         $help = (& $exe install --help 2>&1 | Out-String)
         if ($help -notmatch '--control-file') { throw "the fork's --control-file option is missing from install --help" }
-        foreach ($f in 'glider-legendary.patch', 'SOURCE-OFFER.txt') {
+        foreach ($f in 'glider-legendary.patch', 'SOURCE-OFFER.txt', 'LICENSE.txt') {
             if (-not (Test-Path (Join-Path (Split-Path $exe) $f))) { throw "$f must ship next to a modified legendary.exe (GPLv3)" }
         }
     }
