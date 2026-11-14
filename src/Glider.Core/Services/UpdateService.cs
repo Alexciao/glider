@@ -9,8 +9,8 @@ namespace Glider.Core.Services;
 /// Updates (docs/v0.2-design.md §2). Detection is the library's (assets.json build vs installed.json version, refreshed by
 /// `list-installed --check-updates` on the metadata lane every <see cref="Settings.UpdateCheckIntervalMinutes"/>). Policy per game
 /// (<see cref="GameSettings.AutoUpdate"/>, Default = <see cref="Settings.AutoUpdate"/>):
-/// Always queues the update (never while the game runs; with AutoUpdateOnlyWhenIdle only when the user is idle, retried every
-/// <see cref="GliderServiceOptions.AutoUpdateRetryInterval"/> and when a session ends); Ask raises one notice per version with an
+/// Always queues the update (never while the game runs or while Epic is unreachable; with AutoUpdateOnlyWhenIdle only when the user
+/// is idle, retried every <see cref="GliderServiceOptions.AutoUpdateRetryInterval"/>, when a session ends and when Epic is back); Ask raises one notice per version with an
 /// Update action plus a toast; Never only shows the badge (<see cref="LibraryStatus.UpdatesAvailable"/> counts it).
 /// </summary>
 internal sealed class UpdateService : IDisposable
@@ -24,10 +24,13 @@ internal sealed class UpdateService : IDisposable
     private readonly Dictionary<string, string> _notified = new(StringComparer.Ordinal);
     private readonly HashSet<string> _deferred = new(StringComparer.Ordinal);
     private readonly Lock _gate = new();
+    private readonly Lock _enqueueGate = new();
     private readonly ITimer _retryTimer;
     private readonly string _notifiedPath;
     private bool _notifiedLoaded;
     private bool _retryArmed;
+    private bool _kicked;
+    private bool _checking;
     private bool _disposed;
     private DateTimeOffset _lastCheck;
     private CancellationTokenSource _intervalChanged = new();
@@ -109,10 +112,20 @@ internal sealed class UpdateService : IDisposable
     }
 
     /// <summary>
-    /// Enqueue an update if the policy allows. While the game runs, the user is active (AutoUpdateOnlyWhenIdle) or Epic isn't signed in,
-    /// the app is deferred and retried by a timer (and at once when a session ends).
+    /// Enqueue an update if the policy allows. While the game runs, the user is active (AutoUpdateOnlyWhenIdle), Epic isn't signed in
+    /// or Epic is unreachable, the app is deferred and retried by a timer (and at once when a session ends).
     /// </summary>
     public bool TryAutoUpdate(string app)
+    {
+        // The periodic check, the library's update notification, the retry timer, a finished session and "Epic is back" all land here,
+        // on different threads: look and enqueue as one step so an app is not queued twice.
+        lock (_enqueueGate)
+        {
+            return TryAutoUpdateCore(app);
+        }
+    }
+
+    private bool TryAutoUpdateCore(string app)
     {
         var g = _c.Library.Summary(app);
         if (g is not { UpdateAvailable: true } || PolicyFor(app) != AutoUpdatePolicy.Always || _c.ActiveJob(app) is not null)
@@ -123,6 +136,7 @@ internal sealed class UpdateService : IDisposable
 
         if (!_c.Hub.State.Warm ||
             _c.Hub.State.Auth.Status != AuthStatus.SignedIn ||
+            _c.Hub.State.Connectivity == Connectivity.Offline ||
             _c.IsGameRunning(app) ||
             (_c.Settings.AutoUpdateOnlyWhenIdle && _c.Options.IdleSignal is { } idle && idle.IdleTime < _c.Options.IdleThreshold))
         {
@@ -182,6 +196,37 @@ internal sealed class UpdateService : IDisposable
         {
             TryAutoUpdate(app); // settles itself, or defers again (re-arming the timer)
         }
+    }
+
+    // ------------------------------------------------------------------ Epic is reachable again
+
+    /// <summary>
+    /// Offline became Online (<see cref="ConnectivityMonitor"/>): run the periodic check now instead of waiting out the interval
+    /// (the loop skips its turns while offline), and try the auto-updates that were waiting for a connection. Never blocks.
+    /// </summary>
+    internal void OnCameOnline()
+    {
+        CancellationTokenSource old;
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (_checking)
+            {
+                return; // a check is running right now (it is what noticed): it will Evaluate when it ends
+            }
+
+            _kicked = true;
+            old = _intervalChanged;
+            _intervalChanged = new CancellationTokenSource();
+        }
+
+        old.Cancel();
+        old.Dispose();
+        RetryDeferred();
     }
 
     // ------------------------------------------------------------------ "told you once" ledger
@@ -305,8 +350,15 @@ internal sealed class UpdateService : IDisposable
             {
                 if (_c.Hub.State.Connectivity == Connectivity.Offline)
                 {
+                    // Nothing to ask Epic. The ConnectivityMonitor probes, and kicks this loop when Epic is back; the short wait
+                    // only re-reads the state.
                     _lastCheck = _c.Now - TimeSpan.FromMinutes(_lastInterval) + TimeSpan.FromMinutes(MinIntervalMinutes);
                     continue;
+                }
+
+                lock (_gate)
+                {
+                    _checking = true;
                 }
 
                 await rescanEgl(ct);
@@ -321,6 +373,13 @@ internal sealed class UpdateService : IDisposable
             catch (Exception e) when (e is not OperationCanceledException)
             {
                 _c.Log.Warn(Category, "periodic check failed", e);
+            }
+            finally
+            {
+                lock (_gate)
+                {
+                    _checking = false;
+                }
             }
         }
     }
@@ -338,6 +397,12 @@ internal sealed class UpdateService : IDisposable
             CancellationTokenSource changed;
             lock (_gate)
             {
+                if (_kicked)
+                {
+                    _kicked = false;
+                    return; // Epic is reachable again: check now
+                }
+
                 changed = _intervalChanged;
             }
 
