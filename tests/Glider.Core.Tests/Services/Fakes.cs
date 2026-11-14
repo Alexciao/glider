@@ -384,6 +384,15 @@ public sealed class FakeLegendary(CallLog log, string config) : ILegendary
         return Task.FromResult(new LegendaryOutcome(SyncError is null, SyncError, null, null));
     }
 
+    /// <summary>What `get-token --json` returns for the Store's web sign-in (null = none).</summary>
+    public string? WebExchangeCode { get; set; }
+
+    public Task<string?> GetWebExchangeCodeAsync(CancellationToken ct)
+    {
+        log.Add("legendary.getToken");
+        return Task.FromResult(WebExchangeCode);
+    }
+
     public Task<LegendaryOutcome> CheckUpdatesAsync(CancellationToken ct)
     {
         log.Add("legendary.checkUpdates");

@@ -524,7 +524,7 @@ public sealed class FreeGamesServiceTests : IDisposable
         Assert.StartsWith("https://cdn1.epicgames.com/", first.Items[0].ImageUrl, StringComparison.Ordinal); // CDN until cached
 
         var dir = Path.Combine(Paths.Cache, "free-games");
-        await WaitUntil(() => Directory.Exists(dir) && Directory.GetFiles(dir, "*.img").Length >= 2);
+        await WaitUntil(() => Directory.Exists(dir) && Directory.GetFiles(dir, "*.img").Length >= 6);
 
         var again = s.Get();
         Assert.StartsWith("https://cache.glider/free-games/", again.Items[0].ImageUrl, StringComparison.Ordinal);
