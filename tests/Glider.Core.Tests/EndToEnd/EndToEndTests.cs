@@ -56,11 +56,11 @@ public sealed class EndToEndTests
     public async Task PauseKillsTheDownloadAndResumeContinuesFromTheResumeFile()
     {
         await using var h = await EndToEndHarness.StartAsync(V1);
-        h.Install(V1, "interval=150");
+        h.Install(V1, "interval=1 hangat=3"); // 3 files done and recorded, then the fake waits: the pause lands at a fixed point, not after a sleep
 
         var job = await h.Rpc.Install(new InstallRequest(Fn, h.GamesRoot, null, null, false));
         await h.WaitForJob(job.Id, j => j.Progress is { Percent: > 0 }, "first progress");
-        await EndToEndHarness.WaitFor(() => File.Exists(h.Legendary.ResumeFile), x => x, "a completed file in the resume list");
+        await EndToEndHarness.WaitFor(() => ResumeLines(h.Legendary.ResumeFile), n => n >= 3, "the scripted number of completed files in the resume list");
         var paused = await h.Rpc.PauseJob(new JobRef(job.Id));
         Assert.Equal(JobStatus.Paused, paused.Status);
         Assert.True(File.Exists(h.Legendary.ResumeFile));
@@ -235,7 +235,7 @@ public sealed class EndToEndTests
         h.Legendary.Script("install", """
             err [Core] INFO: Trying to re-use existing login session...
             err [cli] INFO: Preparing download for "Big"...
-            download chunks=2000 files=40 mib=400 interval=250 app=Big
+            download chunks=2000 files=40 mib=400 interval=1 hangat=3 app=Big
             installed version=1.0 path={basepath}/Big app=Big
             err [cli] INFO: Finished installation process in 0.20 seconds.
             """);
@@ -250,8 +250,21 @@ public sealed class EndToEndTests
 
         Assert.Equal(LaunchOutcome.Started, result.Outcome);
         Assert.Equal(JobStatus.Running, h.Job(download.Id).Status); // the download kept running
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10), $"launch took {sw.Elapsed}");
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(60), $"launch took {sw.Elapsed}"); // safety net: the download is parked, so waiting behind it would hang, not run long
         await h.Rpc.CancelJob(new JobRef(download.Id));
+    }
+
+    /// <summary>Completed files in Legendary's resume list (0 while the fake is mid-append).</summary>
+    private static int ResumeLines(string path)
+    {
+        try
+        {
+            return File.Exists(path) ? File.ReadAllLines(path).Length : 0;
+        }
+        catch (IOException)
+        {
+            return 0;
+        }
     }
 
     private static void LaunchScript(EndToEndHarness h, string game)
