@@ -84,6 +84,9 @@ internal sealed class RealRuntimeHarness : IAsyncDisposable
         await Runtime.Service.WarmupTask;
         await Runtime.Service.PrewarmForTests.LibrarySync;
         await Runtime.Service.LibraryForTests.FlushAsync();
+        // Balanced runs a verify below normal CPU/IO priority; on a busy build machine that starves it for minutes. These tests are about
+        // what Legendary says, not about priorities (DownloadModeTests covers those), so run at Full speed.
+        await Rpc.UpdateSettings(Snapshot.Settings with { DownloadMode = DownloadMode.Full });
     }
 
     public AppSnapshot Snapshot => Runtime.Service.Hub.BuildSnapshot();
