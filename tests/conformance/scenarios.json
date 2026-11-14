@@ -1,0 +1,272 @@
+{
+  "$comment": [
+    "The shared mock <-> Core conformance table (review v0.2 M7 / WP8).",
+    "It is read by frontend/src/ipc/mock/conformance.test.ts (the mock backend, over its wire transport) and by",
+    "tests/Glider.Core.Tests/Contracts/ConformanceTests.cs (GliderService + the real JobQueue over fakes, through RpcDispatcher).",
+    "Each side drives the same JSON requests and checks the same things, so a change to one side that the other doesn't follow fails a test.",
+    "",
+    "WORLDS (each side builds its own, the table only names them):",
+    "  library    signed in, online. Games a, b installed (a has an uninstalled DLC x; b has no cloud saves); c, d, e, f not installed.",
+    "             a can be launched (Play); no job is running. Only b is guaranteed to have no cloud saves.",
+    "  egl        signed in, the EGL scan lists an importable install, a stale one (folder gone) and nothing else we rely on.",
+    "  onboarding signed out, onboarding at Welcome.",
+    "",
+    "PARAMETERS (whole strings only): \"@a\"..\"@x\" = a game's appName; \"@base\" = a library folder with room; \"@parent(a)\", \"@inside(a)\",",
+    "  \"@other(a)\" = a's install folder's parent, a path inside it, a folder on another drive; \"@egl:importable\" / \"@egl:stale\" = the id of",
+    "  the first EGL install with that status in the snapshot; \"$label\" = an id saved by an earlier step.",
+    "",
+    "STEPS:",
+    "  { \"call\": method, \"params\": {...}, \"error\": code?, \"errorTitle\": text?, \"notError\": code?, \"result\": {...}?, \"save\": {label: path}|label?, \"then\": {...}? }",
+    "      error: the call must fail with this code; notError: if it fails, not with this code (success is fine); no error key: must succeed.",
+    "      result: subset match (objects by key, arrays by length and element, {\"$in\": [..]} = any of, {\"$same\": label} = a saved value).",
+    "      save: label (the result's \"id\") or {label: dotted path into the result}.",
+    "  { \"env\": op, ... }   failRunning {code} | eglBusy {game, busy} | startGame {game} | connectivity {value} | setting {whilePlaying}",
+    "  then: checked until it holds (the lane runs on its own threads): jobs = unfinished jobs in order as \"label:status\";",
+    "      finished = finished jobs as \"label:status\" (any order); paused = QueueState.paused; reasons = {label: text the blockedReason contains};",
+    "      cancellable = {label: bool}."
+  ],
+  "version": 1,
+  "scenarios": [
+    {
+      "name": "guards: install, update, verify, move, uninstall and modify refuse the wrong game state, with Core's codes",
+      "world": "library",
+      "steps": [
+        { "call": "game.install", "params": { "appName": "@a", "basePath": "@base", "components": null, "dlc": [], "priority": false }, "error": "alreadyInstalled" },
+        { "call": "game.install", "params": { "appName": "nope", "basePath": "@base", "components": null, "dlc": [], "priority": false }, "error": "notFound" },
+        { "call": "game.install", "params": { "appName": "@c", "basePath": "relative\\folder", "components": null, "dlc": [], "priority": false }, "error": "invalidRequest" },
+        { "call": "game.verify", "params": { "appName": "@c" }, "error": "notInstalled" },
+        { "call": "game.update", "params": { "appName": "@c" }, "error": "notInstalled" },
+        { "call": "game.move", "params": { "appName": "@c", "destinationBase": "@base" }, "error": "notInstalled" },
+        { "call": "game.uninstall", "params": { "appName": "@c", "mode": "gliderOnly" }, "error": "notInstalled" },
+        { "call": "game.uninstall", "params": { "appName": "@a", "mode": "bogus" }, "error": "invalidRequest" },
+        { "call": "game.modify", "params": { "appName": "@c", "components": [], "dlc": [] }, "error": "notInstalled" },
+        { "call": "game.move", "params": { "appName": "@a", "destinationBase": "relative\\folder" }, "error": "invalidRequest" },
+        { "call": "game.move", "params": { "appName": "@a", "destinationBase": "@parent(a)" }, "error": "invalidRequest" },
+        { "call": "game.move", "params": { "appName": "@a", "destinationBase": "@inside(a)" }, "error": "invalidFolder" },
+        { "call": "game.install", "params": { "appName": "@x", "basePath": "@base", "components": null, "dlc": null, "priority": false }, "result": { "kind": "install", "appName": "@x" } }
+      ]
+    },
+    {
+      "name": "modify: component changes are not available yet; DLC changes are install and uninstall jobs; nothing to change is an error",
+      "world": "library",
+      "steps": [
+        { "call": "game.modify", "params": { "appName": "@a", "components": ["any-component"], "dlc": [] }, "error": "unknown", "errorTitle": "Not available yet" },
+        { "call": "game.modify", "params": { "appName": "@a", "components": [], "dlc": [] }, "error": "invalidRequest" },
+        { "call": "game.modify", "params": { "appName": "@a", "components": [], "dlc": ["@x"] }, "result": { "kind": "install", "appName": "@x" }, "save": "jx" },
+        { "call": "game.modify", "params": { "appName": "@a", "components": [], "dlc": ["@x"] }, "result": { "kind": "install", "id": { "$same": "jx" } } }
+      ]
+    },
+    {
+      "name": "idempotency and busy games: a repeat returns the same job, other work on that game is refused, other games are unaffected",
+      "world": "library",
+      "steps": [
+        { "call": "game.update", "params": { "appName": "@a" }, "result": { "kind": "update", "appName": "@a" }, "save": "ja" },
+        { "call": "game.update", "params": { "appName": "@a" }, "result": { "id": { "$same": "ja" } } },
+        { "call": "game.verify", "params": { "appName": "@a" }, "error": "gameBusy" },
+        { "call": "game.move", "params": { "appName": "@a", "destinationBase": "@other(a)" }, "error": "gameBusy" },
+        { "call": "game.uninstall", "params": { "appName": "@a", "mode": "gliderOnly" }, "error": "gameBusy" },
+        { "call": "game.launch", "params": { "appName": "@a", "mode": null, "skipSaveSync": false }, "error": "gameBusy" },
+        { "call": "game.install", "params": { "appName": "@c", "basePath": "@base", "components": null, "dlc": [], "priority": false }, "save": "jc" },
+        { "call": "game.install", "params": { "appName": "@c", "basePath": "@base", "components": null, "dlc": [], "priority": false }, "result": { "id": { "$same": "jc" } },
+          "then": { "jobs": ["ja:running", "jc:queued"] } }
+      ]
+    },
+    {
+      "name": "pause, resume, cancel and dismiss: unknown and finished jobs, repeats, and the next job taking over",
+      "world": "library",
+      "steps": [
+        { "call": "game.install", "params": { "appName": "@c", "basePath": "@base", "components": null, "dlc": [], "priority": false }, "save": "jc" },
+        { "call": "game.install", "params": { "appName": "@d", "basePath": "@base", "components": null, "dlc": [], "priority": false }, "save": "jd" },
+        { "call": "game.install", "params": { "appName": "@e", "basePath": "@base", "components": null, "dlc": [], "priority": false }, "save": "je",
+          "then": { "jobs": ["jc:running", "jd:queued", "je:queued"], "cancellable": { "jc": true, "jd": true } } },
+        { "call": "jobs.pause", "params": { "jobId": "$jd" }, "result": { "status": "paused" }, "then": { "jobs": ["jc:running", "jd:paused", "je:queued"] } },
+        { "call": "jobs.pause", "params": { "jobId": "$jd" }, "result": { "status": "paused" } },
+        { "call": "jobs.resume", "params": { "jobId": "$jd" }, "result": { "status": "queued" }, "then": { "jobs": ["jc:running", "jd:queued", "je:queued"] } },
+        { "call": "jobs.pause", "params": { "jobId": "no-such-job" }, "error": "invalidRequest" },
+        { "call": "jobs.resume", "params": { "jobId": "no-such-job" }, "error": "invalidRequest" },
+        { "call": "jobs.cancel", "params": { "jobId": "no-such-job" }, "error": "invalidRequest" },
+        { "call": "jobs.dismiss", "params": { "jobId": "no-such-job" }, "error": "invalidRequest" },
+        { "call": "jobs.cancel", "params": { "jobId": "$je" }, "result": { "status": "cancelled" }, "then": { "jobs": ["jc:running", "jd:queued"], "finished": ["je:cancelled"] } },
+        { "call": "jobs.cancel", "params": { "jobId": "$je" }, "result": { "status": "cancelled" } },
+        { "call": "jobs.pause", "params": { "jobId": "$je" }, "error": "invalidRequest" },
+        { "call": "jobs.resume", "params": { "jobId": "$je" }, "error": "invalidRequest" },
+        { "call": "jobs.dismiss", "params": { "jobId": "$jd" }, "then": { "jobs": ["jc:running", "jd:queued"] } },
+        { "call": "jobs.dismiss", "params": { "jobId": "$je" }, "then": { "finished": [] } },
+        { "call": "jobs.cancel", "params": { "jobId": "$jc" }, "result": { "status": "cancelled" }, "then": { "jobs": ["jd:running"], "finished": ["jc:cancelled"] } }
+      ]
+    },
+    {
+      "name": "reorder: the running job stays first, indexes are clamped, finished jobs can't be moved, priority goes to the front",
+      "world": "library",
+      "steps": [
+        { "call": "game.install", "params": { "appName": "@c", "basePath": "@base", "components": null, "dlc": [], "priority": false }, "save": "jc" },
+        { "call": "game.install", "params": { "appName": "@d", "basePath": "@base", "components": null, "dlc": [], "priority": false }, "save": "jd" },
+        { "call": "game.install", "params": { "appName": "@e", "basePath": "@base", "components": null, "dlc": [], "priority": false }, "save": "je",
+          "then": { "jobs": ["jc:running", "jd:queued", "je:queued"] } },
+        { "call": "jobs.reorder", "params": { "jobId": "$je", "toIndex": 0 }, "then": { "jobs": ["jc:running", "je:queued", "jd:queued"] } },
+        { "call": "jobs.reorder", "params": { "jobId": "$je", "toIndex": 99 }, "then": { "jobs": ["jc:running", "jd:queued", "je:queued"] } },
+        { "call": "jobs.reorder", "params": { "jobId": "$jd", "toIndex": -5 }, "then": { "jobs": ["jc:running", "jd:queued", "je:queued"] } },
+        { "call": "jobs.moveToTop", "params": { "jobId": "$je" }, "then": { "jobs": ["jc:running", "je:queued", "jd:queued"] } },
+        { "call": "jobs.moveToTop", "params": { "jobId": "$jc" }, "then": { "jobs": ["jc:running", "je:queued", "jd:queued"] } },
+        { "call": "game.install", "params": { "appName": "@f", "basePath": "@base", "components": null, "dlc": [], "priority": true }, "save": "jf",
+          "then": { "jobs": ["jc:running", "jf:queued", "je:queued", "jd:queued"] } },
+        { "call": "jobs.cancel", "params": { "jobId": "$jd" }, "then": { "finished": ["jd:cancelled"] } },
+        { "call": "jobs.reorder", "params": { "jobId": "$jd", "toIndex": 0 }, "error": "invalidRequest" },
+        { "call": "jobs.moveToTop", "params": { "jobId": "$jd" }, "error": "invalidRequest" },
+        { "call": "jobs.reorder", "params": { "jobId": "no-such-job", "toIndex": 0 }, "error": "invalidRequest" }
+      ]
+    },
+    {
+      "name": "pause-all pauses every job that can pause and holds the queue; moves, uninstalls and imports can't pause; resume-all resumes",
+      "world": "library",
+      "steps": [
+        { "call": "game.install", "params": { "appName": "@c", "basePath": "@base", "components": null, "dlc": [], "priority": false }, "save": "jc" },
+        { "call": "game.install", "params": { "appName": "@d", "basePath": "@base", "components": null, "dlc": [], "priority": false }, "save": "jd" },
+        { "call": "game.uninstall", "params": { "appName": "@b", "mode": "gliderOnly" }, "save": "jb",
+          "then": { "jobs": ["jc:running", "jd:queued", "jb:queued"], "paused": false } },
+        { "call": "queue.pauseAll", "params": null, "result": { "paused": true }, "then": { "jobs": ["jc:paused", "jd:paused", "jb:queued"], "paused": true } },
+        { "call": "jobs.pause", "params": { "jobId": "$jb" }, "error": "invalidRequest" },
+        { "call": "queue.pauseAll", "params": null, "result": { "paused": true }, "then": { "jobs": ["jc:paused", "jd:paused", "jb:queued"] } },
+        { "call": "queue.resumeAll", "params": null, "result": { "paused": false }, "then": { "jobs": ["jc:running", "jd:queued", "jb:queued"], "paused": false } }
+      ]
+    },
+    {
+      "name": "a failed job is retried with Resume (which resumes the queue); Cancel turns a failed job into a cancelled one",
+      "world": "library",
+      "steps": [
+        { "call": "game.install", "params": { "appName": "@c", "basePath": "@base", "components": null, "dlc": [], "priority": false }, "save": "jc",
+          "then": { "jobs": ["jc:running"] } },
+        { "env": "failRunning", "code": "network", "then": { "jobs": [], "finished": ["jc:failed"] } },
+        { "call": "jobs.resume", "params": { "jobId": "$jc" }, "result": { "status": { "$in": ["queued", "running"] } }, "then": { "jobs": ["jc:running"], "finished": [] } },
+        { "env": "failRunning", "code": "network", "then": { "finished": ["jc:failed"] } },
+        { "call": "jobs.cancel", "params": { "jobId": "$jc" }, "result": { "status": "cancelled" }, "then": { "jobs": [], "finished": ["jc:cancelled"] } },
+        { "call": "jobs.resume", "params": { "jobId": "$jc" }, "error": "invalidRequest" }
+      ]
+    },
+    {
+      "name": "cancellable: a running uninstall or move (before it copies) can't be cancelled; a queued one can",
+      "world": "library",
+      "steps": [
+        { "call": "game.uninstall", "params": { "appName": "@b", "mode": "gliderOnly" }, "save": "jb",
+          "then": { "jobs": ["jb:running"], "cancellable": { "jb": false } } },
+        { "call": "jobs.cancel", "params": { "jobId": "$jb" }, "error": "invalidRequest", "then": { "jobs": ["jb:running"] } },
+        { "call": "game.move", "params": { "appName": "@a", "destinationBase": "@other(a)" }, "save": "jm",
+          "then": { "jobs": ["jb:running", "jm:queued"], "cancellable": { "jm": true } } },
+        { "call": "jobs.cancel", "params": { "jobId": "$jm" }, "result": { "status": "cancelled" }, "then": { "jobs": ["jb:running"], "finished": ["jm:cancelled"] } },
+        { "call": "game.move", "params": { "appName": "@a", "destinationBase": "@other(a)" }, "save": "jm2",
+          "then": { "jobs": ["jb:running", "jm2:queued"] } },
+        { "call": "jobs.cancel", "params": { "jobId": "$jb" }, "error": "invalidRequest" }
+      ]
+    },
+    {
+      "name": "a running move can't be cancelled before it starts copying",
+      "world": "library",
+      "steps": [
+        { "call": "game.move", "params": { "appName": "@a", "destinationBase": "@other(a)" }, "save": "jm",
+          "then": { "jobs": ["jm:running"], "cancellable": { "jm": false } } },
+        { "call": "jobs.cancel", "params": { "jobId": "$jm" }, "error": "invalidRequest", "then": { "jobs": ["jm:running"] } }
+      ]
+    },
+    {
+      "name": "while playing (pause): the running download waits with a reason, queued ones stay queued, and a job that can't pause still runs",
+      "world": "library",
+      "steps": [
+        { "env": "setting", "whilePlaying": "pause" },
+        { "call": "game.install", "params": { "appName": "@c", "basePath": "@base", "components": null, "dlc": [], "priority": false }, "save": "jc", "then": { "jobs": ["jc:running"] } },
+        { "call": "game.install", "params": { "appName": "@d", "basePath": "@base", "components": null, "dlc": [], "priority": false }, "save": "jd" },
+        { "env": "startGame", "game": "@a", "then": { "jobs": ["jc:waiting", "jd:queued"], "reasons": { "jc": "Paused while" } } },
+        { "call": "game.uninstall", "params": { "appName": "@b", "mode": "gliderOnly" }, "save": "jb",
+          "then": { "jobs": ["jb:running", "jc:waiting", "jd:queued"], "cancellable": { "jb": false } } }
+      ]
+    },
+    {
+      "name": "a game that is running holds its own jobs with a reason, and the next game's job takes the writer slot",
+      "world": "library",
+      "steps": [
+        { "env": "setting", "whilePlaying": "continue" },
+        { "env": "startGame", "game": "@a" },
+        { "call": "game.install", "params": { "appName": "@x", "basePath": "@base", "components": null, "dlc": null, "priority": false }, "save": "jx" },
+        { "call": "game.install", "params": { "appName": "@c", "basePath": "@base", "components": null, "dlc": [], "priority": false }, "save": "jc",
+          "then": { "jobs": ["jc:running", "jx:waiting"], "reasons": { "jx": "to close" } } },
+        { "call": "game.update", "params": { "appName": "@a" }, "error": "gameRunning" },
+        { "call": "game.launch", "params": { "appName": "@a", "mode": null, "skipSaveSync": false }, "error": "gameRunning" }
+      ]
+    },
+    {
+      "name": "Epic Games Launcher busy with a game holds that game's job with a reason; the next game's job runs, and the held one is queued again once Epic is done",
+      "world": "library",
+      "steps": [
+        { "env": "eglBusy", "game": "@a", "busy": true },
+        { "call": "game.update", "params": { "appName": "@a" }, "save": "ja", "then": { "jobs": ["ja:waiting"], "reasons": { "ja": "Epic Games Launcher" } } },
+        { "call": "game.install", "params": { "appName": "@c", "basePath": "@base", "components": null, "dlc": [], "priority": false }, "save": "jc",
+          "then": { "jobs": ["jc:running", "ja:waiting"] } },
+        { "call": "jobs.resume", "params": { "jobId": "$ja" }, "result": { "status": { "$in": ["queued", "waiting"] } }, "then": { "jobs": ["jc:running", "ja:waiting"] } },
+        { "env": "eglBusy", "game": "@a", "busy": false, "then": { "jobs": ["jc:running", "ja:queued"] } }
+      ]
+    },
+    {
+      "name": "launching while offline is never refused up front with an offline error",
+      "world": "library",
+      "steps": [
+        { "env": "connectivity", "value": "offline" },
+        { "call": "game.launch", "params": { "appName": "@a", "mode": "online", "skipSaveSync": false }, "notError": "offline" }
+      ]
+    },
+    {
+      "name": "onboarding: skipping marks the step being left (once), reaching done completes, restart clears, unknown steps are refused",
+      "world": "onboarding",
+      "steps": [
+        { "call": "onboarding.setStep", "params": { "step": "scan", "skipped": true }, "result": { "step": "scan", "skipped": ["welcome"], "completed": false } },
+        { "call": "onboarding.setStep", "params": { "step": "scan", "skipped": true }, "result": { "step": "scan", "skipped": ["welcome"] } },
+        { "call": "onboarding.setStep", "params": { "step": "folders", "skipped": true }, "result": { "step": "folders", "skipped": ["welcome", "scan"] } },
+        { "call": "onboarding.setStep", "params": { "step": "mode", "skipped": false }, "result": { "step": "mode", "skipped": ["welcome", "scan"], "completed": false } },
+        { "call": "onboarding.setStep", "params": { "step": "bogus", "skipped": false }, "error": "invalidRequest" },
+        { "call": "onboarding.setStep", "params": { "step": "done", "skipped": false }, "result": { "step": "done", "completed": true } },
+        { "call": "onboarding.restart", "params": null, "result": { "step": "welcome", "completed": false, "skipped": [] } },
+        { "call": "onboarding.complete", "params": null, "result": { "step": "done", "completed": true, "skipped": [] } }
+      ]
+    },
+    {
+      "name": "collections: names are trimmed and bounded, unknown collections are errors, membership has no duplicates",
+      "world": "library",
+      "steps": [
+        { "call": "collections.create", "params": { "name": "  Favourites  " }, "result": { "name": "Favourites", "appNames": [] }, "save": "col" },
+        { "call": "collections.create", "params": { "name": "   " }, "error": "invalidRequest" },
+        { "call": "collections.rename", "params": { "id": "$col", "name": "" }, "error": "invalidRequest" },
+        { "call": "collections.rename", "params": { "id": "$col", "name": "RPG" }, "result": { "name": "RPG" } },
+        { "call": "collections.rename", "params": { "id": "no-such-collection", "name": "x" }, "error": "invalidRequest" },
+        { "call": "collections.setMembership", "params": { "id": "$col", "appName": "@a", "member": true }, "result": { "appNames": ["@a"] } },
+        { "call": "collections.setMembership", "params": { "id": "$col", "appName": "@a", "member": true }, "result": { "appNames": ["@a"] } },
+        { "call": "collections.setMembership", "params": { "id": "no-such-collection", "appName": "@a", "member": true }, "error": "invalidRequest" },
+        { "call": "collections.setMembership", "params": { "id": "$col", "appName": "@a", "member": false }, "result": { "appNames": [] } },
+        { "call": "collections.delete", "params": { "id": "$col" } },
+        { "call": "collections.delete", "params": { "id": "$col" }, "error": "invalidRequest" }
+      ]
+    },
+    {
+      "name": "saves: unknown games are not found, games without cloud saves are an invalid request (get reports not supported)",
+      "world": "library",
+      "steps": [
+        { "call": "saves.get", "params": { "appName": "nope" }, "error": "notFound" },
+        { "call": "saves.get", "params": { "appName": "@b" }, "result": { "supported": false, "status": "notSupported" } },
+        { "call": "saves.sync", "params": { "appName": "@b", "direction": "auto" }, "error": "invalidRequest" },
+        { "call": "saves.resolve", "params": { "appName": "@b", "keep": "local", "thenLaunch": false }, "error": "invalidRequest" },
+        { "call": "saves.openBackups", "params": { "appName": "@b" }, "error": "invalidRequest" },
+        { "call": "saves.sync", "params": { "appName": "nope", "direction": "auto" }, "error": "notFound" }
+      ]
+    },
+    {
+      "name": "EGL import: stale, unknown and non-importable installs are skipped, an empty selection is an error, a repeat returns the same job",
+      "world": "egl",
+      "steps": [
+        { "call": "egl.import", "params": { "ids": [], "verify": "auto" }, "error": "invalidRequest" },
+        { "call": "egl.import", "params": { "ids": ["@egl:stale"], "verify": "auto" }, "result": { "jobs": [] } },
+        { "call": "egl.import", "params": { "ids": ["no-such-install"], "verify": "auto" }, "result": { "jobs": [] } },
+        { "call": "egl.import", "params": { "ids": ["@egl:importable", "@egl:stale"], "verify": "auto" }, "result": { "jobs": [{ "kind": "import" }] }, "save": { "ji": "jobs.0.id" },
+          "then": { "jobs": ["ji:running"], "cancellable": { "ji": true } } },
+        { "call": "egl.import", "params": { "ids": ["@egl:importable"], "verify": "auto" }, "result": { "jobs": [{ "id": { "$same": "ji" } }] } },
+        { "call": "egl.importFolder", "params": { "path": "Z:\\nowhere\\folder", "verify": "auto" }, "error": "invalidFolder" }
+      ]
+    }
+  ]
+}

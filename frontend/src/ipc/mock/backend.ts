@@ -1267,7 +1267,7 @@ export class MockBackend {
         const s = appName ? this.sessions.find((x) => x.appName === appName) : this.sessions.find((x) => x.state === "running");
         if (s) this.endGameInternal(s.appName);
       },
-      setEglBusy: (busy) => this.setEglBusy(busy),
+      setEglBusy: (busy, appName) => this.setEglBusy(busy, appName),
       setConnectivity: (c) => {
         this.connectivity = c;
         this.syncError = c === "offline" ? Errors.offline("Syncing your library") : null;
@@ -1286,10 +1286,12 @@ export class MockBackend {
     };
   }
 
-  setEglBusy(busy: boolean): void {
+  /** Epic Games Launcher is busy with `appName` (default: the first queued job's game). */
+  setEglBusy(busy: boolean, appName?: string): void {
     const target = this.queue.find((e) => e.info.kind !== "overlay");
     if (busy) {
-      if (target) this.egl.busyApps = [target.info.appName];
+      if (appName) this.egl.busyApps = [appName];
+      else if (target) this.egl.busyApps = [target.info.appName];
     } else {
       this.egl.busyApps = [];
     }
