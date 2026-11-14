@@ -250,6 +250,7 @@ internal sealed partial class MainWindow : Window
         }
 
         _quitting = true;
+        HostLog.Info("quit requested");
         _safetyTimer.Stop();
         _idleTimer.Stop();
         _placementTimer.Stop();

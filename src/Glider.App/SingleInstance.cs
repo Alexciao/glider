@@ -26,35 +26,77 @@ internal sealed class SingleInstance : IDisposable
     public static SingleInstance? TryAcquire(string scope = "", string? link = null)
     {
         _pipeName = "Glider.Activate." + (WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName) + scope;
-        var mutex = new Mutex(true, HostConstants.MainMutexName + scope, out var first);
-        if (first)
+        var mutex = new Mutex(false, HostConstants.MainMutexName + scope);
+        if (TryTake(mutex, TimeSpan.Zero))
+        {
+            return new SingleInstance(mutex);
+        }
+
+        // The owner is starting up, running, or quitting. We were just launched by the user, so we may hand the foreground right to it.
+        Win32.AllowSetForegroundWindow(uint.MaxValue);
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            if (TrySignal(link))
+            {
+                mutex.Dispose();
+                return null;
+            }
+
+            // Nobody is listening: the owner is still starting up (retry) or is already quitting. If it is quitting it releases the
+            // mutex once Core is disposed, and this process then simply becomes the new first instance instead of being swallowed.
+            if (TryTake(mutex, TimeSpan.FromMilliseconds(250)))
+            {
+                return new SingleInstance(mutex);
+            }
+        }
+
+        if (TryTake(mutex, TimeSpan.FromSeconds(3)))
         {
             return new SingleInstance(mutex);
         }
 
         mutex.Dispose();
-        SignalFirst(link);
         return null;
     }
 
-    private static void SignalFirst(string? link)
+    private static bool TryTake(Mutex mutex, TimeSpan wait)
     {
-        // We were just launched by the user, so we may hand the foreground right to the running instance.
-        Win32.AllowSetForegroundWindow(uint.MaxValue);
-        for (var attempt = 0; attempt < 4; attempt++)
+        try
         {
-            try
-            {
-                using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out, PipeOptions.CurrentUserOnly);
-                client.Connect(1000);
-                client.Write(ActivationMessage.Encode(link));
-                client.Flush();
-                return;
-            }
-            catch (Exception ex) when (ex is TimeoutException or IOException)
-            {
-                Thread.Sleep(250); // first instance may still be starting up
-            }
+            return mutex.WaitOne(wait);
+        }
+        catch (AbandonedMutexException)
+        {
+            return true; // the previous owner crashed; ownership is ours now
+        }
+    }
+
+    private static bool TrySignal(string? link)
+    {
+        try
+        {
+            using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out, PipeOptions.CurrentUserOnly);
+            client.Connect(1000);
+            client.Write(ActivationMessage.Encode(link));
+            client.Flush();
+            return true;
+        }
+        catch (Exception ex) when (ex is TimeoutException or IOException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Stops answering activation requests (idempotent). Called when the dispatcher begins shutting down, so a relaunch is not signalled into a dying process.</summary>
+    public void StopListening()
+    {
+        try
+        {
+            _cts.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // already disposed
         }
     }
 

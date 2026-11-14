@@ -26,6 +26,8 @@
     <!-- Windows shell/registry adapters (self-contained): tested against real .lnk files in a temp folder and a throwaway HKCU key. -->
     <Compile Include="..\..\src\Glider.App\WindowsRegistry.cs" Link="Host\WindowsRegistry.cs" />
     <Compile Include="..\..\src\Glider.App\WindowsShellLinks.cs" Link="Host\WindowsShellLinks.cs" />
+    <!-- Pure host plumbing (shutdown, bridge queue, startup failure): no WPF/WebView2 types. -->
+    <Compile Include="..\..\src\Glider.App\ShutdownRunner.cs" Link="Host\ShutdownRunner.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
