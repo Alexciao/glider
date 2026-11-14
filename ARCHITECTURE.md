@@ -58,7 +58,7 @@ and it drives the bundled **Legendary** CLI (v0.21.1) as the Epic protocol engin
 | `Services/JobHooks.cs` | Per-game gating (waits while that game runs, auth, EGL busy) and bookkeeping (install records, EGL write-back keyed by app, import outcomes and follow-up verify, notices with AppName/JobId). |
 | `Services/EglCoordinator.cs` | Contract `EglState` from the scan + library (status, drift, title, art) and startup drift reconciliation per EGL-shared game; `egl.checkReadiness`. |
 | `Services/UpdateService.cs` | Per-game auto-update policy (Default → Settings): Always queues (game closed, idle when asked, retried by a timer that only exists while something waits), Ask = one notice per version with `FixAction.Update` + toast (ledger in `cache/update-notices.json`), Never = badge only; `library.updateAll`; periodic checks on the configured interval; `QueuePolicy` (WhilePlaying, idle full speed, effective mode + reason). |
-| `Art/` | `ArtCache` behind `https://art.glider/{app}/{tall|tall-thumb|wide|logo}?v={hash}`: lazy download of Epic's picture resized by the CDN, `cache/art/<app>/<variant>-<hash>.jpg`, de-duplicated, 6 parallel, LRU cap, offline = 404, v0.1 files adopted, cover colour via the host's `IImageProcessor` (WPF). The host side is `Glider.App/ArtHandler.cs` (`WebResourceRequested`). |
+| `Art/` | `ArtCache` behind `https://art.glider/{app}/{tall, tall-thumb, wide or logo}?v={hash}`: lazy download of Epic's picture resized by the CDN, `cache/art/<app>/<variant>-<hash>.jpg`, de-duplicated, 6 parallel, LRU cap, offline = 404, v0.1 files adopted, cover colour via the host's `IImageProcessor` (WPF). The host side is `Glider.App/ArtHandler.cs` (`WebResourceRequested`). |
 | `Infrastructure/Migrations` | Versioned migrations (v0.1 → 2), run by `GliderRuntime` before any store loads; `state/schema.json` written last. |
 
 ## IPC
@@ -90,7 +90,7 @@ Saves (S lane) arrive with cloud saves in Phase 2.
 | `legendary\` | Legendary's isolated config (`LEGENDARY_CONFIG_PATH`): user.json, installed.json, metadata, manifests. Glider only reads it. |
 | `state\schema.json` | `{schemaVersion: 2, migratedFrom, migratedAt}` (migration commit marker) |
 | `state\settings.json`, `games.json`, `collections.json`, `jobs.json`, `onboarding.json` | schema 2 stores (`games.json` = per-app install record, favorite, hidden, playtime, settings, shortcuts) |
-| `cache\library.json`, `cache\installed-size.json`, `cache\art\` | caches (safe to delete) |
+| `cacheibrary.json`, `cacheinstalled-size.json`, `cachePdate-notices.json`, `cachert<app>`, `cachertplaceholders.json` | caches (safe to delete) |
 | `backups\migration\v0.1-<ts>\` | byte copies of the v0.1 files before migrating |
 | `backups\egl\<ts>\` | copies of every EGL file before Glider writes it |
 | `logs\`, `webview2\` | rolling logs, WebView2 user data |
