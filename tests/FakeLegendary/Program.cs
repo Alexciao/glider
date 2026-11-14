@@ -11,7 +11,7 @@ namespace FakeLegendary;
 /// invocation to <c>$LEGENDARY_CONFIG_PATH/fake/invocations.log</c>, then executes the script
 /// <c>fake/&lt;command&gt;.&lt;n&gt;.script</c> (n = 1-based invocation count of that command) or <c>fake/&lt;command&gt;.script</c>.
 ///
-/// Script directives (one per line, '#' comments; text supports \t \r \n \\ \uXXXX escapes and {basepath} {config} {arg:N}):
+/// Script directives (one per line, '#' comments; text supports \t \r \n \\ \uXXXX escapes and {basepath} {config} {pid} {arg:N}; `child [TAG]` writes fake/child[.TAG].pid):
 ///   err TEXT / out TEXT          line to stderr (ANSI code page + Python backslashreplace) / stdout (UTF-8), CRLF-terminated
 ///   errraw TEXT / outraw TEXT    same without a line terminator
 ///   errfile PATH [ms] / outfile PATH [ms]   replay a fixture line by line (leading '#' header lines skipped)
@@ -97,7 +97,7 @@ internal static class Program
                 case "sleep": Thread.Sleep(int.Parse(rest, CultureInfo.InvariantCulture)); break;
                 case "hang": Thread.Sleep(Timeout.Infinite); break;
                 case "exit": return int.Parse(rest, CultureInfo.InvariantCulture);
-                case "child": SpawnChild(); break;
+                case "child": SpawnChild(rest.Trim()); break;
                 case "readstdin": if (ReadStdin() is { } code) { return code; } break;
                 case "download": Download(KeyValues(rest)); break;
                 case "verify": Verify(KeyValues(rest)); break;
@@ -252,6 +252,7 @@ internal static class Program
         }
 
         var s = sb.ToString().Replace("{config}", _config, StringComparison.Ordinal)
+            .Replace("{pid}", Environment.ProcessId.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
             .Replace("{basepath}", _options.GetValueOrDefault("--base-path", ""), StringComparison.Ordinal);
         for (var a = 0; a < _positional.Count; a++)
         {
@@ -307,9 +308,9 @@ internal static class Program
 
     // ------------------------------------------------------------------ behaviours
 
-    private static void SpawnChild()
+    private static void SpawnChild(string tag = "")
     {
-        var pidFile = Path.Combine(_config, "fake", "child.pid");
+        var pidFile = Path.Combine(_config, "fake", tag.Length == 0 ? "child.pid" : $"child.{tag}.pid");
         var psi = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
         psi.ArgumentList.Add("--fake-child");
         psi.ArgumentList.Add(pidFile);
