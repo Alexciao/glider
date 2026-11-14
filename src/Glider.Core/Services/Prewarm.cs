@@ -4,22 +4,32 @@ using Glider.Core.Contracts;
 namespace Glider.Core.Services;
 
 /// <summary>
-/// Background startup work after the first snapshot is out. Order (each step is best-effort):
-/// legendary version → offline account → EGL scan + drift → token refresh → game info → restore jobs → Warm.
+/// Background startup work after the first snapshot (served from caches) is out. Order, each step best-effort:
+/// legendary version → offline account → Legendary's files → running games → EGL scan + drift → restore jobs →
+/// auth warm-up (`list-installed --check-updates --json` through the auth gate on the metadata lane, which also refreshes
+/// assets.json for update detection) → Warm → full library sync (`list -T --json`) in the background.
 /// </summary>
 internal sealed class Prewarm
 {
     private readonly ServiceContext _c;
     private readonly AuthService _auth;
-    private readonly UpdateChecker _updates;
-    private bool _verifyAfterRestore;
+    private readonly EglCoordinator _egl;
+    private readonly UpdateService _updates;
+    private readonly Game.InstallService _install;
+    private readonly Game.LaunchService _launch;
 
-    public Prewarm(ServiceContext context, AuthService auth, UpdateChecker updates)
+    public Prewarm(ServiceContext context, AuthService auth, EglCoordinator egl, UpdateService updates, Game.InstallService install, Game.LaunchService launch)
     {
         _c = context;
         _auth = auth;
+        _egl = egl;
         _updates = updates;
+        _install = install;
+        _launch = launch;
     }
+
+    /// <summary>The background library sync started after warm-up (tests).</summary>
+    public Task LibrarySync { get; private set; } = Task.CompletedTask;
 
     public async Task RunAsync(CancellationToken ct)
     {
@@ -29,26 +39,41 @@ internal sealed class Prewarm
             _c.Hub.Mutate(s => s with { LegendaryVersion = v });
         });
         await Step("offline account", () => _auth.LoadOfflineAsync(ct));
-        await Step("egl scan", () => ScanAndReconcileAsync(ct));
-        await Step("session refresh", () => _auth.RefreshAsync(ct));
-        await Step("game info", () => _updates.CheckAsync(userInitiated: false, ct));
+        await Step("library files", () => _c.Library.ReloadAsync());
+        await Step("running games", () =>
+        {
+            _launch.DetectAllExisting();
+            return Task.CompletedTask;
+        });
+        await Step("egl scan", async () =>
+        {
+            await _egl.RescanAsync(ct);
+            await _egl.ReconcileAllAsync(ct);
+        });
         await Step("restore jobs", () => _c.Jobs.RestoreAsync(ct));
-        await Step("drift verify", EnqueueDriftVerifyAsync);
+        await Step("drift verify", EnqueueDriftVerifiesAsync);
+        await Step("session warm-up", () => _auth.WarmUpAsync(ct));
 
         _c.Hub.Mutate(s => s with { Warm = true });
-        _c.Sizes.Request(filesChanged: false);
+        _c.Sizes.RequestAll();
         _c.Log.Info("startup", "pre-warm finished");
         _updates.Evaluate();
+        if (_c.Hub.State.Auth.Status == AuthStatus.SignedIn && _c.Hub.State.Connectivity != Connectivity.Offline)
+        {
+            LibrarySync = _c.Library.RefreshInBackground(userInitiated: false);
+        }
     }
 
-    private Task EnqueueDriftVerifyAsync()
+    private Task EnqueueDriftVerifiesAsync()
     {
-        if (_verifyAfterRestore && _c.Records.Current is { } rec && _c.ActiveJob(JobKind.Verify) is null)
+        foreach (var app in _egl.TakeVerifyRequests())
         {
-            _c.Jobs.Enqueue(new JobRequest(JobKind.Verify, null, null, rec.Version, rec.Version));
+            if (_c.ActiveJob(app, JobKind.Verify) is null && _c.Library.Summary(app) is { InstallPath: not null } g)
+            {
+                _install.EnqueueVerify(g);
+            }
         }
 
-        _verifyAfterRestore = false;
         return Task.CompletedTask;
     }
 
@@ -65,63 +90,6 @@ internal sealed class Prewarm
         catch (Exception e)
         {
             _c.Log.Warn("startup", $"pre-warm step '{name}' failed", e);
-        }
-    }
-
-    /// <summary>EGL scan, then reconcile our record with EGL's manifest. Never downloads, never reinstalls.</summary>
-    internal async Task ScanAndReconcileAsync(CancellationToken ct)
-    {
-        var egl = await _c.Egl.ScanAsync(ct);
-        _c.Hub.Mutate(s => s with { Egl = egl });
-
-        var rec = _c.Records.Current;
-        if (rec?.EglInstallationGuid is null)
-        {
-            return;
-        }
-
-        var drift = _c.Egl.CheckDrift(rec);
-        _c.Log.Info("egl", $"drift: {drift.Kind} (egl={drift.EglVersion}, glider={drift.GliderVersion})");
-        switch (drift.Kind)
-        {
-            case DriftKind.EglNewer:
-                if (_c.Hub.ActiveJobs().Count > 0 || _c.Egl.IsBusyWith(rec.InstallPath))
-                {
-                    return; // Try again next start; never race Legendary's lock or EGL.
-                }
-
-                // EGL updated/repaired the folder: re-import picks up its .egstore manifest. No download.
-                var outcome = await _c.Legendary.ImportAsync(ServiceContext.App, rec.InstallPath, ct);
-                if (outcome.Success)
-                {
-                    await _c.SyncRecordAsync(ct, r => r with { EglInstallationGuid = rec.EglInstallationGuid });
-                }
-                else
-                {
-                    _c.Log.Warn("egl", $"re-import after EGL update failed: {outcome.Error?.Code}");
-                }
-
-                break;
-
-            case DriftKind.GliderNewer:
-                if (_c.Settings.EglSync)
-                {
-                    var installed = await _c.Legendary.GetInstalledAsync(ServiceContext.App, ct);
-                    await _c.Egl.WriteBackAsync(_c.BuildWriteBack(rec, installed, _c.LastGameInfo), ct);
-                }
-
-                break;
-
-            case DriftKind.Unreconcilable:
-                // A quick verify (never a reinstall), queued once persisted jobs are restored.
-                _verifyAfterRestore = true;
-                await _c.SaveRecordAsync(rec with { NeedsVerification = true });
-                break;
-
-            case DriftKind.EglMissing:
-                // EGL forgot the install (uninstalled there, or moved): it's ours alone now.
-                await _c.SaveRecordAsync(rec with { EglInstallationGuid = null });
-                break;
         }
     }
 }

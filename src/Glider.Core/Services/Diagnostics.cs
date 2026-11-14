@@ -9,35 +9,43 @@ namespace Glider.Core.Services;
 /// <summary>Log export: a diagnostics header (no tokens, no account ids) + the redacted log tail.</summary>
 internal static partial class Diagnostics
 {
-    public static string Header(AppSnapshot snap, GameRecord? record)
+    public static string Header(AppSnapshot snap, IReadOnlyDictionary<string, GameSummary> library, IReadOnlyDictionary<string, GameEntry> games)
     {
         var sb = new StringBuilder();
         var ci = CultureInfo.InvariantCulture;
         sb.AppendLine("==== Glider diagnostics ====");
-        sb.AppendLine(ci, $"Glider:     {snap.App.Version}");
+        sb.AppendLine(ci, $"Glider:     {snap.App.Version}{(snap.App.MigratedFrom is { } m ? $" (migrated from {m})" : "")}");
         sb.AppendLine(ci, $"Legendary:  {(snap.App.LegendaryVersion.Length > 0 ? snap.App.LegendaryVersion : "unknown")}");
         sb.AppendLine(ci, $"OS:         {RuntimeInformation.OSDescription} ({RuntimeInformation.OSArchitecture}), Win11={snap.App.IsWindows11}");
         sb.AppendLine(ci, $".NET:       {RuntimeInformation.FrameworkDescription}");
         sb.AppendLine(ci, $"Hardware:   {snap.App.CpuCount} CPUs, {Format.Bytes(snap.App.TotalMemoryBytes)} RAM; auto workers={snap.App.AutoWorkers}, shm={snap.App.AutoSharedMemoryMb} MB");
         sb.AppendLine(ci, $"Warm:       {snap.App.Warm}");
-        sb.AppendLine(ci, $"Auth:       {snap.Auth.Status}");
-        var g = snap.Game;
-        sb.AppendLine(ci, $"Game:       {g.InstallStatus}, run={g.RunState}, latest={g.LatestVersion ?? "?"}, updateAvailable={g.UpdateAvailable}, lastCheck={g.LastUpdateCheck?.ToString("u", ci) ?? "never"}");
-        if (record is not null)
+        sb.AppendLine(ci, $"Auth:       {snap.Auth.Status}, connectivity={snap.Connectivity}");
+        var l = snap.Library;
+        sb.AppendLine(ci, $"Library:    {l.GameCount} items (rev {l.Revision}), updates={l.UpdatesAvailable}, syncing={l.Syncing}, lastSync={l.LastSyncedAt?.ToString("u", ci) ?? "never"}{(l.SyncError is { } se ? $", syncError={se.Code}" : "")}");
+        foreach (var g in library.Values.Where(g => g.InstallPath is not null).OrderBy(g => g.AppName, StringComparer.Ordinal))
         {
-            sb.AppendLine(ci, $"Install:    {record.InstallPath} v{record.Version} ({Format.Bytes(record.InstallSizeBytes)}), adoptedFromEgl={record.AdoptedFromEgl}, eglShared={record.EglInstallationGuid is not null}, needsVerification={record.NeedsVerification}");
+            var rec = games.TryGetValue(g.AppName, out var e) ? e.Install : null;
+            sb.AppendLine(ci, $"Install:    {g.AppName}: {g.InstallStatus} {g.InstallPath} v{g.InstalledVersion} latest={g.LatestVersion ?? "?"} update={g.UpdateAvailable} run={g.RunState}, eglShared={g.SharedWithEgl}, needsVerification={g.NeedsVerification}, adopted={rec?.AdoptedFromEgl ?? false}");
         }
 
-        var e = snap.Egl;
-        sb.AppendLine(ci, $"EGL:        installed={e.LauncherInstalled}, running={e.LauncherRunning}, busy={e.BusyWithGame}, sync={e.SyncEnabled}/{e.SyncAvailable}, candidates={e.Candidates.Count}");
-        foreach (var c in e.Candidates)
+        foreach (var r in snap.Sessions)
         {
-            sb.AppendLine(ci, $"            - {c.InstallPath} v{c.Version ?? "?"} exists={c.FolderExists} exe={c.ExecutableFound} stale={c.IsStale}");
+            sb.AppendLine(ci, $"Session:    {r.AppName} {r.State} since={r.Since?.ToString("u", ci) ?? "-"} offline={r.Offline}");
         }
 
-        foreach (var j in snap.Jobs)
+        var eg = snap.Egl;
+        sb.AppendLine(ci, $"EGL:        installed={eg.LauncherInstalled}, running={eg.LauncherRunning}, busy=[{string.Join(',', eg.BusyApps)}], sync={eg.SyncEnabled}, installs={eg.Installs.Count}");
+        foreach (var i in eg.Installs)
         {
-            sb.AppendLine(string.Create(ci, $"Job:        {j.Kind} {j.Status} {j.Error?.Code} {j.BlockedReason}").TrimEnd());
+            sb.AppendLine(ci, $"            - {i.AppName} {i.InstallPath} v{i.Version ?? "?"} {i.Status} drift={i.Drift}");
+        }
+
+        var q = snap.Queue;
+        sb.AppendLine(ci, $"Queue:      paused={q.Paused}, mode={q.EffectiveMode}{(q.ModeReason is { } mr ? $" ({mr})" : "")}");
+        foreach (var j in q.Jobs)
+        {
+            sb.AppendLine(string.Create(ci, $"Job:        {j.Kind} {j.AppName} {j.Status} {j.Phase} {j.Error?.Code} {j.BlockedReason}").TrimEnd());
         }
 
         sb.AppendLine(ci, $"Settings:   {JsonSerializer.Serialize(snap.Settings, GliderJsonContext.Default.Settings)}");

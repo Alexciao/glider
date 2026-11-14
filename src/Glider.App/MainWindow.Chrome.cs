@@ -278,7 +278,7 @@ internal sealed partial class MainWindow
 
     private void PublishWindowInfo()
     {
-        var info = new WindowInfo(_maximized, _focused);
+        var info = Info;
         if (info == _lastPublished)
         {
             return;

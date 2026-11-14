@@ -5,7 +5,7 @@ namespace Glider.Core.Egl;
 
 /// <summary>What <c>legendary import</c> will conclude for a folder, predicted from its <c>.egstore</c> (core.py:1890-1924).</summary>
 public sealed record EglAdoptionInfo(
-    /// <summary>A <c>.mancpn</c> for Fortnite exists in <c>.egstore</c>.</summary>
+    /// <summary>A <c>.mancpn</c> for the app exists in <c>.egstore</c>.</summary>
     bool HasEglMetadata,
     /// <summary>The matching <c>&lt;guid&gt;.manifest</c> exists, so import needs no network manifest.</summary>
     bool HasEglManifest,
@@ -22,23 +22,21 @@ public sealed record EglAdoptionInfo(
     string? EglVersion);
 
 /// <summary>
-/// EGL coexistence: detection of EGL-managed Fortnite installs, busy detection, drift checks and EGL manifest write-back
-/// that mirrors Legendary 0.21.1's <c>egl_export</c>. Reads never modify any EGL file; every write is backed up and atomic.
-/// See docs/egl.md.
+/// EGL coexistence for the whole library: detection of every EGL-managed install (all <c>.item</c>s, DLC excluded), busy
+/// detection, per-app drift checks and EGL manifest write-back that mirrors Legendary 0.21.1's <c>egl_export</c>. Reads
+/// never modify any EGL file; every write is backed up and atomic. See docs/egl.md.
 /// </summary>
 public sealed class EglService : IEglService, IDisposable
 {
     internal const string LogCategory = "egl";
 
-    internal const string InstallingReason = "Epic Games Launcher is installing Fortnite, so Glider will wait and continue automatically.";
-    internal const string UpdatingReason = "Epic Games Launcher is updating Fortnite, so Glider will wait and continue automatically.";
+    internal const string InstallingReason = "Epic Games Launcher is installing this game, so Glider will wait and continue automatically.";
+    internal const string UpdatingReason = "Epic Games Launcher is updating this game, so Glider will wait and continue automatically.";
 
     private readonly EglEnvironment _env;
     private readonly AppPaths _paths;
     private readonly ILog _log;
     private readonly IProcessProbe _processes;
-    private readonly ISettingsStore? _settings;
-    private readonly IGameRecordStore? _records;
     private readonly EglServiceOptions _options;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
 
@@ -47,16 +45,12 @@ public sealed class EglService : IEglService, IDisposable
         AppPaths paths,
         ILog? log = null,
         IProcessProbe? processes = null,
-        ISettingsStore? settings = null,
-        IGameRecordStore? records = null,
         EglServiceOptions? options = null)
     {
         _env = environment;
         _paths = paths;
         _log = log ?? NullLog.Instance;
         _processes = processes ?? SystemProcessProbe.Instance;
-        _settings = settings;
-        _records = records;
         _options = options ?? new EglServiceOptions();
     }
 
@@ -71,9 +65,10 @@ public sealed class EglService : IEglService, IDisposable
     {
         public string Guid => Manifest.InstallationGuid is { Length: > 0 } g ? g : System.IO.Path.GetFileNameWithoutExtension(Path);
 
-        public EglInstall ToInstall() => new(
+        public EglItem ToItem() => new(
             Path, Guid, Manifest.InstallLocation, Manifest.AppVersionString ?? "",
-            Manifest.InstallSize, Manifest.IsIncompleteInstall, Manifest.NeedsValidation);
+            Manifest.InstallSize, Manifest.IsIncompleteInstall, Manifest.NeedsValidation,
+            Manifest.AppName ?? "", Manifest.GetString("DisplayName"));
     }
 
     /// <summary>
@@ -192,11 +187,14 @@ public sealed class EglService : IEglService, IDisposable
         }
     }
 
-    /// <summary>Fortnite game manifests: AppName == Fortnite and MainGameAppName empty or Fortnite (DLC excluded).</summary>
-    internal List<ItemFile> FortniteItems(string? dir = null, bool strict = false) => ReadItems(dir ?? _env.ManifestsDir, strict)
-        .Where(i => string.Equals(i.Manifest.AppName, FortniteLayout.AppName, StringComparison.OrdinalIgnoreCase) &&
-                    (i.Manifest.MainGameAppName.Length == 0 ||
-                     string.Equals(i.Manifest.MainGameAppName, i.Manifest.AppName, StringComparison.OrdinalIgnoreCase)))
+    /// <summary>
+    /// Game manifests (DLC excluded: MainGameAppName empty or equal to AppName), optionally of one app only. DLC share their
+    /// base game's folder and are imported with it.
+    /// </summary>
+    internal List<ItemFile> GameItems(string? dir = null, bool strict = false, string? appName = null) => ReadItems(dir ?? _env.ManifestsDir, strict)
+        .Where(i => (i.Manifest.MainGameAppName.Length == 0 ||
+                     string.Equals(i.Manifest.MainGameAppName, i.Manifest.AppName, StringComparison.OrdinalIgnoreCase)) &&
+                    (appName is null || string.Equals(i.Manifest.AppName, appName, StringComparison.OrdinalIgnoreCase)))
         .ToList();
 
     /// <summary>Best .item for a location: complete before incomplete, then most recently written.</summary>
@@ -217,8 +215,7 @@ public sealed class EglService : IEglService, IDisposable
             }
 
             return LauncherInstalledDat.Parse(ReadSmall(path))
-                .Where(e => string.Equals(e.AppName, FortniteLayout.AppName, StringComparison.OrdinalIgnoreCase) &&
-                            !string.IsNullOrWhiteSpace(e.InstallLocation))
+                .Where(e => !string.IsNullOrWhiteSpace(e.AppName) && !string.IsNullOrWhiteSpace(e.InstallLocation))
                 .ToList();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
@@ -228,28 +225,32 @@ public sealed class EglService : IEglService, IDisposable
         }
     }
 
-    public Task<EglState> ScanAsync(CancellationToken ct) => Task.Run(() => Scan(ct), ct);
+    public Task<EglScanResult> ScanAsync(CancellationToken ct) => Task.Run(() => Scan(ct), ct);
 
-    internal EglState Scan(CancellationToken ct)
+    /// <summary>Every game install EGL knows (one per folder), from its .item manifests and LauncherInstalled.dat.</summary>
+    internal EglScanResult Scan(CancellationToken ct)
     {
         var installed = Directory.Exists(DataDir);
         var running = IsLauncherRunning();
-        var items = FortniteItems();
+        var items = GameItems();
         ct.ThrowIfCancellationRequested();
         var dat = ReadLauncherInstalled();
 
-        var byPath = new Dictionary<string, InstallCandidate>(StringComparer.Ordinal);
+        var byPath = new Dictionary<string, EglFoundInstall>(StringComparer.Ordinal);
         foreach (var group in items.Where(i => i.Manifest.InstallLocation.Length > 0)
                      .GroupBy(i => EglPath.Normalize(i.Manifest.InstallLocation)))
         {
+            ct.ThrowIfCancellationRequested();
             var best = FindIn(group, group.First().Manifest.InstallLocation)!;
             if (group.Count() > 1)
             {
                 _log.Info(LogCategory, $"{group.Count()} EGL manifests point at {best.Manifest.InstallLocation}; using {best.Path}");
             }
 
-            byPath[group.Key] = MakeCandidate(best.Manifest.InstallLocation, best.Manifest.AppVersionString,
-                best.Manifest.InstallSize > 0 ? best.Manifest.InstallSize : null);
+            var m = best.Manifest;
+            byPath[group.Key] = MakeFound(m.AppName!, m.GetString("DisplayName"), m.InstallLocation, m.AppVersionString,
+                m.InstallSize > 0 ? m.InstallSize : null, CandidateSource.EpicGamesLauncher, best.Guid,
+                busy: running && BusyEvidence(m.InstallLocation, items) is not null);
         }
 
         foreach (var e in dat)
@@ -265,53 +266,102 @@ public sealed class EglService : IEglService, IDisposable
                 continue;
             }
 
-            byPath[key] = MakeCandidate(e.InstallLocation!, e.AppVersion, null);
+            byPath[key] = MakeFound(e.AppName!, null, e.InstallLocation!, e.AppVersion, null, CandidateSource.EpicGamesLauncher, null, busy: false);
         }
 
-        var candidates = byPath.Values
-            .OrderByDescending(c => c.ExecutableFound)
+        var list = byPath.Values
+            .OrderByDescending(c => c.LooksInstalled)
             .ThenBy(c => c.InstallPath, StringComparer.OrdinalIgnoreCase)
             .ToList();
-
-        var record = _records?.Current;
-        var own = record is null ? null : FindIn(items, record.InstallPath);
-        var busy = running && (record is not null
-            ? BusyEvidence(record.InstallPath, items) is not null
-            : candidates.Any(c => c.FolderExists && BusyEvidence(c.InstallPath, items) is not null));
-
-        return new EglState(
-            LauncherInstalled: installed,
-            LauncherRunning: running,
-            BusyWithGame: busy,
-            Candidates: candidates,
-            SyncEnabled: _settings?.Current.EglSync ?? false,
-            SyncAvailable: own is not null,
-            ManifestPath: own?.Path,
-            LastScan: _options.Time.GetUtcNow());
+        return new EglScanResult(installed, running, list, _options.Time.GetUtcNow());
     }
 
-    internal static InstallCandidate MakeCandidate(string location, string? version, long? size, CandidateSource source = CandidateSource.EpicGamesLauncher)
+    internal static EglFoundInstall MakeFound(string appName, string? displayName, string location, string? version, long? size,
+        CandidateSource source, string? guid, bool busy)
     {
         var folder = Directory.Exists(location);
-        var exe = folder && FortniteLayout.LooksLikeInstall(location);
-        return new InstallCandidate(
+        var looks = folder && LooksInstalled(appName, location);
+        return new EglFoundInstall(
             Id: EglPath.CandidateId(location),
             Source: source,
+            AppName: appName,
+            DisplayName: string.IsNullOrWhiteSpace(displayName) ? null : displayName,
             InstallPath: location,
             Version: string.IsNullOrWhiteSpace(version) ? null : version,
-            FolderExists: folder,
-            ExecutableFound: exe,
-            IsStale: !exe,
             SizeBytes: size,
-            Reason: exe ? null : folder
-                ? "The game files are missing from this folder."
-                : "This folder doesn't exist. The drive may be disconnected, or the game was moved or deleted.");
+            FolderExists: folder,
+            LooksInstalled: looks,
+            Busy: busy,
+            InstallationGuid: guid);
     }
 
-    public EglInstall? FindByLocation(string installPath) => FindIn(FortniteItems(), installPath)?.ToInstall();
+    /// <summary>The profile's probe when it has one; otherwise EGL's own metadata (.egstore with a manifest) or any content.</summary>
+    internal static bool LooksInstalled(string appName, string location)
+    {
+        var profile = Game.GameProfiles.For(appName);
+        if (profile.HasLivenessProbe)
+        {
+            return Game.GameProfiles.LooksLikeInstall(appName, location);
+        }
+
+        try
+        {
+            return Directory.Exists(location) && Directory.EnumerateFileSystemEntries(location)
+                .Any(e => !string.Equals(Path.GetFileName(e), ".egstore", StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    public EglItem? FindByLocation(string installPath, string? appName = null) => FindIn(GameItems(appName: appName), installPath)?.ToItem();
+
+    /// <summary>
+    /// Folders EGL doesn't list that hold a game: each profile's well-known folders, plus the children of the usual library
+    /// parents (<c>\Epic Games</c>, <c>\Games</c>…) that carry EGL metadata (<c>.egstore\*.mancpn</c>) or match a profile probe.
+    /// Never a recursive walk of a drive.
+    /// </summary>
+    public IReadOnlyList<EglFoundInstall> QuickScan(IReadOnlyList<string> driveRoots, CancellationToken ct)
+    {
+        var found = new List<EglFoundInstall>();
+        foreach (var (folder, app) in InstallLocator.QuickScan(driveRoots, DetectAppName, ct))
+        {
+            found.Add(MakeFound(app, null, folder, null, null, CandidateSource.Manual, null, busy: false));
+        }
+
+        return found;
+    }
+
+    /// <summary>AppName from the folder's <c>.egstore\*.mancpn</c> (what Legendary's import compares), or null.</summary>
+    public string? DetectAppName(string folder)
+    {
+        var egstore = Path.Combine(folder, ".egstore");
+        if (!Directory.Exists(egstore))
+        {
+            return null;
+        }
+
+        foreach (var f in SafeEnumerate(egstore, "*.mancpn"))
+        {
+            try
+            {
+                if (EglJson.TryParseObject(ReadSmall(f), out _)?.GetValueOrDefault("AppName") is string { Length: > 0 } app)
+                {
+                    return app;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _log.Warn(LogCategory, $"Can't read {f}", ex);
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>Predicts what <c>legendary import</c> will do with this folder (no writes).</summary>
-    public EglAdoptionInfo InspectForAdoption(string installPath)
+    public EglAdoptionInfo InspectForAdoption(string installPath, string appName)
     {
         var egstore = Path.Combine(installPath, ".egstore");
         string? guid = null;
@@ -324,7 +374,7 @@ public sealed class EglService : IEglService, IDisposable
                 {
                     var raw = EglJson.TryParseObject(ReadSmall(f), out _);
                     // Legendary compares mancpn['AppName'] == game.app_name exactly.
-                    if (raw?.GetValueOrDefault("AppName") is string app && app == FortniteLayout.AppName)
+                    if (raw?.GetValueOrDefault("AppName") is string app && app == appName)
                     {
                         hasMancpn = true;
                         guid = Path.GetFileNameWithoutExtension(f);
@@ -348,7 +398,7 @@ public sealed class EglService : IEglService, IDisposable
             StagingPresent: staging,
             LegendaryWillRequireVerification: legendaryVerifies,
             VerifyRecommended: legendaryVerifies || !hasManifest,
-            EglVersion: FindByLocation(installPath)?.Version);
+            EglVersion: FindByLocation(installPath, appName)?.Version);
     }
 
     // =============================================== busy ===============================================
@@ -370,7 +420,7 @@ public sealed class EglService : IEglService, IDisposable
 
     /// <summary>Human reason EGL is busy with the install, or null. Requires EGL to be running.</summary>
     public string? GetBusyReason(string installPath) =>
-        IsLauncherRunning() ? BusyEvidence(installPath, FortniteItems()) : null;
+        IsLauncherRunning() ? BusyEvidence(installPath, GameItems()) : null;
 
     /// <summary>File-system evidence of an EGL operation on the install (ignores whether EGL runs).</summary>
     internal string? BusyEvidence(string installPath, IReadOnlyCollection<ItemFile> items)
@@ -388,7 +438,7 @@ public sealed class EglService : IEglService, IDisposable
 
         if (Directory.Exists(PendingManifestsDir))
         {
-            var pending = FortniteItems(PendingManifestsDir).Where(i => EglPath.Same(i.Manifest.InstallLocation, installPath));
+            var pending = GameItems(PendingManifestsDir).Where(i => EglPath.Same(i.Manifest.InstallLocation, installPath));
             if (pending.Any(i => IsRecent(i.LastWriteUtc)))
             {
                 return UpdatingReason;
@@ -537,9 +587,9 @@ public sealed class EglService : IEglService, IDisposable
 
     // =============================================== drift ===============================================
 
-    public DriftResult CheckDrift(GameRecord record)
+    public DriftResult CheckDrift(InstallRecord record)
     {
-        var items = FortniteItems();
+        var items = GameItems(appName: record.AppName);
         var matches = items.Where(i => EglPath.Same(i.Manifest.InstallLocation, record.InstallPath)).ToList();
         if (matches.Count == 0)
         {
@@ -547,7 +597,7 @@ public sealed class EglService : IEglService, IDisposable
         }
 
         var best = FindIn(matches, record.InstallPath)!;
-        var egl = best.ToInstall();
+        var egl = best.ToItem();
         DriftResult Result(DriftKind k) => new(k, egl.Version, record.Version, egl);
 
         if (matches.Select(m => m.Guid.ToUpperInvariant()).Distinct().Count() > 1)
@@ -567,7 +617,7 @@ public sealed class EglService : IEglService, IDisposable
             return Result(DriftKind.Unreconcilable);
         }
 
-        return FortniteVersion.Compare(egl.Version, record.Version) switch
+        return BuildVersion.Compare(egl.Version, record.Version) switch
         {
             null => Result(DriftKind.Unreconcilable),
             0 => Result(DriftKind.InSync),
@@ -578,7 +628,7 @@ public sealed class EglService : IEglService, IDisposable
 
     // =============================================== write-back ===============================================
 
-    /// <summary>Returns the EGL InstallationGuid used (store it in <see cref="GameRecord.EglInstallationGuid"/>).</summary>
+    /// <summary>Returns the EGL InstallationGuid used (store it in <see cref="InstallRecord.EglInstallationGuid"/>).</summary>
     public Task<string> WriteBackAsync(EglWriteBack data, CancellationToken ct) => Task.Run(async () =>
     {
         await _writeLock.WaitAsync(ct).ConfigureAwait(false);
@@ -618,7 +668,7 @@ public sealed class EglService : IEglService, IDisposable
             throw new GliderException(Errors.EglWriteFailed($"Legendary manifest not found: {data.LegendaryManifestPath ?? "(none)"}"));
         }
 
-        var items = FortniteItems(strict: true);
+        var items = GameItems(strict: true, appName: data.AppName);
         var byLocation = FindIn(items, installPath);
         // The .item EGL already has for this folder wins over the caller's guid: two items for one folder would make
         // EGL show (and manage) the game twice.
@@ -653,7 +703,7 @@ public sealed class EglService : IEglService, IDisposable
         tx.Stage(Path.Combine(egstore, guid + ".manifest"), manifestBytes, Path.Combine("egstore", guid + ".manifest"));
         tx.Stage(mancpnPath, PyJson.DumpBytes(mancpn), Path.Combine("egstore", guid + ".mancpn"));
         tx.Stage(itemPath, PyJson.DumpBytes(manifest.ToJson()), Path.Combine("Manifests", Path.GetFileName(itemPath)));
-        StageLauncherInstalled(tx, installPath, newLocation: null, newVersion: data.Version);
+        StageLauncherInstalled(tx, data.AppName, installPath, newLocation: null, newVersion: data.Version);
 
         await tx.CommitAsync(ct).ConfigureAwait(false);
         _log.Info(LogCategory, $"Exported {data.AppName} {data.Version} to EGL ({itemPath})");
@@ -690,7 +740,7 @@ public sealed class EglService : IEglService, IDisposable
             v["CatalogNamespace"] = data.Namespace;
         }
 
-        v["DisplayName"] = string.IsNullOrEmpty(displayName) ? FortniteLayout.Title : displayName;
+        v["DisplayName"] = string.IsNullOrEmpty(displayName) ? data.Title ?? data.AppName : displayName;
         v["InstallLocation"] = installPath;
         v["InstallSize"] = data.InstallSizeBytes;
         if (data.InstallTags.Count > 0)
@@ -720,12 +770,12 @@ public sealed class EglService : IEglService, IDisposable
         m.Values["StagingLocation"] = $"{installPath}/.egstore/bps";  // f'{igame.install_path}/.egstore/bps'
     }
 
-    public Task UpdateLocationAsync(string installationGuid, string newInstallPath, CancellationToken ct) => Task.Run(async () =>
+    public Task UpdateLocationAsync(string appName, string installationGuid, string newInstallPath, CancellationToken ct) => Task.Run(async () =>
     {
         await _writeLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            await UpdateLocationCoreAsync(installationGuid, newInstallPath, ct).ConfigureAwait(false);
+            await UpdateLocationCoreAsync(appName, installationGuid, newInstallPath, ct).ConfigureAwait(false);
         }
         finally
         {
@@ -733,9 +783,9 @@ public sealed class EglService : IEglService, IDisposable
         }
     }, ct);
 
-    private async Task UpdateLocationCoreAsync(string installationGuid, string newInstallPath, CancellationToken ct)
+    private async Task UpdateLocationCoreAsync(string appName, string installationGuid, string newInstallPath, CancellationToken ct)
     {
-        var item = FortniteItems(strict: true).FirstOrDefault(i => string.Equals(i.Guid, installationGuid, StringComparison.OrdinalIgnoreCase))
+        var item = GameItems(strict: true, appName: appName).FirstOrDefault(i => string.Equals(i.Guid, installationGuid, StringComparison.OrdinalIgnoreCase))
                    ?? throw new GliderException(Errors.EglWriteFailed($"No EGL manifest with InstallationGuid {installationGuid}"));
         var newPath = EglPath.TrimTrailingSeparators(newInstallPath);
         var oldPath = item.Manifest.InstallLocation;
@@ -748,7 +798,7 @@ public sealed class EglService : IEglService, IDisposable
             }
         }
 
-        if (!FortniteLayout.LooksLikeInstall(newPath))
+        if (!LooksInstalled(appName, newPath))
         {
             _log.Warn(LogCategory, $"Updating EGL location to {newPath}, which doesn't contain the game executable (yet)");
         }
@@ -762,14 +812,14 @@ public sealed class EglService : IEglService, IDisposable
         tx.Stage(item.Path, PyJson.DumpBytes(m.ToJson()), Path.Combine("Manifests", Path.GetFileName(item.Path)));
         if (oldPath.Length > 0)
         {
-            StageLauncherInstalled(tx, oldPath, newLocation: newPath, newVersion: null);
+            StageLauncherInstalled(tx, appName, oldPath, newLocation: newPath, newVersion: null);
         }
 
         await tx.CommitAsync(ct).ConfigureAwait(false);
         _log.Info(LogCategory, $"Updated EGL location {oldPath} -> {newPath} ({item.Path})");
     }
 
-    private void StageLauncherInstalled(EglFileTransaction tx, string matchLocation, string? newLocation, string? newVersion)
+    private void StageLauncherInstalled(EglFileTransaction tx, string appName, string matchLocation, string? newLocation, string? newVersion)
     {
         var path = _env.LauncherInstalledDat;
         if (!File.Exists(path))
@@ -779,7 +829,7 @@ public sealed class EglService : IEglService, IDisposable
 
         try
         {
-            var patched = LauncherInstalledDat.Patch(ReadSmall(path), matchLocation, newLocation, newVersion);
+            var patched = LauncherInstalledDat.Patch(ReadSmall(path), appName, matchLocation, newLocation, newVersion);
             if (patched is not null)
             {
                 tx.Stage(path, patched, Path.Combine("UnrealEngineLauncher", Path.GetFileName(path)));
