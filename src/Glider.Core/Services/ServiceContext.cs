@@ -192,33 +192,3 @@ internal static class AuthMapping
     /// <summary>Epic has no public avatar endpoint, so the UI renders initials.</summary>
     public static Account ToAccount(LegendaryAccount a) => new(a.AccountId, a.DisplayName, AvatarUrl: null);
 }
-
-/// <summary>
-/// The metadata lane (L§1.8): one online library command at a time (`list`, `list-installed --check-updates`, `info`, update
-/// dry runs), never while the writer lane's job is in its pre-download phase (it refreshes the same files then).
-/// </summary>
-public sealed class MetadataLane : IDisposable
-{
-    private readonly SemaphoreSlim _gate = new(1, 1);
-    private readonly WriterActivity _writer;
-
-    public MetadataLane(WriterActivity writer) => _writer = writer;
-
-    public bool Busy => _gate.CurrentCount == 0;
-
-    public async Task<T> RunAsync<T>(Func<CancellationToken, Task<T>> work, CancellationToken ct)
-    {
-        await _gate.WaitAsync(ct).ConfigureAwait(false);
-        try
-        {
-            await _writer.WhenNotPreDownloadAsync(ct).ConfigureAwait(false);
-            return await work(ct).ConfigureAwait(false);
-        }
-        finally
-        {
-            _gate.Release();
-        }
-    }
-
-    public void Dispose() => _gate.Dispose();
-}

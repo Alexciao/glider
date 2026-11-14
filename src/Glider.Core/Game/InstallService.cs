@@ -40,7 +40,7 @@ internal sealed class InstallService
         return Path.Combine(root, "Games");
     }
 
-    /// <summary>`info &lt;app&gt; --json` on the metadata lane (cached 10 min); null when signed out, offline or failed.</summary>
+    /// <summary>`info &lt;app&gt; --json` on the metadata lane, interactive priority: a user is waiting, so it goes ahead of background syncs (cached 10 min); null when signed out, offline or failed.</summary>
     public async Task<LegendaryGameInfo?> GetInfoAsync(string app, CancellationToken ct)
     {
         if (_info.TryGetValue(app, out var hit) && _c.Now - hit.At < InfoFreshFor)
@@ -55,7 +55,7 @@ internal sealed class InstallService
 
         try
         {
-            var info = await _c.Metadata.RunAsync(t => _c.Legendary.GetGameInfoAsync(app, t), ct);
+            var info = await _c.Metadata.RunInteractiveAsync(t => _c.Legendary.GetGameInfoAsync(app, t), ct);
             _info[app] = (info, _c.Now);
             return info;
         }
