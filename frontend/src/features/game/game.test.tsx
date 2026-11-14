@@ -15,6 +15,7 @@ import { useUi } from "../../state/ui";
 import { mockClient } from "../../test/fixtures";
 import { MotionProvider, TooltipProvider } from "../../ui";
 import { Dialogs } from "../dialogs/Dialogs";
+import { GameActions } from "./GameActions";
 import { GameView } from "./GameView";
 
 let stop: (() => void) | undefined;
@@ -67,6 +68,43 @@ afterEach(() => {
 });
 
 describe("Game page: hero and the one primary action", () => {
+  it("drops the menu's cancel while Core refuses it (a running uninstall)", async () => {
+    const { user } = await mount("queue", (b) => {
+      const running = b.snap.queue.jobs.find((j) => j.status === "running")!;
+      const game = b.find((g) => g.appName === running.appName);
+      const job = { ...running, kind: "uninstall" as const, cancellable: false };
+      return (
+        <GameActions
+          snap={b.snap}
+          game={game}
+          detail={null}
+          moment={false}
+          action={{ kind: "cancel", label: "Cancel", tone: "quiet", busy: false, disabled: false, faceKey: "cancel", intent: "none", status: { tone: "accent", text: "Uninstalling" }, job }}
+        />
+      );
+    });
+    const group = screen.getByRole("group");
+    await user.click(within(group).getByRole("button", { name: "More actions" }));
+    expect(screen.queryByRole("menuitem", { name: /^Cancel / })).not.toBeInTheDocument();
+  });
+
+  it("disables the primary Cancel while Core refuses it", async () => {
+    await mount("queue", (b) => {
+      const running = b.snap.queue.jobs.find((j) => j.status === "running")!;
+      const job = { ...running, kind: "uninstall" as const, cancellable: false };
+      return (
+        <GameActions
+          snap={b.snap}
+          game={b.find((g) => g.appName === running.appName)}
+          detail={null}
+          moment={false}
+          action={{ kind: "cancel", label: "Cancel", tone: "quiet", busy: false, disabled: false, faceKey: "cancel", intent: "cancel", status: { tone: "accent", text: "Uninstalling" }, job }}
+        />
+      );
+    });
+    expect(within(screen.getByRole("group")).getByRole("button", { name: "Cancel" })).toBeDisabled();
+  });
+
   it("shows one status line, one split button and the facts, with no version repeated", async () => {
     await mount("returning", (b) => <GameView appName={b.find(idleInstalled).appName} />);
     expect(screen.getByText("Ready to play")).toBeInTheDocument();

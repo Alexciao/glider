@@ -17,7 +17,9 @@ import { mockClient } from "../test/fixtures";
 import { MotionProvider, TooltipProvider } from "../ui";
 import { Shell } from "../app/Shell";
 import { Dialogs } from "./dialogs/Dialogs";
+import { ActiveJobCard } from "./downloads/ActiveJobCard";
 import { Downloads } from "./downloads/Downloads";
+import { QueueRow } from "./downloads/QueueRow";
 import { Home } from "./home/Home";
 import { LibraryPage } from "./library/LibraryPage";
 
@@ -290,6 +292,29 @@ describe("Downloads", () => {
     expect(dialog).toHaveTextContent(/Cancel install of /);
     await user.click(within(dialog).getByRole("button", { name: /Cancel install of / }));
     await waitFor(() => expect(screen.queryByRole("progressbar", { name: /^(Preparing|Downloading) / })).not.toBeInTheDocument());
+  });
+
+  it("offers Cancel only where Core accepts it (a running uninstall, a move recording its new folder)", async () => {
+    let next = "";
+    await mount(
+      "queue",
+      (b) => {
+        const running = b.snap.queue.jobs.find((j) => j.status === "running")!;
+        const queued = b.snap.queue.jobs.find((j) => j.status === "queued")!;
+        next = queued.title;
+        return (
+          <>
+            <ActiveJobCard job={{ ...running, cancellable: false }} />
+            <QueueRow job={{ ...queued, cancellable: false }} />
+            <QueueRow job={queued} />
+          </>
+        );
+      },
+      { freeze: true },
+    );
+    expect(await screen.findByRole("progressbar", { name: /^Downloading / })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: `Cancel ${next}` })).toHaveLength(1);
   });
 
   it("is an invitation, not a void, when there is nothing to show", async () => {

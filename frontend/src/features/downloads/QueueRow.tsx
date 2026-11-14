@@ -67,9 +67,11 @@ export const QueueRow = memo(function QueueRow({ job, handle, canMoveUp, sharedR
             <ChevronsUp size={14} />
           </IconButton>
         )}
-        <IconButton label={`Cancel ${job.title}`} size="sm" onClick={() => openDialog({ kind: "cancelJob", jobId: job.id })}>
-          <X size={14} />
-        </IconButton>
+        {job.cancellable && (
+          <IconButton label={`Cancel ${job.title}`} size="sm" onClick={() => openDialog({ kind: "cancelJob", jobId: job.id })}>
+            <X size={14} />
+          </IconButton>
+        )}
       </div>
     </div>
   );
