@@ -42,6 +42,9 @@ internal sealed class SaveService : IDisposable
     private readonly ConcurrentDictionary<string, AppInfo> _info = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, int> _busy = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Task> _postExit = new(StringComparer.Ordinal);
+
+    /// <summary>Games whose post-exit sync was skipped because Epic was unreachable; <see cref="ReplayPending"/> runs them when it is back.</summary>
+    private readonly ConcurrentDictionary<string, byte> _pendingReplay = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, bool> _syncing = new(StringComparer.Ordinal);
     private int _setupBusy;
 
@@ -64,6 +67,9 @@ internal sealed class SaveService : IDisposable
     /// <summary>Completes when every post-exit sync has finished (tests).</summary>
     internal Task PostExitIdle => Task.WhenAll(_postExit.Values);
 
+    /// <summary>Apps whose post-exit upload is waiting for Epic to be reachable (tests).</summary>
+    internal IReadOnlyCollection<string> PendingReplay => [.. _pendingReplay.Keys];
+
     private sealed record AppInfo(
         SaveSyncStatus Status,
         string? Note = null,
@@ -85,6 +91,9 @@ internal sealed class SaveService : IDisposable
     {
         /// <summary>Worth trying again later (offline, busy, Epic unreachable).</summary>
         public bool Retryable { get; init; }
+
+        /// <summary>Skipped because Glider is offline (the monitor knows when that ends), not because of a signed-out account.</summary>
+        public bool WhileOffline { get; init; }
     }
 
     private sealed record Ctx(string App, string Title, string InstallPath, string Template, SaveFilters Filters);
@@ -275,6 +284,40 @@ internal sealed class SaveService : IDisposable
             return;
         }
 
+        _pendingReplay.TryRemove(app, out _); // this sync covers whatever was waiting
+        StartPostExit(app);
+    }
+
+    /// <summary>
+    /// Epic is reachable again (<see cref="ConnectivityMonitor"/>): run the post-exit syncs that were skipped while offline. Each app is
+    /// replayed once (the same sync, same 3-way check, same retries; if the upload already happened the check finds the two sides equal
+    /// and transfers nothing). An app whose game runs again is left alone: that session's own post-exit sync covers it. Never blocks.
+    /// </summary>
+    public void ReplayPending()
+    {
+        foreach (var app in _pendingReplay.Keys)
+        {
+            if (!IsEnabled(app))
+            {
+                _pendingReplay.TryRemove(app, out _);
+                continue;
+            }
+
+            if (_c.IsGameRunning(app))
+            {
+                continue;
+            }
+
+            if (_pendingReplay.TryRemove(app, out _))
+            {
+                _c.Log.Info("saves", $"{app}: Epic is reachable again; running the post-exit sync that was skipped");
+                StartPostExit(app);
+            }
+        }
+    }
+
+    private void StartPostExit(string app)
+    {
         _postExit[app] = Task.Run(async () =>
         {
             try
@@ -312,7 +355,23 @@ internal sealed class SaveService : IDisposable
                 }
             }
 
-            last = await SyncCoreAsync(app, Trigger.PostExit, SyncDirection.Auto, null, ct).ConfigureAwait(false);
+            for (var again = 0; ; again++)
+            {
+                last = await SyncCoreAsync(app, Trigger.PostExit, SyncDirection.Auto, null, ct).ConfigureAwait(false);
+                if (last is not { Skipped: true, WhileOffline: true })
+                {
+                    break;
+                }
+
+                // Retrying on a timer would only skip again: the connectivity monitor calls ReplayPending when Epic is back. Queue first,
+                // then look: if it came back meanwhile and nobody replayed us yet, sync again here.
+                _pendingReplay[app] = 0;
+                if (again >= 3 || _c.Hub.State.Connectivity == Connectivity.Offline || !_pendingReplay.TryRemove(app, out _))
+                {
+                    return;
+                }
+            }
+
             if (last.Conflict is not null)
             {
                 _c.Notify(NoticeLevel.Warning, $"{_c.TitleOf(app)}'s saves differ", "The cloud and this PC both changed. Choose which one to keep.", FixAction.ResolveSaves, appName: app);
@@ -360,7 +419,7 @@ internal sealed class SaveService : IDisposable
 
             var note = signedIn ? "Offline: your saves will sync the next time you're online." : "Sign in to Epic to sync your saves.";
             await MarkLocalStatusAsync(app, note, ct).ConfigureAwait(false);
-            return Skip(app, note, retryable: true);
+            return Skip(app, note, retryable: true) with { WhileOffline = signedIn };
         }
 
         var item = _c.Library.CatalogItem(app);
