@@ -8,6 +8,7 @@ import { detectReadyMoment, startBridge } from "./bridge";
 import { useLibrary } from "./library";
 import { useRouter } from "./router";
 import { useApp } from "./store";
+import { useUi } from "./ui";
 import { snapshotFor } from "../test/fixtures";
 
 /** A scripted host: answers the boot calls and lets the test push events. */
@@ -87,6 +88,19 @@ describe("host events", () => {
     expect(useRouter.getState().route).toEqual({ page: "downloads" });
     host.push("navigate", { route: "nonsense/route" }); // unknown routes are ignored
     expect(useRouter.getState().route).toEqual({ page: "downloads" });
+  });
+
+  it("opens the install dialog (and never installs) for a glider://install route", async () => {
+    const host = fakeHost(await snapshotFor("returning"), emptyLib);
+    setRpcForTests(new RpcClient(host.transport));
+    stop = await startBridge();
+    host.push("navigate", { route: "game/Sugar/install" });
+    expect(useRouter.getState().route).toEqual({ page: "game", appName: "Sugar" });
+    expect(useUi.getState().dialog).toEqual({ kind: "install", appName: "Sugar" });
+    expect(host.sent.some((m) => (m as { method?: string }).method === "game.install")).toBe(false);
+    useUi.getState().closeDialog();
+    host.push("navigate", { route: "game/Sugar" }); // a plain game route opens nothing
+    expect(useUi.getState().dialog).toBeNull();
   });
 
   it("posts raw host messages with `type` as the first key", () => {

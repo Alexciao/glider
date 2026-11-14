@@ -1,6 +1,7 @@
 using System.IO.Pipes;
 using System.Security.Principal;
 using Glider.App.Native;
+using Glider.Core.Links;
 
 namespace Glider.App;
 
@@ -21,7 +22,8 @@ internal sealed class SingleInstance : IDisposable
 
     /// <summary>Returns the owner object when this process is the first instance, otherwise signals the first one and returns null.</summary>
     /// <param name="scope">Empty for the real app; a non-empty scope (derived from --data-dir) isolates test instances from each other and from the user's.</param>
-    public static SingleInstance? TryAcquire(string scope = "")
+    /// <param name="link">A glider:// (or Epic launcher) link this process was started with; forwarded to the first instance instead of a plain "come to the front".</param>
+    public static SingleInstance? TryAcquire(string scope = "", string? link = null)
     {
         _pipeName = "Glider.Activate." + (WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName) + scope;
         var mutex = new Mutex(true, HostConstants.MainMutexName + scope, out var first);
@@ -31,11 +33,11 @@ internal sealed class SingleInstance : IDisposable
         }
 
         mutex.Dispose();
-        SignalFirst();
+        SignalFirst(link);
         return null;
     }
 
-    private static void SignalFirst()
+    private static void SignalFirst(string? link)
     {
         // We were just launched by the user, so we may hand the foreground right to the running instance.
         Win32.AllowSetForegroundWindow(uint.MaxValue);
@@ -45,7 +47,8 @@ internal sealed class SingleInstance : IDisposable
             {
                 using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out, PipeOptions.CurrentUserOnly);
                 client.Connect(1000);
-                client.WriteByte(1);
+                client.Write(ActivationMessage.Encode(link));
+                client.Flush();
                 return;
             }
             catch (Exception ex) when (ex is TimeoutException or IOException)
@@ -55,8 +58,11 @@ internal sealed class SingleInstance : IDisposable
         }
     }
 
-    /// <summary>Starts listening; <paramref name="onActivate"/> runs on a pool thread.</summary>
-    public void Listen(Action onActivate)
+    /// <summary>
+    /// Starts listening; <paramref name="onActivate"/> runs on a pool thread with the forwarded link, or null for a plain "come to the front".
+    /// Malformed or stalled messages are dropped.
+    /// </summary>
+    public void Listen(Action<string?> onActivate)
     {
         _ = Task.Run(async () =>
         {
@@ -66,13 +72,21 @@ internal sealed class SingleInstance : IDisposable
                 {
                     await using var server = new NamedPipeServerStream(PipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
                     await server.WaitForConnectionAsync(_cts.Token).ConfigureAwait(false);
-                    var buf = new byte[1];
-                    _ = await server.ReadAsync(buf, _cts.Token).ConfigureAwait(false);
-                    onActivate();
+                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+                    timeout.CancelAfter(TimeSpan.FromSeconds(2));
+                    var (ok, link) = await ActivationMessage.ReadAsync(server, timeout.Token).ConfigureAwait(false);
+                    if (ok)
+                    {
+                        onActivate(link);
+                    }
+                }
+                catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+                {
+                    return;
                 }
                 catch (OperationCanceledException)
                 {
-                    return;
+                    HostLog.Warn("Activation message timed out");
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {

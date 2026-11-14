@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { formatRoute, goGame, installRouter, navigate, parseRoute, sameRoute, useRouter, type Route } from "./router";
+import { formatRoute, goGame, installIntent, installRouter, navigate, parseRoute, sameRoute, useRouter, type Route } from "./router";
 
 describe("parseRoute / formatRoute", () => {
   it.each([
@@ -14,12 +14,31 @@ describe("parseRoute / formatRoute", () => {
     ["#library", { page: "library" }],
     ["game/Foxglove%2F1A2", { page: "game", appName: "Foxglove/1A2" }],
     ["game/0123456789abcdef0123456789abcdef/", { page: "game", appName: "0123456789abcdef0123456789abcdef" }],
+    ["game/Sugar/install", { page: "game", appName: "Sugar" }],
+    ["store/p/some-game_2", { page: "store", slug: "some-game_2" }],
   ] as [string, Route][])("%s", (input, route) => {
     expect(parseRoute(input)).toEqual(route);
   });
 
   it("rejects junk", () => {
     for (const bad of ["", "#", "/", "nope", "game", "game/", "downloads/extra", "library/Fortnite", null, undefined]) expect(parseRoute(bad)).toBeNull();
+    for (const bad of ["game/a/b", "game/a/install/x", "game/%E0%A4%A", "store/p", "store/p/", "store/p/a/b", "store/x/y", "store/p/bad.slug", "store/p/%2e%2e"]) expect(parseRoute(bad)).toBeNull();
+  });
+
+  it("installIntent only fires for the /install suffix", () => {
+    expect(installIntent("game/Sugar/install")).toBe("Sugar");
+    expect(installIntent("game/Sugar/install/")).toBe("Sugar");
+    expect(installIntent("game/Sugar")).toBeNull();
+    expect(installIntent("downloads")).toBeNull();
+    expect(installIntent("game/a/b")).toBeNull();
+    expect(installIntent(null)).toBeNull();
+  });
+
+  it("formats and compares store slugs", () => {
+    expect(formatRoute({ page: "store", slug: "x" })).toBe("store/p/x");
+    expect(formatRoute({ page: "store" })).toBe("store");
+    expect(sameRoute({ page: "store", slug: "x" }, { page: "store", slug: "y" })).toBe(false);
+    expect(sameRoute({ page: "store" }, { page: "store" })).toBe(true);
   });
 
   it("round-trips, percent-encoding odd appNames", () => {

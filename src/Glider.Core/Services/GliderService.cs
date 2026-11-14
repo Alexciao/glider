@@ -4,6 +4,8 @@ using Glider.Core.Game;
 using Glider.Core.Infrastructure;
 using Glider.Core.Jobs;
 using Glider.Core.Library;
+using Glider.Core.Links;
+using Glider.Core.Shortcuts;
 
 namespace Glider.Core.Services;
 
@@ -33,7 +35,8 @@ public sealed class GliderService : IGliderRpc, IDisposable
     private readonly Overlay.OverlayService _overlay = new();
     private readonly Store.StoreService _store = new();
     private readonly Store.FreeGamesService _freeGames = new();
-    private readonly ShortcutService _shortcuts = new();
+    private readonly ShortcutService _shortcuts;
+    private readonly LinkService _links;
     private readonly ActivationService _activation = new();
     private readonly PrerequisiteService _prereqs = new();
     private Task _periodic = Task.CompletedTask;
@@ -84,6 +87,8 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _storage = new StorageService(_c);
         _saves = new Saves.SaveService(_c);
         _prewarm = new Prewarm(_c, _auth, _egl, _updates, _install, _launch);
+        _shortcuts = new ShortcutService(_c);
+        _links = new LinkService(_c, _launch.LaunchAsync);
         _hooks = new JobHooks(_c) { EnqueueVerify = _install.EnqueueVerify };
         if (jobs is JobQueue q)
         {
@@ -110,12 +115,17 @@ public sealed class GliderService : IGliderRpc, IDisposable
     /// <summary>The current library (read-only; for the host's tray menu).</summary>
     public IReadOnlyCollection<GameSummary> Library => _c.Library.Games.Values.ToList();
 
+    /// <summary>The current library without copying it (an immutable view; for cheap one-pass scans such as the tray's recent games).</summary>
+    public IEnumerable<GameSummary> LibraryGames => _c.Library.Games.Values;
+
     /// <summary>Completes when background pre-warm has finished (AppInfo.Warm).</summary>
     public Task WarmupTask { get; private set; } = Task.CompletedTask;
 
     internal LaunchService LaunchServiceForTests => _launch;
 
     internal LibraryService LibraryForTests => _c.Library;
+
+    internal ShortcutService ShortcutsForTests => _shortcuts;
 
     internal InstalledSizeMeter SizesForTests => _c.Sizes;
 
@@ -165,6 +175,8 @@ public sealed class GliderService : IGliderRpc, IDisposable
 
         var ct = _shutdown.Token;
         WarmupTask = Task.Run(() => _prewarm.RunAsync(ct), ct);
+        _shortcuts.Attach();
+        _ = Task.Run(() => ReconcileShellAsync(ct), ct);
         _periodic = RunPeriodicAfterWarmupAsync(ct);
         return Task.CompletedTask;
     }
@@ -182,6 +194,46 @@ public sealed class GliderService : IGliderRpc, IDisposable
         catch (Exception e)
         {
             _c.Log.Error("startup", "background loop stopped", e);
+        }
+    }
+
+    /// <summary>Background, after pre-warm: repair shortcuts whose game moved or went away, and keep protocol registrations in step with the settings.</summary>
+    private async Task ReconcileShellAsync(CancellationToken ct)
+    {
+        try
+        {
+            _links.Reconcile();
+            await WarmupTask.WaitAsync(ct).ConfigureAwait(false);
+            await _shortcuts.ReconcileAllAsync().ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception e)
+        {
+            _c.Log.Warn("startup", "shell integration check failed", e);
+        }
+    }
+
+    /// <summary>
+    /// A <c>glider://</c> (or, when enabled, <c>com.epicgames.launcher://</c>) link reached the host: from the command line of the first
+    /// instance or forwarded by a second one. Launch links start the game without showing the window. Never throws.
+    /// </summary>
+    public async Task<LinkOutcome> HandleLinkAsync(string? link, LinkSource source)
+    {
+        try
+        {
+            return await _links.HandleAsync(link, source, _shutdown.Token).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            _c.Log.Error("links", "handling a link failed", e);
+            _c.Host.RestoreWindow();
+            return LinkOutcome.Ignored;
+        }
+        catch (OperationCanceledException)
+        {
+            return LinkOutcome.Ignored;
         }
     }
 
@@ -204,6 +256,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
         {
         }
 
+        _shortcuts.Dispose();
         _c.Library.Dispose();
         _c.Sizes.Dispose();
         _c.Hub.Dispose();
@@ -316,7 +369,11 @@ public sealed class GliderService : IGliderRpc, IDisposable
 
     public Task<LicensesResult> GetLicenses() => Rpc(nameof(GetLicenses), _ => Task.FromResult(Licenses.Load(_c.Options.LicensesDirectory)));
 
-    public Task Ready() => Rpc(nameof(Ready), _c.Host.RevealWindow);
+    public Task Ready() => Rpc(nameof(Ready), () =>
+    {
+        _c.Host.RevealWindow();
+        _links.UiReady();
+    });
 
     public Task Quit() => Rpc(nameof(Quit), _c.Host.Quit);
 
@@ -663,6 +720,11 @@ public sealed class GliderService : IGliderRpc, IDisposable
         if (prev.StartWithWindows != next.StartWithWindows)
         {
             _c.Host.SetStartWithWindows(next.StartWithWindows);
+        }
+
+        if (prev.HandleEpicLinks != next.HandleEpicLinks)
+        {
+            _links.ApplyEpicHandler(next.HandleEpicLinks); // throws (setting unchanged) when the registry can't be written
         }
 
         _c.Log.MinimumLevel = next.LogLevel;

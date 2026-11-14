@@ -49,6 +49,9 @@ public sealed class Rig : IDisposable
     public FakeOnboarding Onboarding { get; } = new();
     public IIdleSignal? Idle { get; }
 
+    /// <summary>The fake shell (shortcuts + registry); set before first use of <see cref="Service"/>. Null = the host offers none.</summary>
+    public Glider.Core.Links.IShellIntegration? Shell { get; set; }
+
     /// <summary>Legendary's library on disk (metadata/assets/entitlements); saved before the service starts.</summary>
     internal LibraryFixture Library { get; }
 
@@ -78,6 +81,7 @@ public sealed class Rig : IDisposable
                         PublisherCheck = Publisher,
                         OnboardingStore = Onboarding,
                         IdleSignal = Idle,
+                        Shell = Shell,
                         MeasureDirectory = Measure,
                         SizeMeasureMinInterval = SizeMinInterval,
                         LibraryCoalesceInterval = LibraryCoalesce,

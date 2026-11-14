@@ -215,5 +215,12 @@ internal sealed class ForwardingEventSink : IEventSink
 
     public void Attach(IEventSink target) => _target = target;
 
-    public void Publish<T>(string eventName, T data) => _target?.Publish(eventName, data);
+    /// <summary>Host-side observers (the tray) see every event as it is published, on the publisher's thread: keep handlers tiny.</summary>
+    public event Action<string, object?>? Tapped;
+
+    public void Publish<T>(string eventName, T data)
+    {
+        Tapped?.Invoke(eventName, data);
+        _target?.Publish(eventName, data);
+    }
 }

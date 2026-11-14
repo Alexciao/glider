@@ -1,13 +1,14 @@
 using System.Windows;
 using Glider.App.Native;
 using Glider.Core;
+using Glider.Core.Links;
 using Microsoft.Web.WebView2.Core;
 using Velopack;
 
 namespace Glider.App;
 
 /// <summary>Parsed command line. Unknown arguments (Velopack's --veloapp-* are consumed earlier) are ignored.</summary>
-internal sealed record HostOptions(bool Background, string? MeasureFile, int MeasureSeconds, string? SelfTestDir, string? DataDir, bool LoginAudit = false, string? LoginDebugDir = null, string? Variant = null, bool NoCdp = false)
+internal sealed record HostOptions(bool Background, string? MeasureFile, int MeasureSeconds, string? SelfTestDir, string? DataDir, bool LoginAudit = false, string? LoginDebugDir = null, string? Variant = null, bool NoCdp = false, string? Link = null)
 {
     public static HostOptions Parse(string[] args)
     {
@@ -16,6 +17,7 @@ internal sealed record HostOptions(bool Background, string? MeasureFile, int Mea
         var audit = false;
         string? loginDebug = null, variant = null;
         var noCdp = false;
+        string? link = null;
         var seconds = 5;
         for (var i = 0; i < args.Length; i++)
         {
@@ -24,6 +26,15 @@ internal sealed record HostOptions(bool Background, string? MeasureFile, int Mea
             if (a == "--background")
             {
                 background = true;
+            }
+            else if (a.StartsWith("--launch", StringComparison.Ordinal))
+            {
+                // Shortcuts run "Glider.exe --launch <app>"; only a valid app name becomes a link.
+                link = GliderLinkParser.LaunchUri(Value()) ?? link;
+            }
+            else if (a.StartsWith(GliderLinkParser.Scheme + ":", StringComparison.OrdinalIgnoreCase) || a.StartsWith(EpicLauncherUri.Scheme + ":", StringComparison.OrdinalIgnoreCase))
+            {
+                link = a; // validated by Core when handled
             }
             else if (a.StartsWith("--measure-startup", StringComparison.Ordinal))
             {
@@ -60,8 +71,13 @@ internal sealed record HostOptions(bool Background, string? MeasureFile, int Mea
             }
         }
 
-        return new HostOptions(background, measure, seconds, selftest, dataDir, audit, loginDebug, variant, noCdp);
+        return new HostOptions(background, measure, seconds, selftest, dataDir, audit, loginDebug, variant, noCdp, link);
     }
+
+    /// <summary>A launch link starts the game without ever showing the main window.</summary>
+    public bool StartsQuietly => Link is { } l
+        && (GliderLinkParser.TryParse(l, out var g) ? g.Kind == GliderLinkKind.Launch
+            : EpicLauncherUri.TryParse(l, out var e) && EpicLinkMapper.ToGliderLink(e)?.Kind == GliderLinkKind.Launch);
 
     public bool IsTestRun => MeasureFile is not null || SelfTestDir is not null || LoginDebugDir is not null;
 
@@ -82,7 +98,12 @@ public static class Program
         StartupTimeline.Begin();
 
         // Must be first: Velopack install/uninstall/update hooks run here and exit the process.
-        VelopackApp.Build().Run();
+        VelopackApp.Build()
+            .OnFirstRun(_ => ShellRegistration.OnInstalledOrUpdated())
+            .OnAfterInstallFastCallback(_ => ShellRegistration.OnInstalledOrUpdated())
+            .OnAfterUpdateFastCallback(_ => ShellRegistration.OnInstalledOrUpdated())
+            .OnBeforeUninstallFastCallback(_ => ShellRegistration.OnUninstalling())
+            .Run();
         StartupTimeline.Mark("velopack");
 
         var options = HostOptions.Parse(args);
@@ -91,7 +112,7 @@ public static class Program
         SingleInstance? single = null;
         if (!options.IsTestRun)
         {
-            single = SingleInstance.TryAcquire(options.DataDir is null ? "" : "." + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(options.DataDir.ToLowerInvariant())))[..12]);
+            single = SingleInstance.TryAcquire(options.DataDir is null ? "" : "." + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(options.DataDir.ToLowerInvariant())))[..12], options.Link);
             if (single is null)
             {
                 return 0; // the first instance was asked to come to the front
@@ -144,22 +165,23 @@ internal static class HostApp
         var (theme, startMinimized) = HostSettingsPeek.Read(paths);
         ThemeState.Mode = theme;
 
-        var rt = new HostRuntime(paths, app.Dispatcher);
+        var rt = new HostRuntime(paths, app.Dispatcher, shellIntegration: !options.IsTestRun);
         Runtime = rt;
         _ = ObserveEnvironmentAsync(rt);
         rt.RpcTask.ContinueWith(t => HostLog.Error("Composition.Build failed", t.Exception), TaskContinuationOptions.OnlyOnFaulted);
 
         var window = new MainWindow(rt);
         app.MainWindow = window;
-        var startHidden = ((options.Background || startMinimized) && !options.IsTestRun) || options.LoginDebugDir is not null;
+        var startHidden = ((options.Background || startMinimized || options.StartsQuietly) && !options.IsTestRun) || options.LoginDebugDir is not null;
         window.Begin(startHidden);
 
+        var trayHost = new TrayHost(rt);
         var tray = new TrayIcon(
             Path.Combine(AppContext.BaseDirectory, "Assets", "tray.ico"),
             open: () => rt.Platform.RestoreWindow(),
-            gameItems: TrayGameItems,
-            checkUpdates: () => FireAndForget(r => r.CheckForUpdates(), "Check for updates"),
-            quit: () => FireAndForget(r => r.Quit(), "Quit", fallback: rt.Platform.Quit));
+            buildMenu: trayHost.BuildMenu,
+            run: trayHost.Run);
+        trayHost.Attach(tray);
         rt.Platform.Attach(window, tray);
         StartupTimeline.Mark("tray");
         if (startHidden)
@@ -172,11 +194,23 @@ internal static class HostApp
             AppUpdater.Start(rt.Sink);
         }
 
-        single?.Listen(() =>
+        single?.Listen(link =>
         {
-            HostLog.Info("activation requested by a second instance");
-            app.Dispatcher.BeginInvoke(() => rt.Platform.RestoreWindow());
+            if (link is null)
+            {
+                HostLog.Info("activation requested by a second instance");
+                app.Dispatcher.BeginInvoke(() => rt.Platform.RestoreWindow());
+            }
+            else
+            {
+                HostLinks.Deliver(link, Glider.Core.Links.LinkSource.SecondInstance);
+            }
         });
+
+        if (options.Link is { } startLink && !options.IsTestRun)
+        {
+            HostLinks.Deliver(startLink, Glider.Core.Links.LinkSource.CommandLine);
+        }
 
         if (options.MeasureFile is not null)
         {
@@ -202,36 +236,13 @@ internal static class HostApp
 
         app.Run();
 
+        trayHost.Dispose();
         tray.Dispose();
         DisposeRpc(rt);
         return 0;
     }
 
-    /// <summary>Tray entries from Core's state: "Close X" for each running game, else "Play &lt;last played installed game&gt;".</summary>
-    private static IReadOnlyList<(string Label, Action Run)> TrayGameItems()
-    {
-        if (Composition.Runtime?.Service is not { } service)
-        {
-            return [];
-        }
-
-        var sessions = service.Hub.BuildSnapshot().Sessions;
-        if (sessions.Count > 0)
-        {
-            return [.. sessions.Select(s => ($"Close {s.Title}", (Action)(() =>
-                FireAndForget(r => r.CloseGame(new Glider.Core.Contracts.AppRef(s.AppName)), "Close game"))))];
-        }
-
-        var last = service.Library
-            .Where(g => g.InstallStatus == Glider.Core.Contracts.InstallStatus.Installed && g.Kind != Glider.Core.Contracts.GameKind.Dlc && g.LastPlayedAt is not null)
-            .OrderByDescending(g => g.LastPlayedAt)
-            .FirstOrDefault();
-        return last is null
-            ? []
-            : [($"Play {last.Title}", () => FireAndForget(r => r.Launch(new Glider.Core.Contracts.LaunchRequest(last.AppName, null, false)), "Play"))];
-    }
-
-    private static void FireAndForget(Func<Glider.Core.Contracts.IGliderRpc, Task> call, string what, Action? fallback = null)
+    internal static void FireAndForget(Func<Glider.Core.Contracts.IGliderRpc, Task> call, string what, Action? fallback = null)
     {
         _ = Task.Run(async () =>
         {

@@ -13,9 +13,9 @@ internal static class Composition
 {
     public static GliderRuntime? Runtime { get; private set; }
 
-    public static async Task<IGliderRpc> BuildAsync(AppPaths paths, IHostPlatform host, IEventSink events)
+    public static async Task<IGliderRpc> BuildAsync(AppPaths paths, IHostPlatform host, IEventSink events, Glider.Core.Links.IShellIntegration? shell = null)
     {
-        Runtime = await GliderRuntime.StartAsync(paths, host, events, idleSignal: new WindowsIdleSignal()).ConfigureAwait(false);
+        Runtime = await GliderRuntime.StartAsync(paths, host, events, idleSignal: new WindowsIdleSignal(), options: new GliderRuntimeOptions { Shell = shell }).ConfigureAwait(false);
         return Runtime.Rpc;
     }
 

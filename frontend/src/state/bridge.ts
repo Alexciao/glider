@@ -6,7 +6,7 @@ import { deriveHero, type HeroModel } from "./derive";
 import { useLibrary } from "./library";
 import { pushNotice } from "./notices";
 import { ingestProgress, pruneProgress, seedProgress, useProgress } from "./progress";
-import { navigate } from "./router";
+import { installIntent, navigate } from "./router";
 import { isActiveJob, jobForGame, useApp } from "./store";
 import { useUi } from "./ui";
 
@@ -104,7 +104,11 @@ export async function startBridge(): Promise<() => void> {
     c.on("library", sync.onDelta),
     c.on("progress", (p) => ingestProgress(progressTransform ? progressTransform(p) : p)),
     c.on("notice", pushNotice),
-    c.on("navigate", (e) => navigate(e.route)),
+    c.on("navigate", (e) => {
+      navigate(e.route);
+      const install = installIntent(e.route);
+      if (install) useUi.getState().openDialog({ kind: "install", appName: install });
+    }),
     c.on("window", (w) => useApp.getState().setWindow(w)),
     c.on("caption", (e) => {
       if (e.button === "max") useApp.getState().setMaxButton(e.state === "leave" ? "idle" : e.state);
