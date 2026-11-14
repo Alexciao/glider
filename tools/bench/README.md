@@ -13,6 +13,8 @@ scratch folder, delete it afterwards, and keep total traffic small (the study us
 | `legendary_harness.py` | Runs Legendary's own `DLManager` from a 0.21.1 checkout into a scratch folder and reports per-stage timings, cache stalls, connections, retries and the real process priorities; `--plain` runs stock (or patched) classes without timers. |
 | `lgd_instr.py` | The instrumented copies of `DLWorker.run` / `FileWorker.run` / `DLManager.download_job_manager` (0.21.1 code + timers) and the Windows priority helpers. |
 | `lgd_shim.py` | Makes a source checkout importable in every spawned process (version lookup shim). |
+| `legendary_run.py` | A stand-in for `legendary install` (stock DLManager, real CLI log format, no login) that Glider's own process runner can drive; used by `tests/.../Benchmarks/DownloadBenchmarkTests.cs` (opt-in via `GLIDER_BENCH_*`, see the class comment). |
+| `make_test_manifest.py` | Writes the small golden manifest for `ManifestReaderTests` with Legendary's own serializer. |
 | `cpu_load.py` | Foreground CPU load for the priority tests. |
 | `summarize_runs.py` | Table of `legendary_harness.py` results. |
 | `patch_legendary.py` / `legendary-0.21.1-glider.patch` | The proposed fork patch (§5.4) and its generated diff. |

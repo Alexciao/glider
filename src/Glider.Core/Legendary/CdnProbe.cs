@@ -71,6 +71,9 @@ internal sealed partial class CdnProbe
     /// <summary>Time to first byte above which a host is bad (250 ms; tests raise it so a loaded CI machine doesn't flip good hosts).</summary>
     public double BadTtfbMs { get; init; } = 250;
 
+    /// <summary>The untimed warm-up (4 connections, 4 MB) must finish within this, or the host is slow: it would otherwise eat the whole budget.</summary>
+    public TimeSpan WarmTimeout { get; init; } = TimeSpan.FromSeconds(1.2);
+
     public TimeSpan HostTimeout { get; init; } = TimeSpan.FromSeconds(3);
 
     public TimeSpan TotalBudget { get; init; } = TimeSpan.FromSeconds(2.5);
@@ -135,7 +138,7 @@ internal sealed partial class CdnProbe
 
             using var hostCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             hostCts.CancelAfter(HostTimeout);
-            var result = await ProbeHostAsync(client, baseUrl, warm, timed, hostCts.Token).ConfigureAwait(false);
+            var result = await ProbeHostAsync(client, baseUrl, warm, timed, WarmTimeout, hostCts.Token).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
             raw.Add(new RawResult(baseUrl, epic, true, result.Failed, result.TtfbMs, result.Mbps));
         }
@@ -164,12 +167,24 @@ internal sealed partial class CdnProbe
             : "ok")];
     }
 
-    private static async Task<(bool Failed, double TtfbMs, double Mbps)> ProbeHostAsync(HttpClient client, string baseUrl, string[] warm, string[] timed, CancellationToken ct)
+    private static async Task<(bool Failed, double TtfbMs, double Mbps)> ProbeHostAsync(HttpClient client, string baseUrl, string[] warm, string[] timed, TimeSpan warmTimeout, CancellationToken ct)
     {
         try
         {
             // Untimed: opens the connections (TCP + TLS) the timed requests will reuse, like a Legendary worker's keep-alive session.
-            await Task.WhenAll(warm.Select(p => FetchAsync(client, $"{baseUrl}/{p}", ct))).ConfigureAwait(false);
+            // A host that can't even deliver the warm-up quickly is bad whatever the timed part would say: don't spend the budget on it.
+            var warmStart = Stopwatch.GetTimestamp();
+            using var warmCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            warmCts.CancelAfter(warmTimeout);
+            try
+            {
+                await Task.WhenAll(warm.Select(p => FetchAsync(client, $"{baseUrl}/{p}", warmCts.Token))).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                return (false, Stopwatch.GetElapsedTime(warmStart).TotalMilliseconds, 0);
+            }
+
             var wall = Stopwatch.GetTimestamp();
             var fetched = await Task.WhenAll(timed.Select(p => FetchAsync(client, $"{baseUrl}/{p}", ct))).ConfigureAwait(false);
             var seconds = Math.Max(1e-3, Stopwatch.GetElapsedTime(wall).TotalSeconds);

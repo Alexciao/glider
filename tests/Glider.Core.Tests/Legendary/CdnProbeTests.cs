@@ -253,7 +253,7 @@ public class CdnProbeTests
     }
 
     private static Task<CdnPlan?> ProbeAsync(Dictionary<string, Host> hosts) =>
-        new CdnProbe(new TestLog(), () => new FakeCdn(hosts)) { TotalBudget = TimeSpan.FromSeconds(60), HostTimeout = TimeSpan.FromSeconds(30), BadTtfbMs = 800 }
+        new CdnProbe(new TestLog(), () => new FakeCdn(hosts)) { TotalBudget = TimeSpan.FromSeconds(60), HostTimeout = TimeSpan.FromSeconds(30), BadTtfbMs = 800, WarmTimeout = TimeSpan.FromSeconds(20) }
             .ProbeAsync(Epic(EpicHosts), Paths, TestContext.Current.CancellationToken);
 
     /// <summary>A CDN host: time to first byte, then a 1 MB body that arrives after <see cref="ReadDelayMs"/>; or an error.</summary>
@@ -301,5 +301,32 @@ public class CdnProbeTests
             buffer.Span[..n].Clear();
             return n;
         }
+    }
+}
+
+/// <summary>A host too slow to finish the warm-up is cut short, so one bad CDN can't eat the probe's whole time budget.</summary>
+public class CdnProbeWarmTimeoutTests
+{
+    private sealed class Handler(Dictionary<string, int> delayMs) : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            await Task.Delay(delayMs.GetValueOrDefault(request.RequestUri!.Host, 5), cancellationToken);
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new ByteArrayContent(new byte[100_000]) };
+        }
+    }
+
+    [Fact]
+    public async Task ASlowHostIsCutAtTheWarmTimeoutAndLeavesTimeForTheNext()
+    {
+        string[] paths = [.. Enumerable.Range(0, 8).Select(i => $"ChunksV4/00/{i:X16}_0000.chunk")];
+        var probe = new CdnProbe(new TestLog(), () => new Handler(new Dictionary<string, int> { ["slow.example"] = 5000 })) { WarmTimeout = TimeSpan.FromMilliseconds(300) };
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var plan = await probe.ProbeAsync(["https://slow.example/Builds/G/CloudDir", "https://fast.example/Builds/G/CloudDir"], paths, TestContext.Current.CancellationToken);
+
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3), $"took {sw.Elapsed}");
+        Assert.Equal("slow", plan!.Find("slow.example")!.Verdict);
+        Assert.Equal("fast.example", plan.Pick?.Host);
     }
 }
