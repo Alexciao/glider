@@ -160,6 +160,7 @@ public sealed class FakeHost(CallLog log) : IHostPlatform
     public void Quit() => log.Add("host.quit");
     public bool IsWindows11 => true;
     public BackdropKind Backdrop => BackdropKind.Mica;
+    public Glider.Core.Store.IStoreHost? StoreHost { get; set; }
 }
 
 /// <summary>

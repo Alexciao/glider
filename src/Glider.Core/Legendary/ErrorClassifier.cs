@@ -19,6 +19,7 @@ internal enum LegendaryCommandKind
     Launch,
     List,
     ListInstalled,
+    Token,
 }
 
 /// <summary>

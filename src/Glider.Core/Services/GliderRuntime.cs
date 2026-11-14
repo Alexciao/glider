@@ -110,6 +110,8 @@ public sealed class GliderRuntime : IAsyncDisposable
                 OnboardingStore = onboarding,
                 Collections = collections,
                 WriterActivity = activity,
+                FreeGamesBackground = options.FreeGamesBackground,
+                FreeGames = options.FreeGames,
             });
             hooks.Target = service.Hooks;
             policy.Target = service.QueuePolicy;
@@ -155,6 +157,11 @@ public sealed class GliderRuntimeOptions
     public TimeSpan? LockRetryDelay { get; init; }
     public TimeSpan? LibraryCoalesceInterval { get; init; }
     public TimeSpan? LibraryCacheDelay { get; init; }
+
+    /// <summary>Fetch Epic's free-games feed in the background. Defaults to on; tests that run the real runtime turn it off.</summary>
+    public bool FreeGamesBackground { get; init; } = true;
+
+    public Store.FreeGamesOptions? FreeGames { get; init; }
 }
 
 /// <summary>Bridges construction cycles: the queue needs the policy, the policy comes from GliderService (which needs the queue).</summary>

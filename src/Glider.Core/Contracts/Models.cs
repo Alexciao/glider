@@ -691,7 +691,20 @@ public sealed record OverlayState(
 // ===================================== Store / free games =====================================
 
 [JsonConverter(typeof(CamelEnumConverter<StoreTargetKind>))]
-public enum StoreTargetKind { Home, Product, FreeGames, Wishlist, Library }
+public enum StoreTargetKind
+{
+    Home,
+    Product,
+    FreeGames,
+    Wishlist,
+    /// <summary>Epic's own "library" has no web page; the host opens the Store home.</summary>
+    Library,
+    /// <summary>A bundle page; <see cref="StoreTarget.Slug"/> is the bundle slug.</summary>
+    Bundle,
+    Browse,
+    /// <summary>Resume where the Store view was last (path only, kept in memory); the Store home when unknown.</summary>
+    LastVisited,
+}
 
 /// <summary>A typed Store destination; the UI never passes raw URLs to the Store view.</summary>
 public sealed record StoreTarget(StoreTargetKind Kind, string? Slug);
@@ -701,7 +714,50 @@ public sealed record StoreBounds(double X, double Y, double Width, double Height
 
 public sealed record StoreShowRequest(StoreTarget? Target, StoreBounds Bounds);
 
-public sealed record StoreState(bool Created, bool Visible, bool Loading, bool CanGoBack, string? Title);
+[JsonConverter(typeof(CamelEnumConverter<StorePhase>))]
+public enum StorePhase
+{
+    /// <summary>No native view exists (never shown, closed after idling, or the host has no Store).</summary>
+    Idle,
+    Creating,
+    Loading,
+    Ready,
+    /// <summary>Created but not on screen (another tab is open).</summary>
+    Hidden,
+    /// <summary>Hidden for a while: the page is suspended to save memory (resumes on show).</summary>
+    Suspended,
+    /// <summary>The web session is missing and could not be restored; offer "Sign in again" / "Open in browser".</summary>
+    SignedOut,
+    /// <summary>The page could not be loaded (see <see cref="StoreState.Error"/>).</summary>
+    Error,
+}
+
+/// <summary>
+/// The native Store view as the UI should draw around it. <see cref="Url"/> is origin + path only (no query or fragment).
+/// <see cref="Created"/>, <see cref="Visible"/>, <see cref="Loading"/>, <see cref="CanGoBack"/>, <see cref="Title"/> are the v2 fields;
+/// the rest are additive (defaults make older payloads valid).
+/// </summary>
+public sealed record StoreState(
+    bool Created,
+    bool Visible,
+    bool Loading,
+    bool CanGoBack,
+    string? Title,
+    StorePhase Phase = StorePhase.Idle,
+    string? Url = null,
+    /// <summary>Host of <see cref="Url"/>, shown next to a padlock.</summary>
+    string? Host = null,
+    bool Secure = false,
+    bool CanGoForward = false,
+    /// <summary>A checkout page was seen since the last library refresh (new purchases/claims will be picked up).</summary>
+    bool CheckoutActive = false,
+    /// <summary>The native view is hidden under a modal; the placeholder paints <see cref="CoverUrl"/> instead.</summary>
+    bool Covered = false,
+    string? CoverUrl = null,
+    GliderError? Error = null);
+
+/// <summary>Hide the native Store view while an HTML modal is open (a snapshot stands in for it), and bring it back.</summary>
+public sealed record StoreCoverRequest(bool Covered);
 
 [JsonConverter(typeof(CamelEnumConverter<FreeGameStatus>))]
 public enum FreeGameStatus { FreeNow, Upcoming }
@@ -709,16 +765,28 @@ public enum FreeGameStatus { FreeNow, Upcoming }
 public sealed record FreeGame(
     string Id,
     string Title,
+    /// <summary>Landscape art (https://cache.glider/... once cached, else Epic's CDN), sized for a card.</summary>
     string? ImageUrl,
-    /// <summary>Product slug for <see cref="StoreTargetKind.Product"/>.</summary>
+    /// <summary>Product (or bundle) slug for <see cref="StoreTargetKind.Product"/>/<see cref="StoreTargetKind.Bundle"/>; null = open the free games page.</summary>
     string? Slug,
     DateTimeOffset StartsAt,
     DateTimeOffset EndsAt,
     FreeGameStatus Status,
     /// <summary>Already in the library.</summary>
-    bool Owned);
+    bool Owned,
+    /// <summary>Portrait art, same sourcing as <see cref="ImageUrl"/>.</summary>
+    string? TallImageUrl = null,
+    /// <summary>Regular price as Epic formats it for the region ("$13.99").</summary>
+    string? RegularPrice = null,
+    string? Seller = null,
+    /// <summary>The slug is a bundle page (<see cref="StoreTargetKind.Bundle"/>), not a product page.</summary>
+    bool Bundle = false);
 
-public sealed record FreeGamesResult(IReadOnlyList<FreeGame> Items, DateTimeOffset? FetchedAt);
+public sealed record FreeGamesResult(
+    IReadOnlyList<FreeGame> Items,
+    DateTimeOffset? FetchedAt,
+    /// <summary>The data is from the cache and older than a day, or the last fetch failed.</summary>
+    bool Stale = false);
 
 // ===================================== Shortcuts / links =====================================
 

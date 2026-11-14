@@ -79,6 +79,12 @@ public sealed class GliderServiceOptions
     /// <summary>"User idle" threshold for AutoUpdateOnlyWhenIdle when an <see cref="IIdleSignal"/> is present.</summary>
     public TimeSpan IdleThreshold { get; init; } = TimeSpan.FromMinutes(10);
 
+    /// <summary>Fetch Epic's free games in the background (the runtime turns this on; unit tests never touch the network).</summary>
+    public bool FreeGamesBackground { get; init; }
+
+    /// <summary>Endpoint, region, HTTP handler and timing of the free-games feed (tests inject a handler).</summary>
+    public Store.FreeGamesOptions? FreeGames { get; init; }
+
     private static string DefaultAppVersion()
     {
         var v = typeof(GliderServiceOptions).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0";
