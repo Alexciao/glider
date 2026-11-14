@@ -34,7 +34,7 @@ internal sealed class StartupFailedResponder
             "Glider couldn't start",
             "Glider's background service failed to start: " + SecretRedactor.Redact(failure.Message),
             FixAction.OpenLogs,
-            SecretRedactor.Redact($"{failure.GetType().Name}: {failure.Message}") + " (logs: " + logDirectory + ")");
+            $"{failure.GetType().Name}; logs: {logDirectory}");
     }
 
     /// <summary>Never throws; answers every request that carries an id, ignores everything else.</summary>

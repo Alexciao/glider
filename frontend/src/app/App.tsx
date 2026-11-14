@@ -13,7 +13,7 @@ import { useTestHooks } from "./testHooks";
 const DevSwitcher = lazy(() => import("../dev/DevSwitcher").then((m) => ({ default: m.DevSwitcher })));
 
 export function App() {
-  const { state, retry } = useBoot();
+  const { state, error, retry } = useBoot();
   useThemeAndBackdrop();
   useRevealWhenPainted(state !== "connecting");
   const ready = state === "ready";
@@ -22,7 +22,7 @@ export function App() {
   return (
     <MotionProvider>
       <TooltipProvider>
-        {ready ? <Shell /> : state === "failed" ? <BootFailed onRetry={retry} /> : <Splash />}
+        {ready ? <Shell /> : state === "failed" ? <BootFailed onRetry={retry} error={error} /> : <Splash />}
         {ready && (
           <>
             <Dialogs />

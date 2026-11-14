@@ -1,4 +1,6 @@
 import { TriangleAlert } from "lucide-react";
+import type { GliderError } from "../ipc/contract.gen";
+import { actions } from "../state/actions";
 import { Button, Skeleton } from "../ui";
 import { TitleBar } from "./TitleBar";
 
@@ -24,7 +26,8 @@ export function Splash() {
   );
 }
 
-export function BootFailed({ onRetry }: { onRetry: () => void }) {
+/** `error` is the backend's own explanation when it gave one (Core failed to start): shown instead of the generic text, with a way to copy the logs. */
+export function BootFailed({ onRetry, error = null }: { onRetry: () => void; error?: GliderError | null }) {
   return (
     <div className="flex h-full flex-col">
       <TitleBar minimal />
@@ -34,10 +37,20 @@ export function BootFailed({ onRetry }: { onRetry: () => void }) {
             <TriangleAlert size={20} />
           </div>
           <h1 className="text-md font-semibold text-fg">Glider couldn't start</h1>
-          <p className="mt-1.5 text-sm leading-[1.5] text-fg-muted">The app couldn't reach its background service. Try again; if it keeps happening, reinstall Glider.</p>
-          <Button className="mt-5" variant="primary" onClick={onRetry}>
-            Try again
-          </Button>
+          <p className="mt-1.5 text-sm leading-[1.5] text-fg-muted">
+            {error ? error.message : "The app couldn't reach its background service. Try again; if it keeps happening, reinstall Glider."}
+          </p>
+          {error?.detail && <p className="mt-2 max-w-full break-words text-xs leading-[1.5] text-fg-subtle">{error.detail}</p>}
+          <div className="mt-5 flex gap-2">
+            <Button variant="primary" onClick={onRetry}>
+              Try again
+            </Button>
+            {error && (
+              <Button variant="ghost" onClick={() => void actions.copyLogs()}>
+                Copy diagnostic logs
+              </Button>
+            )}
+          </div>
         </div>
       </main>
     </div>
