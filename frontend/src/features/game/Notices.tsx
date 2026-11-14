@@ -155,7 +155,7 @@ export function ThirdPartyNotice({ game }: { game: GameSummary }) {
   }
   return (
     <NoticeCard icon={<ExternalLink size={16} />} title={`Opened ${name}`} onDismiss={clear}>
-      {note.message ?? "The game starts there."} Glider can't track play time for it.
+      {note.message && !/^opened /i.test(note.message) ? `${note.message} ` : ""}Glider can't track play time for it.
     </NoticeCard>
   );
 }
