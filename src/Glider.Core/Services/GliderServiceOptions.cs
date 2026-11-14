@@ -76,6 +76,28 @@ public sealed class GliderServiceOptions
     /// <summary>Per-mode process priorities for writer-lane runs (Phase 2 fills in the per-mode plumbing).</summary>
     public Jobs.IResourcePolicy ResourcePolicy { get; init; } = Jobs.DefaultResourcePolicy.Instance;
 
+    /// <summary>How long a write-back to EGL waits for EGL to finish with the game's folder before it tries (and reports a failure).</summary>
+    public TimeSpan EglWriteBackPatience { get; init; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// True when the Epic Games Launcher's own EOS overlay is installed (readiness: "overlay would go with EGL"). The default looks
+    /// for the overlay folder EGL installs under its <c>Launcher\Portal\Extras</c> [unverified on a real EGL install, see docs/egl.md].
+    /// </summary>
+    public Func<bool> EglOverlayProbe { get; init; } = DefaultEglOverlayProbe;
+
+    private static bool DefaultEglOverlayProbe()
+    {
+        foreach (var pf in new[] { Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles) })
+        {
+            if (pf.Length > 0 && Directory.Exists(Path.Combine(pf, "Epic Games", "Launcher", "Portal", "Extras", "Overlay")))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>"User idle" threshold for AutoUpdateOnlyWhenIdle when an <see cref="IIdleSignal"/> is present.</summary>
     public TimeSpan IdleThreshold { get; init; } = TimeSpan.FromMinutes(10);
 

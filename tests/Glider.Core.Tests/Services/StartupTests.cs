@@ -84,8 +84,12 @@ public class StartupTests
 
         await rig.StartWarmAsync();
 
-        Assert.True(rig.Calls.Has("legendary.import:Fortnite"));
+        // The re-import is a writer-lane Import job (the real queue runs `legendary import` for it); the fake queue runs hooks only.
+        var request = Assert.Single(rig.Jobs.Requests, r => r.Kind == JobKind.Import);
+        Assert.Equal(rec.InstallPath, request.TargetPath);
         Assert.DoesNotContain(rig.Jobs.Requests, r => r.Kind is JobKind.Install or JobKind.Update or JobKind.Repair or JobKind.Verify);
+        await rig.Legendary.ImportAsync(request.AppName, request.TargetPath!, CancellationToken.None);
+        await rig.Jobs.RunAsync(rig.Jobs.Snapshot().Single(j => j.Kind == JobKind.Import).Id, rig.Service.Hooks);
         Assert.Equal("v2", rig.Games.Record()!.Version);
         Assert.Equal("guid-1", rig.Games.Record()!.EglInstallationGuid);
         Assert.Equal(rec.InstallPath, rig.Games.Record()!.InstallPath);

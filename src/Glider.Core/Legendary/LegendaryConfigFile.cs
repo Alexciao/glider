@@ -50,8 +50,12 @@ internal static class LegendaryConfigFile
         return true;
     }
 
-    /// <summary>Returns the new file content, or null when nothing needs to change. Pure (unit-tested).</summary>
-    public static string? Apply(string? existing, IReadOnlyList<KeyValuePair<string, string>> values)
+    /// <summary>
+    /// Returns the new file content, or null when nothing needs to change. Pure (unit-tested). <paramref name="section"/> is
+    /// <c>[Legendary]</c> for the managed values (created first when missing) or a game's own section (<c>[Fortnite]</c>,
+    /// appended when missing) for per-game keys such as <c>install_tags</c>.
+    /// </summary>
+    public static string? Apply(string? existing, IReadOnlyList<KeyValuePair<string, string>> values, string section = Section)
     {
         var text = existing ?? "";
         if (text.Length > 0 && text[0] == '﻿')
@@ -83,7 +87,7 @@ internal static class LegendaryConfigFile
                     sectionEnd = LastContentIndex(output) + 1;
                 }
 
-                inSection = name == Section;
+                inSection = name == section;
                 sectionFound |= inSection;
                 skipContinuation = false;
                 output.Add(raw);
@@ -117,12 +121,22 @@ internal static class LegendaryConfigFile
         }
 
         var missing = values.Where(v => !seen.Contains(v.Key)).Select(v => $"{v.Key} = {v.Value}").ToList();
-        if (!sectionFound)
+        if (!sectionFound && section == Section)
         {
             var header = new List<string> { $"[{Section}]" };
             header.AddRange(missing);
             header.Add("");
             output.InsertRange(0, header);
+        }
+        else if (!sectionFound)
+        {
+            if (output.Count > 0 && output[^1].Trim().Length > 0)
+            {
+                output.Add("");
+            }
+
+            output.Add($"[{section}]");
+            output.AddRange(missing);
         }
         else if (missing.Count > 0)
         {
@@ -132,6 +146,34 @@ internal static class LegendaryConfigFile
         var result = string.Join("\n", output).TrimEnd('\n') + "\n";
         var before = text.Replace("\r\n", "\n", StringComparison.Ordinal).TrimEnd('\n') + "\n";
         return existing is not null && result == before ? null : result;
+    }
+
+    /// <summary>The (first line of the) value of <c>[section] key</c>, or null when absent. Keys compare case-insensitively like configparser.</summary>
+    public static string? GetValue(string? text, string section, string key)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return null;
+        }
+
+        var inSection = false;
+        foreach (var raw in text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
+        {
+            var trimmed = raw.Trim();
+            if (IsHeader(trimmed, out var name))
+            {
+                inSection = name == section;
+                continue;
+            }
+
+            if (inSection && TryKey(raw, out var k) && string.Equals(k, key, StringComparison.OrdinalIgnoreCase))
+            {
+                var idx = raw.AsSpan().IndexOfAny('=', ':');
+                return raw[(idx + 1)..].Trim();
+            }
+        }
+
+        return null;
     }
 
     private static int LastContentIndex(List<string> output)

@@ -108,6 +108,9 @@ internal sealed class LegendaryProcessRunner : IDisposable
     private readonly SemaphoreSlim _exclusive = new(1, 1);
     private readonly SemaphoreSlim _configLock = new(1, 1);
     private int _active;
+    private readonly System.Collections.Concurrent.ConcurrentQueue<PendingConfigValue> _pendingConfig = new();
+
+    private readonly record struct PendingConfigValue(string Section, string Key, string Value, bool Overwrite);
 
     public LegendaryProcessRunner(AppPaths paths, ILog log, TimeProvider? time = null, LegendaryRunnerOptions? options = null)
     {
@@ -128,6 +131,63 @@ internal sealed class LegendaryProcessRunner : IDisposable
     {
         _exclusive.Dispose();
         _configLock.Dispose();
+    }
+
+    /// <summary>
+    /// Sets <c>[section] key</c> in config.ini the way Legendary itself would have (e.g. a game's <c>install_tags</c>). The file
+    /// is only ever written while no Legendary process is alive (it rewrites config.ini at exit and renames a changed one
+    /// aside), so while one runs the value waits and is applied right before the next spawn. Without
+    /// <paramref name="overwrite"/> an existing value is kept.
+    /// </summary>
+    public async Task SetConfigValueAsync(string section, string key, string value, bool overwrite, CancellationToken ct)
+    {
+        _pendingConfig.Enqueue(new PendingConfigValue(section, key, value, overwrite));
+        await _configLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (_active == 0)
+            {
+                await ApplyPendingConfigAsync(ct).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _configLock.Release();
+        }
+    }
+
+    /// <summary>Caller holds <c>_configLock</c> and has checked that no process is alive.</summary>
+    private async Task ApplyPendingConfigAsync(CancellationToken ct)
+    {
+        if (_pendingConfig.IsEmpty)
+        {
+            return;
+        }
+
+        var path = LegendaryConfigFile.PathIn(_paths.LegendaryConfig);
+        var bytes = await Infrastructure.AtomicFile.TryReadAllBytesAsync(path, ct).ConfigureAwait(false);
+        var text = bytes is null ? null : Encoding.UTF8.GetString(bytes);
+        var changed = false;
+        while (_pendingConfig.TryDequeue(out var p))
+        {
+            if (!p.Overwrite && LegendaryConfigFile.GetValue(text, p.Section, p.Key) is not null)
+            {
+                continue;
+            }
+
+            if (LegendaryConfigFile.Apply(text, [new(p.Key, p.Value)], p.Section) is { } updated)
+            {
+                text = updated;
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            Directory.CreateDirectory(_paths.LegendaryConfig);
+            await Infrastructure.AtomicFile.WriteAllTextAsync(path, text!, keepBackup: false, ct).ConfigureAwait(false);
+            _log.Debug("legendary", "Wrote per-game config values to config.ini.");
+        }
     }
 
     public async Task<LegendaryRunResult> RunAsync(LegendaryCommand command, IProgress<LegendaryProgress>? progress, CancellationToken ct)
@@ -163,6 +223,8 @@ internal sealed class LegendaryProcessRunner : IDisposable
                         {
                             _log.Debug("legendary", "Wrote config.ini.");
                         }
+
+                        await ApplyPendingConfigAsync(ct).ConfigureAwait(false);
                     }
                     catch (IOException e)
                     {

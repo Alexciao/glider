@@ -40,7 +40,7 @@ internal sealed class EglCoordinator
         try
         {
             var roots = _c.Options.DiskInfo.FixedDrives().Select(d => d.RootPath).ToList();
-            var found = await Task.Run(() => _c.Egl.QuickScan(roots, ct), ct);
+            var found = await Task.Run(() => _c.Egl.QuickScan(roots, IdentifyByCatalogFolder, ct), ct);
             var known = _c.Hub.State.Egl?.Installs ?? [];
             var extras = found.Where(f => !known.Any(k => EglPath.Same(k.InstallPath, f.InstallPath))).ToImmutableList();
             _c.Hub.Mutate(s => s with { EglExtras = extras });
@@ -51,6 +51,28 @@ internal sealed class EglCoordinator
         }
 
         return Build();
+    }
+
+    /// <summary>
+    /// Names a folder EGL's metadata doesn't (the .mancpn is gone and EGL has no .item): the one owned game whose catalog FolderName is
+    /// the folder's name — but only inside an <c>Epic Games</c> folder or next to an <c>.egstore</c>, so a same-named copy from another
+    /// store elsewhere isn't offered as an Epic install.
+    /// </summary>
+    internal string? IdentifyByCatalogFolder(string folder)
+    {
+        var leaf = Path.GetFileName(Path.TrimEndingDirectorySeparator(folder));
+        var parent = Path.GetFileName(Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(folder)) ?? "");
+        if (leaf.Length == 0 || !(Directory.Exists(Path.Combine(folder, ".egstore")) || parent.Equals("Epic Games", StringComparison.OrdinalIgnoreCase)))
+        {
+            return null;
+        }
+
+        var matches = _c.Library.Games.Values
+            .Where(g => g.Kind == GameKind.Game && g.InstallStatus != InstallStatus.NotInstallable &&
+                        string.Equals(_c.Library.FolderName(g.AppName), leaf, StringComparison.OrdinalIgnoreCase))
+            .Take(2)
+            .ToList();
+        return matches.Count == 1 ? matches[0].AppName : null;
     }
 
     private ImmutableDictionary<string, EglDrift> Drifts(EglScanResult scan)
@@ -119,7 +141,8 @@ internal sealed class EglCoordinator
                 status,
                 imported ? s.EglDrift.GetValueOrDefault(f.AppName, EglDrift.None) : EglDrift.None,
                 reason,
-                summary?.Art.TallThumb ?? summary?.Art.Tall));
+                summary?.Art.TallThumb ?? summary?.Art.Tall,
+                imported ? summary?.InstalledVersion : null));
         }
 
         foreach (var f in scan.Installs)
@@ -156,37 +179,8 @@ internal sealed class EglCoordinator
             scan.At);
     }
 
-    /// <summary>"Ready to uninstall EGL?": installs only EGL manages, EGL busy, games linked to EGL.</summary>
-    public EglReadiness Readiness()
-    {
-        var state = Build();
-        var items = new List<ReadinessItem>();
-        foreach (var i in state.Installs)
-        {
-            switch (i.Status)
-            {
-                case EglInstallStatus.Importable:
-                    items.Add(new ReadinessItem(i.AppName, i.Title, ReadinessSeverity.Blocker, "Installed by the Epic Games Launcher but not imported into Glider yet."));
-                    break;
-                case EglInstallStatus.Busy:
-                    items.Add(new ReadinessItem(i.AppName, i.Title, ReadinessSeverity.Blocker, "The Epic Games Launcher is still working on it."));
-                    break;
-                case EglInstallStatus.Imported when _c.Library.Summary(i.AppName)?.SharedWithEgl == true:
-                    items.Add(new ReadinessItem(i.AppName, i.Title, ReadinessSeverity.Ok, "Imported; uninstalling the Epic Games Launcher keeps the game files."));
-                    break;
-                case EglInstallStatus.Stale:
-                    items.Add(new ReadinessItem(i.AppName, i.Title, ReadinessSeverity.Warning, i.Reason ?? "The files are gone."));
-                    break;
-            }
-        }
-
-        foreach (var g in _c.Library.Games.Values.Where(g => g.ThirdParty is ThirdPartyStore.Ea or ThirdPartyStore.Ubisoft))
-        {
-            items.Add(new ReadinessItem(g.AppName, g.Title, ReadinessSeverity.Warning, $"Needs {g.ThirdPartyName}; that launcher keeps working without the Epic Games Launcher."));
-        }
-
-        return new EglReadiness(items.All(i => i.Severity != ReadinessSeverity.Blocker), items);
-    }
+    /// <summary>"Ready to uninstall EGL?": blockers and warnings per game and globally (<see cref="EglReadinessChecker"/>).</summary>
+    public EglReadiness Readiness() => new EglReadinessChecker(_c).Check(Build());
 
     // ------------------------------------------------------------------ drift (startup)
 
@@ -217,20 +211,18 @@ internal sealed class EglCoordinator
         switch (drift.Kind)
         {
             case DriftKind.EglNewer:
-                if (_c.Hub.ActiveJobs(app).Count > 0 || _c.Jobs.IsBusy || _c.Egl.IsBusyWith(rec.InstallPath))
+                if (_c.Hub.ActiveJobs(app).Count > 0 || _c.Hub.State.Auth.Status != AuthStatus.SignedIn)
                 {
-                    return; // Try again next start; never race Legendary's lock or EGL.
+                    return; // Try again next start; a job of this game is already changing it, or Legendary can't log in to import.
                 }
 
-                // EGL updated/repaired the folder: re-import picks up its .egstore manifest. No download.
-                var outcome = await _c.Legendary.ImportAsync(app, rec.InstallPath, ct);
-                if (outcome.Success)
+                // EGL updated/repaired the folder: a (re-)import picks up its .egstore manifest and tags. No download. It is a
+                // writer-lane job so it is serialized with everything else, survives a crash between "forget" and "import",
+                // and waits (BlockedReason) while EGL is still working on the folder.
+                if (_c.Library.Summary(app) is { } game && _c.Jobs.Enqueue(new JobRequest(app, JobKind.Import, rec.InstallPath, null, null, null, game.Title,
+                        new JobOptions(Verify: VerifyMode.Auto))) is { } job)
                 {
-                    await _c.SyncRecordAsync(app, ct, r => r with { EglInstallationGuid = rec.EglInstallationGuid });
-                }
-                else
-                {
-                    _c.Log.Warn("egl", $"re-import of {app} after an EGL update failed: {outcome.Error?.Code}");
+                    _c.Log.Info("egl", $"{app}: EGL has {drift.EglVersion}, Glider {drift.GliderVersion}; re-importing ({job.Id})");
                 }
 
                 break;
@@ -259,6 +251,43 @@ internal sealed class EglCoordinator
                 await _c.SaveRecordAsync(app, rec with { EglInstallationGuid = null });
                 break;
         }
+    }
+
+    /// <summary>
+    /// "Keep Epic Games Launcher in sync" was switched on: every imported, EGL-linked game whose build Glider moved past EGL's gets
+    /// written back now (backup + atomic write per game), not at the next start. Games EGL is busy with are skipped, never raced.
+    /// </summary>
+    public async Task<int> WriteBackAllAsync(CancellationToken ct)
+    {
+        var written = 0;
+        foreach (var (app, entry) in _c.Games.Current.ToList())
+        {
+            if (entry.Install is not { EglInstallationGuid: not null } rec)
+            {
+                continue;
+            }
+
+            try
+            {
+                if (_c.Egl.CheckDrift(rec).Kind == DriftKind.GliderNewer && !_c.Egl.IsBusyWith(rec.InstallPath))
+                {
+                    var installed = await _c.Legendary.GetInstalledAsync(app, ct);
+                    await _c.Egl.WriteBackAsync(_c.BuildWriteBack(rec, installed), ct);
+                    written++;
+                }
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                _c.Log.Warn("egl", $"write-back of {app} failed", e);
+            }
+        }
+
+        if (written > 0)
+        {
+            await RescanAsync(ct);
+        }
+
+        return written;
     }
 
     /// <summary>Apps whose drift asked for a verify (cleared).</summary>
