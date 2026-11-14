@@ -88,6 +88,7 @@ public sealed class GliderRuntime : IAsyncDisposable
                 AutoTune = tune,
                 Policy = policy,
                 Activity = activity,
+                Resources = new ModeResourcePolicy(() => settings.Current.SpeedLimitBytesPerSecond),
                 LockRetryDelay = options.LockRetryDelay ?? TimeSpan.FromSeconds(5),
                 FolderNameFor = app => service?.LibraryForTests.FolderName(app),
                 InstallSizeFor = app => service?.LibraryForTests.Installed(app)?.InstallSizeBytes,

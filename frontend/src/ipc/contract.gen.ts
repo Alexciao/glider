@@ -380,6 +380,7 @@ export interface JobProgress {
   filesTotal: number | null;
   mode: DownloadMode;
   limiter: Limiter;
+  limiterReason: string | null;
 }
 
 export interface JobRef {

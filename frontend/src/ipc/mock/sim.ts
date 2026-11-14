@@ -511,6 +511,25 @@ export class JobSim {
     }
   }
 
+  private limiterReason(limiter: Limiter): string | null {
+    switch (limiter) {
+      case "speedLimit":
+        return "Limited by your speed limit.";
+      case "mode":
+        return "Background mode keeps the download out of your way.";
+      case "cdn":
+        return "The download server is slow right now; Glider will try another one.";
+      case "network":
+        return "Limited by your connection or Epic's servers.";
+      case "disk":
+        return "Limited by your drive. A nearly full or slow drive writes more slowly than your connection delivers.";
+      case "paused":
+        return "Paused.";
+      default:
+        return null;
+    }
+  }
+
   progress(): JobProgress {
     const last = this.plan.length - 1;
     const done = this.done;
@@ -618,6 +637,7 @@ export class JobSim {
       filesTotal,
       mode: this.env.mode,
       limiter: done ? "unknown" : this.limiter(spec),
+      limiterReason: done ? null : this.limiterReason(this.limiter(spec)),
     };
   }
 

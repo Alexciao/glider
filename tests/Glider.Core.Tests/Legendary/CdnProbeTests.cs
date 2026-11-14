@@ -86,8 +86,8 @@ public class CdnProbeTests
     {
         var plan = await ProbeAsync(new Dictionary<string, Host>
         {
-            ["egdownload.fastly-edge.com"] = new(Ttfb: 15, ReadDelayMs: 10),
-            ["epicgames-download1.akamaized.net"] = new(Ttfb: 15, ReadDelayMs: 2), // faster, but later in Epic's order
+            ["egdownload.fastly-edge.com"] = new(Ttfb: 15, ReadDelayMs: 60),
+            ["epicgames-download1.akamaized.net"] = new(Ttfb: 15, ReadDelayMs: 40), // faster, but later in Epic's order
         });
 
         Assert.NotNull(plan);
