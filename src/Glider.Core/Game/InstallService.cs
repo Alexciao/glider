@@ -227,51 +227,12 @@ internal sealed class InstallService
         }
 
         var summary = _c.Library.Summary(r.AppName!);
-        var size = SizeOfFolder(r.GamePath!);
         if (summary is null && _c.Library.Files.Items.Count > 0)
         {
-            return new FolderValidation(false, r.AppName, null, r.GamePath, r.Version, "This game isn't on your Epic account.", size);
+            return new FolderValidation(false, r.AppName, null, r.GamePath, r.Version, "This game isn't on your Epic account.");
         }
 
-        if (summary is { InstallStatus: InstallStatus.Installed } && summary.InstallPath is { } existing && !EglPath.Same(existing, r.GamePath))
-        {
-            return new FolderValidation(false, r.AppName, summary.Title, r.GamePath, r.Version, $"{summary.Title} is already installed in another folder.", size);
-        }
-
-        return new FolderValidation(true, r.AppName, summary?.Title ?? r.AppName, r.GamePath, r.Version, null, size);
-    }
-
-    /// <summary>
-    /// What the folder weighs: EGL's own InstallSize when it has an .item for it, else a bounded walk (≤ 200k entries, ≤ 1.5 s;
-    /// null when the folder is bigger than that budget — the UI then shows no size rather than a wrong one).
-    /// </summary>
-    private long? SizeOfFolder(string path)
-    {
-        if (_c.Egl.FindByLocation(path) is { InstallSizeBytes: > 0 } item)
-        {
-            return item.InstallSizeBytes;
-        }
-
-        var clock = System.Diagnostics.Stopwatch.StartNew();
-        long total = 0;
-        var entries = 0;
-        try
-        {
-            foreach (var f in new DirectoryInfo(path).EnumerateFiles("*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint }))
-            {
-                total += f.Length;
-                if (++entries > 200_000 || clock.ElapsedMilliseconds > 1500)
-                {
-                    return null;
-                }
-            }
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            return null;
-        }
-
-        return total;
+        return new FolderValidation(true, r.AppName, summary?.Title ?? r.AppName, r.GamePath, r.Version, null);
     }
 
     /// <summary>One Import job per selected install (zero re-download). Ids that can't be imported are skipped (and logged).</summary>
@@ -295,44 +256,26 @@ internal sealed class InstallService
         }
 
         var jobs = new List<JobInfo>();
-        var skipped = new List<EglImportSkip>();
         foreach (var id in request.Ids.Distinct(StringComparer.Ordinal))
         {
             var install = state.Installs.FirstOrDefault(i => i.Id == id);
             if (install is null)
             {
                 _c.Log.Warn("egl", $"import: unknown install id {id}");
-                skipped.Add(new EglImportSkip(id, null, null, "This install isn't in the list anymore. Scan again."));
                 continue;
             }
 
             if (install.Status != EglInstallStatus.Importable)
             {
                 _c.Log.Info("egl", $"import: skipping {install.AppName} at {install.InstallPath} ({install.Status}: {install.Reason})");
-                skipped.Add(new EglImportSkip(id, install.AppName, install.Title, SkipReason(install)));
                 continue;
             }
 
-            try
-            {
-                jobs.Add(EnqueueImport(install.AppName, install.InstallPath, request.Verify));
-            }
-            catch (GliderException e) when (e.Error.Code is ErrorCode.AlreadyInstalled or ErrorCode.EglBusy or ErrorCode.GameBusy)
-            {
-                // One game's refusal must not stop the other imports of the batch.
-                _c.Log.Info("egl", $"import: {install.AppName} refused: {e.Error.Code}");
-                skipped.Add(new EglImportSkip(id, install.AppName, install.Title, e.Error.Message));
-            }
+            jobs.Add(EnqueueImport(install.AppName, install.InstallPath, request.Verify));
         }
 
-        return new EglImportResult(jobs, skipped);
+        return new EglImportResult(jobs);
     }
-
-    private static string SkipReason(EglInstall install) => install.Status switch
-    {
-        EglInstallStatus.Imported => $"{install.Title} is already in Glider.",
-        _ => install.Reason ?? $"{install.Title} can't be imported right now.",
-    };
 
     public async Task<JobInfo> ImportFolderAsync(LocateRequest request, CancellationToken ct)
     {

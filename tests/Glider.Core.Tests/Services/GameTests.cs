@@ -49,24 +49,9 @@ public class ImportTests
     }
 
     [Fact]
-    public async Task CompleteEglInstallBehindLatest_IsNotVerified_TheUpdatePatchesIt()
+    public async Task DifferentVersion_QueuesBackgroundVerify_WithNeedsRepairOutcome()
     {
-        // EGL's own manifest describes the folder (v4), Legendary recorded exactly that: nothing is in doubt, the next update
-        // computes its delta from that manifest. A SHA-1 pass over the whole install would only delay the user.
         using var rig = await ReadyRig("v4", "v5");
-        var job = Assert.Single((await rig.Service.ImportEgl(new EglImportRequest(["egl-1"], VerifyMode.Auto))).Jobs);
-        await RunImport(rig, job);
-
-        Assert.Equal([JobKind.Import], rig.Jobs.Requests.Select(r => r.Kind));
-        Assert.False(rig.Games.Record()!.NeedsVerification);
-    }
-
-    [Fact]
-    public async Task LegendaryRecordedLatestButEglHasAnOlderBuild_QueuesVerify_WithNeedsRepairOutcome()
-    {
-        // No .mancpn: Legendary ignores the folder's manifest and records the latest build (the 35 GB case).
-        using var rig = await ReadyRig("v4", "v5");
-        rig.Legendary.ImportVersion = "v5";
         var job = Assert.Single((await rig.Service.ImportEgl(new EglImportRequest(["egl-1"], VerifyMode.Auto))).Jobs);
         await RunImport(rig, job);
 

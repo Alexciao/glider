@@ -138,11 +138,6 @@ internal sealed class EglManifest
     public bool IsIncompleteInstall => AsBool(Values["bIsIncompleteInstall"]) ?? false;
     public bool NeedsValidation => AsBool(Values["bNeedsValidation"]) ?? false;
     public bool OwnershipToken => AsBool(Values["OwnershipToken"]) ?? false;
-    /// <summary>The packs EGL installed (<c>InstallTags</c>); empty when EGL recorded none.</summary>
-    public IReadOnlyList<string> InstallTags => Values["InstallTags"] is IEnumerable<object?> list
-        ? list.OfType<string>().ToList()
-        : [];
-
     public string? CatalogItemId => AsString(Values["CatalogItemId"]);
     public string? CatalogNamespace => AsString(Values["CatalogNamespace"]);
 

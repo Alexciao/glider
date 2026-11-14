@@ -67,13 +67,13 @@ public sealed class Rig : IDisposable
 
     public TimeSpan SizeMinInterval { get; set; } = TimeSpan.Zero;
 
+    /// <summary>Background session poll (set before first use of <see cref="Service"/>); null = the product default.</summary>
+    public TimeSpan? ProcessPollInterval { get; set; }
+
     /// <summary>Cloud-save commands (set before first use of <see cref="Service"/>; null = none).</summary>
     internal Glider.Core.Saves.ILegendarySaves? SavesLegendary { get; set; }
 
     internal Glider.Core.Saves.SaveOptions? SaveOptions { get; set; }
-
-    /// <summary>Whether EGL's own overlay "is installed" (readiness); false unless a test says so.</summary>
-    public bool EglOverlayInstalled { get; set; }
 
     /// <summary>Library delta coalescing window (zero = rebuild at once; with a value, deltas wait for <see cref="Time"/>).</summary>
     public TimeSpan LibraryCoalesce { get; set; } = TimeSpan.Zero;
@@ -103,9 +103,9 @@ public sealed class Rig : IDisposable
                         ArtFetcher = ArtFetcher,
                         IdleSignal = Idle,
                         Shell = Shell,
-                        EglOverlayProbe = () => EglOverlayInstalled,
                         MeasureDirectory = Measure,
                         SizeMeasureMinInterval = SizeMinInterval,
+                        ProcessPollInterval = ProcessPollInterval ?? new GliderServiceOptions().ProcessPollInterval,
                         LibraryCoalesceInterval = LibraryCoalesce,
                         SavesLegendary = SavesLegendary,
                         SaveOptions = SaveOptions,

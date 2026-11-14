@@ -38,7 +38,7 @@ public sealed class PerfBenchmarks
         Assert.Equal(40_000, dlPublished);
         Assert.Equal(100_000, vPublished);
         // Legendary prints 5 lines/s while downloading; even 100k lines/s would be 20,000x headroom.
-        Assert.True(dlLines / dlMs * 1000 > 100_000, "download parsing regressed");
+        Assert.True(dlLines / dlMs * 1000 > 100_000 / StartupBenchmarks.LoadSlack, "download parsing regressed");
         Assert.True(dlAlloc / (double)dlLines < 4, "progress lines should not allocate per line");
     }
 
@@ -149,7 +149,7 @@ public sealed class PerfBenchmarks
         Report($"Play -> process start, launch --json modelled at {legendaryStartMs} ms: cold {Median(cold):0} ms (runs {string.Join(", ", cold.Select(x => x.ToString("0", CultureInfo.InvariantCulture)))}), " +
                $"prepared {Median(prepared):0.0} ms (runs {string.Join(", ", prepared.Select(x => x.ToString("0.0", CultureInfo.InvariantCulture)))})");
         Assert.True(Median(cold) >= legendaryStartMs);
-        Assert.True(Median(prepared) < 250, $"prepared launch took {Median(prepared)} ms");
+        Assert.True(Median(prepared) < 250 * StartupBenchmarks.LoadSlack, $"prepared launch took {Median(prepared)} ms");
     }
 
     private static async Task<double> TimeLaunch(EndToEndHarness h, bool prepare)

@@ -57,7 +57,7 @@ internal sealed class LibraryService : IArtSource, IDisposable
         _reader = new LegendaryLibraryReader(context.Paths.LegendaryConfig, context.Log, context.Options.LibraryRetryDelay);
         _cachePath = PathFor(context.Paths);
         _artIndexPath = Path.Combine(context.Paths.Cache, "art", "index.json");
-        _flushTimer = context.Time.CreateTimer(_ => _ = FlushAsync(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        _flushTimer = context.Time.CreateTimer(_ => _ = FlushAsync(background: true), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _cacheTimer = context.Time.CreateTimer(_ => _ = SaveCacheAsync(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
     }
 
@@ -248,7 +248,7 @@ internal sealed class LibraryService : IArtSource, IDisposable
         var delay = _c.Options.LibraryCoalesceInterval;
         if (delay <= TimeSpan.Zero)
         {
-            _ = Task.Run(FlushAsync);
+            _ = Task.Run(() => FlushAsync(background: true));
         }
         else
         {
@@ -257,7 +257,7 @@ internal sealed class LibraryService : IArtSource, IDisposable
     }
 
     /// <summary>Runs any pending rebuild now and publishes its delta (if anything changed).</summary>
-    public async Task FlushAsync()
+    public async Task FlushAsync(bool background = false)
     {
         await _rebuild.WaitAsync().ConfigureAwait(false);
         try
@@ -276,7 +276,7 @@ internal sealed class LibraryService : IArtSource, IDisposable
                 _pendingReread = false;
             }
 
-            await RebuildCoreAsync(reread).ConfigureAwait(false);
+            await RebuildCoreAsync(reread, background).ConfigureAwait(false);
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
@@ -300,9 +300,21 @@ internal sealed class LibraryService : IArtSource, IDisposable
         await FlushAsync().ConfigureAwait(false);
     }
 
-    private async Task RebuildCoreAsync(bool reread)
+    private async Task RebuildCoreAsync(bool reread, bool background = false)
     {
         LegendaryLibrary lib;
+        lock (_gate)
+        {
+            if (background && !reread && !_filesRead && _published.Count > 0)
+            {
+                // Cold start from the cache: an invalidation (startup publishes state) must not be the thing that reads
+                // Legendary's files. Pre-warm does the first read (a reread); anyone who needs the files sooner asks
+                // with an explicit (non-background) flush, which finds the rebuild still pending.
+                _pendingRebuild = true;
+                return;
+            }
+        }
+
         if (reread || !FilesRead)
         {
             lib = await _reader.ReadAsync(Files, _c.Shutdown).ConfigureAwait(false);

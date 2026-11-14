@@ -4,7 +4,6 @@ import type {
   Collection,
   Connectivity,
   DownloadMode,
-  EglImportSkip,
   EglReadiness,
   EglState,
   ErrorCode,
@@ -1765,8 +1764,8 @@ export class MockBackend {
       await this.sleep(200);
       const hit = this.folderGame(r.path);
       const v: FolderValidation = hit
-        ? { valid: true, appName: hit.appName, title: hit.title, gamePath: hit.gamePath, version: hit.version, reason: null, sizeBytes: Math.round(this.rec(hit.appName).fullInstallBytes * 0.98) }
-        : { valid: false, appName: null, title: null, gamePath: null, version: null, reason: "This folder doesn't contain a game from your library. Choose the folder that holds the game's files.", sizeBytes: null };
+        ? { valid: true, appName: hit.appName, title: hit.title, gamePath: hit.gamePath, version: hit.version, reason: null }
+        : { valid: false, appName: null, title: null, gamePath: null, version: null, reason: "This folder doesn't contain a game from your library. Choose the folder that holds the game's files." };
       return v;
     },
     "egl.import": async (r) => {
@@ -1780,14 +1779,7 @@ export class MockBackend {
       }
       await this.sleep(150);
       const jobs = importable.map((i) => this.createJob("import", i.appName, { eglInstallId: i.id, verifyMode: r.verify }));
-      // Every other requested id comes back with its reason, like the real Core.
-      const skipped: EglImportSkip[] = r.ids.flatMap((id): EglImportSkip[] => {
-        const i = this.egl.installs.find((x) => x.id === id);
-        if (!i) return [{ id, appName: null, title: null, reason: "This install isn't in the list anymore. Scan again." }];
-        if (i.status === "importable") return [];
-        return [{ id, appName: i.appName, title: i.title, reason: i.status === "imported" ? `${i.title} is already in Glider.` : (i.reason ?? `${i.title} can't be imported right now.`) }];
-      });
-      return { jobs: clone(jobs), skipped };
+      return { jobs: clone(jobs) };
     },
     "egl.importFolder": async (r) => {
       this.requireAuth();
@@ -1810,12 +1802,12 @@ export class MockBackend {
       for (const g of this.games.values()) {
         const s = g.summary;
         if (s.kind !== "game") continue;
-        if (g.needsActivation && !this.activated.has(s.appName)) items.push({ appName: s.appName, title: s.title, severity: "blocker", message: `Link ${s.title} with ${s.thirdPartyName ?? "its store"} first. It can't start without that.`, fix: "launch" });
-        else if (s.sharedWithEgl && s.installStatus === "installed") items.push({ appName: s.appName, title: s.title, severity: "warning", message: "Epic Games Launcher also lists this install. Glider keeps managing it after the launcher is gone.", fix: "none" });
-        else if (g.prerequisites.some((p) => !p.installed)) items.push({ appName: s.appName, title: s.title, severity: "warning", message: "Needs a one-time setup before first launch. Glider handles that on Play.", fix: "launch" });
+        if (g.needsActivation && !this.activated.has(s.appName)) items.push({ appName: s.appName, title: s.title, severity: "blocker", message: `Link ${s.title} with ${s.thirdPartyName ?? "its store"} first. It can't start without that.` });
+        else if (s.sharedWithEgl && s.installStatus === "installed") items.push({ appName: s.appName, title: s.title, severity: "warning", message: "Epic Games Launcher also lists this install. Glider keeps managing it after the launcher is gone." });
+        else if (g.prerequisites.some((p) => !p.installed)) items.push({ appName: s.appName, title: s.title, severity: "warning", message: "Needs a one-time setup before first launch. Glider handles that on Play." });
       }
-      for (const a of this.egl.busyApps) items.push({ appName: a, title: this.titleOf(a), severity: "blocker", message: "Epic Games Launcher is still installing or updating this.", fix: "waitForEgl" });
-      if (items.length === 0) items.push({ appName: null, title: "Everything checks out", severity: "ok", message: "No game depends on Epic Games Launcher.", fix: "none" });
+      for (const a of this.egl.busyApps) items.push({ appName: a, title: this.titleOf(a), severity: "blocker", message: "Epic Games Launcher is still installing or updating this." });
+      if (items.length === 0) items.push({ appName: null, title: "Everything checks out", severity: "ok", message: "No game depends on Epic Games Launcher." });
       const r: EglReadiness = { ready: !items.some((i) => i.severity === "blocker"), items: items.slice(0, 40) };
       return r;
     },

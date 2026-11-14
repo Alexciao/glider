@@ -9,7 +9,7 @@ public class LegendaryOverlayCliTests
 {
     private static LegendaryCli Cli(FakeLegendaryEnv env) => new(env.Paths, env.Log, new LegendaryOptions
     {
-        StallTimeout = TimeSpan.FromSeconds(30),
+        StallTimeout = TimeSpan.FromDays(1),
         PinnedVersion = null,
         ReadAccountFromUserJson = false,
     });

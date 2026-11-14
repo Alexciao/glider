@@ -8,13 +8,8 @@ namespace Glider.Core.Services;
 internal sealed class JobHooks : IJobHooks
 {
     private readonly ServiceContext _c;
-    private readonly AdoptionFinisher _adoption;
 
-    public JobHooks(ServiceContext context)
-    {
-        _c = context;
-        _adoption = new AdoptionFinisher(context);
-    }
+    public JobHooks(ServiceContext context) => _c = context;
 
     /// <summary>Lets hooks replace the default outcome (set by GliderService; null in unit tests of the hooks alone).</summary>
     public Action<string, JobOutcome>? SetOutcome { get; set; }
@@ -175,26 +170,32 @@ internal sealed class JobHooks : IJobHooks
     }
 
     /// <summary>
-    /// Import done (zero download): carry the install tags over, record the install (linked to EGL when EGL has an .item there),
-    /// decide whether a verify is in doubt (<see cref="AdoptionFinisher"/>) and report the per-game outcome.
+    /// Import done (zero download): record it (linked to EGL when EGL has an .item there), then decide whether a verify is
+    /// needed (VerifyMode; Auto skips it only for a complete, up-to-date EGL install) and report the per-game outcome.
     /// </summary>
     private async Task AfterImportAsync(JobInfo job, CancellationToken ct)
     {
         var app = job.AppName;
-        var mode = _c.Jobs.Request(job.Id)?.Options?.Verify ?? VerifyMode.Auto;
-        var result = await _adoption.FinishAsync(job, mode, ct);
-        if (result is null)
+        var installed = await _c.Legendary.GetInstalledAsync(app, ct);
+        if (installed is null)
         {
             SetOutcome?.Invoke(job.Id, new JobOutcome(OutcomeKind.Failed, "Legendary didn't register the install."));
             return;
         }
 
-        var rec = result.Record;
+        var item = _c.Egl.FindByLocation(installed.InstallPath, app) ?? (job.TargetPath is { } t ? _c.Egl.FindByLocation(t, app) : null);
+        await _c.Library.ReloadAsync();
+        var latest = _c.Library.Summary(app)?.LatestVersion;
+        var mode = _c.Jobs.Request(job.Id)?.Options?.Verify ?? VerifyMode.Auto;
+        var verify = InstallService.DecideVerify(mode, item, latest) || installed.NeedsVerification;
+        var old = _c.Games.Get(app).Install;
+        var rec = new InstallRecord(app, installed.InstallPath, installed.Version, installed.InstallSizeBytes, old?.InstalledAt ?? _c.Now,
+            AdoptedFromEgl: item is not null, EglInstallationGuid: item?.InstallationGuid ?? old?.EglInstallationGuid, NeedsVerification: verify);
         await _c.SaveRecordAsync(app, rec);
         _c.Sizes.Request(app, filesChanged: false);
-        _c.Log.Info("game", $"imported {app} at {rec.InstallPath} v{rec.Version} (egl={rec.AdoptedFromEgl}, verify={result.Verify}, mode={mode}{(result.VerifyReason is null ? "" : ", " + result.VerifyReason)})");
+        _c.Log.Info("game", $"imported {app} at {rec.InstallPath} v{rec.Version} (egl={item is not null}, verify={verify}, mode={mode})");
 
-        if (result.Verify)
+        if (verify)
         {
             await _c.Library.ReloadAsync();
             if (_c.Library.Summary(app) is { } summary && EnqueueVerify is { } enqueue)
@@ -202,13 +203,12 @@ internal sealed class JobHooks : IJobHooks
                 enqueue(summary);
             }
 
-            SetOutcome?.Invoke(job.Id, result.Outcome);
-            _c.Notify(NoticeLevel.Info, $"{job.Title} imported", result.VerifyReason is { } why ? $"{why} Glider is checking its files in the background." : "Glider is checking its files in the background.",
-                toast: false, appName: app, jobId: job.Id);
+            SetOutcome?.Invoke(job.Id, new JobOutcome(OutcomeKind.NeedsRepair, "Imported; verifying the files."));
+            _c.Notify(NoticeLevel.Info, $"{job.Title} imported", "Glider is checking its files in the background.", toast: false, appName: app, jobId: job.Id);
         }
         else
         {
-            SetOutcome?.Invoke(job.Id, result.Outcome);
+            SetOutcome?.Invoke(job.Id, new JobOutcome(OutcomeKind.Success, "Imported"));
             _c.Notify(NoticeLevel.Success, $"{job.Title} is ready to play", "Imported without downloading anything.", toast: false, appName: app, jobId: job.Id);
         }
     }
@@ -261,18 +261,6 @@ internal sealed class JobHooks : IJobHooks
 
         try
         {
-            // EGL may be touching the folder right now: wait (up to a couple of minutes) instead of failing the write-back.
-            using var patience = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            patience.CancelAfter(_c.Options.EglWriteBackPatience);
-            try
-            {
-                await _c.Egl.WaitUntilNotBusyAsync(rec.InstallPath, _ => { }, patience.Token);
-            }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-            {
-                _c.Log.Info("egl", $"EGL stayed busy with {rec.InstallPath}; trying the write-back anyway");
-            }
-
             var installed = await _c.Legendary.GetInstalledAsync(rec.AppName, ct);
             await _c.Egl.WriteBackAsync(_c.BuildWriteBack(rec, installed), ct);
             _c.Log.Info("egl", $"wrote {rec.AppName} {rec.Version} back to EGL ({guid})");

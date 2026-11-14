@@ -19,16 +19,7 @@ public sealed record EglAdoptionInfo(
     /// has a .mancpn but no .manifest, records the <i>latest</i> version and skips verification (core.py:1909-1920).
     /// </summary>
     bool VerifyRecommended,
-    string? EglVersion,
-    /// <summary>Build version of the manifest EGL keeps in <c>.egstore</c> for this install (what is on disk), when readable.</summary>
-    string? EglManifestVersion = null,
-    /// <summary>Build version EGL was updating to (<c>.egstore\Pending\*.manifest</c>), when an update was left unfinished.</summary>
-    string? PendingVersion = null,
-    /// <summary>
-    /// Legendary will ignore the folder's own manifest and record the <i>latest</i> build instead: there is no <c>.mancpn</c> for the app
-    /// (core.py:1896-1908), or it points at a manifest that isn't there. The folder may then differ from what gets recorded.
-    /// </summary>
-    bool LegendaryWillRecordLatest = false);
+    string? EglVersion);
 
 /// <summary>
 /// EGL coexistence for the whole library: detection of every EGL-managed install (all <c>.item</c>s, DLC excluded), busy
@@ -77,7 +68,7 @@ public sealed class EglService : IEglService, IDisposable
         public EglItem ToItem() => new(
             Path, Guid, Manifest.InstallLocation, Manifest.AppVersionString ?? "",
             Manifest.InstallSize, Manifest.IsIncompleteInstall, Manifest.NeedsValidation,
-            Manifest.AppName ?? "", Manifest.GetString("DisplayName"), Manifest.InstallTags);
+            Manifest.AppName ?? "", Manifest.GetString("DisplayName"));
     }
 
     /// <summary>
@@ -332,23 +323,16 @@ public sealed class EglService : IEglService, IDisposable
     /// parents (<c>\Epic Games</c>, <c>\Games</c>…) that carry EGL metadata (<c>.egstore\*.mancpn</c>) or match a profile probe.
     /// Never a recursive walk of a drive.
     /// </summary>
-    public IReadOnlyList<EglFoundInstall> QuickScan(IReadOnlyList<string> driveRoots, CancellationToken ct) => QuickScan(driveRoots, null, ct);
-
-    /// <inheritdoc cref="IEglService.QuickScan(IReadOnlyList{string}, Func{string, string?}?, CancellationToken)"/>
-    public IReadOnlyList<EglFoundInstall> QuickScan(IReadOnlyList<string> driveRoots, Func<string, string?>? identify, CancellationToken ct)
+    public IReadOnlyList<EglFoundInstall> QuickScan(IReadOnlyList<string> driveRoots, CancellationToken ct)
     {
         var found = new List<EglFoundInstall>();
-        foreach (var (folder, app) in InstallLocator.QuickScan(driveRoots, f => DetectAppName(f) ?? identify?.Invoke(f), ct))
+        foreach (var (folder, app) in InstallLocator.QuickScan(driveRoots, DetectAppName, ct))
         {
             found.Add(MakeFound(app, null, folder, null, null, CandidateSource.Manual, null, busy: false));
         }
 
         return found;
     }
-
-    public IReadOnlyList<EglPendingUpdate> PendingUpdates() => Directory.Exists(PendingManifestsDir)
-        ? [.. GameItems(PendingManifestsDir).Select(i => new EglPendingUpdate(i.Manifest.AppName!, i.Manifest.AppVersionString, i.Manifest.InstallLocation))]
-        : [];
 
     /// <summary>AppName from the folder's <c>.egstore\*.mancpn</c> (what Legendary's import compares), or null.</summary>
     public string? DetectAppName(string folder)
@@ -408,26 +392,6 @@ public sealed class EglService : IEglService, IDisposable
         var hasManifest = guid is not null && File.Exists(Path.Combine(egstore, guid + ".manifest"));
         var staging = Directory.Exists(Path.Combine(egstore, "bps")) || DirectoryHasEntries(Path.Combine(egstore, "Pending"));
         var legendaryVerifies = !hasMancpn || staging;
-        var item = FindByLocation(installPath, appName);
-
-        // What the folder actually holds: the manifest EGL keeps for it, found through the mancpn's guid or, when the mancpn is
-        // gone, through EGL's .item (this is Fortnite on this machine: manifest + Pending + bps, no mancpn).
-        var manifestGuid = guid ?? (item?.InstallationGuid is { Length: > 0 } g ? g : null);
-        var eglManifestVersion = manifestGuid is null ? null : EpicManifestReader.TryReadFile(Path.Combine(egstore, manifestGuid + ".manifest"))?.BuildVersion;
-        string? pending = null;
-        var pendingDir = Path.Combine(egstore, "Pending");
-        if (staging && Directory.Exists(pendingDir))
-        {
-            foreach (var f in SafeEnumerate(pendingDir, "*.manifest").OrderByDescending(File.GetLastWriteTimeUtc))
-            {
-                if (EpicManifestReader.TryReadFile(f)?.BuildVersion is { Length: > 0 } v)
-                {
-                    pending = v;
-                    break;
-                }
-            }
-        }
-
         return new EglAdoptionInfo(
             HasEglMetadata: hasMancpn,
             HasEglManifest: hasManifest,
@@ -435,10 +399,7 @@ public sealed class EglService : IEglService, IDisposable
             StagingPresent: staging,
             LegendaryWillRequireVerification: legendaryVerifies,
             VerifyRecommended: legendaryVerifies || !hasManifest,
-            EglVersion: item?.Version,
-            EglManifestVersion: eglManifestVersion,
-            PendingVersion: pending,
-            LegendaryWillRecordLatest: !hasMancpn || !hasManifest);
+            EglVersion: FindByLocation(installPath, appName)?.Version);
     }
 
     // =============================================== busy ===============================================

@@ -373,21 +373,7 @@ public sealed class FakeLegendary(CallLog log, string config) : ILegendary
         return Task.FromResult(new LaunchCommand(Path.Combine(dir, appName == "Fortnite" ? "FortniteLauncher.exe" : "Game.exe"), dir, ["-AUTH_PASSWORD=secret"], new Dictionary<string, string>()));
     }
 
-    public string? GetInstalledManifestPath(string appName, string version) =>
-        ManifestPaths.TryGetValue((appName, version), out var p) ? p : $"manifests/{version}.manifest";
-
-    /// <summary>Real manifest files for (app, version), for tests of the install-tag carry-over.</summary>
-    public Dictionary<(string App, string Version), string> ManifestPaths { get; } = [];
-
-    /// <summary>What <c>SetInstallTagsAsync</c> was asked to record.</summary>
-    public List<(string App, IReadOnlyList<string> Tags, bool Overwrite)> TagCalls { get; } = [];
-
-    public Task SetInstallTagsAsync(string appName, IReadOnlyList<string> tags, bool overwrite, CancellationToken ct)
-    {
-        log.Add($"legendary.tags:{appName}");
-        TagCalls.Add((appName, tags, overwrite));
-        return Task.CompletedTask;
-    }
+    public string? GetInstalledManifestPath(string appName, string version) => $"manifests/{version}.manifest";
 
     /// <summary>What Legendary's `update` dry run reports for the pending update (null = couldn't measure).</summary>
     public LegendarySizes? UpdateSizes { get; set; }
@@ -623,10 +609,6 @@ public sealed class FakeEgl(CallLog log) : IEglService
     public List<EglWriteBack> WriteBacks { get; } = [];
     public List<(string App, string Guid, string Path)> LocationUpdates { get; } = [];
     public List<EglFoundInstall> QuickScanResult { get; } = [];
-    public Glider.Core.Egl.EglAdoptionInfo? Adoption { get; set; }
-    public List<EglPendingUpdate> Pending { get; } = [];
-    public Glider.Core.Egl.EglAdoptionInfo? InspectForAdoption(string installPath, string appName) => Adoption;
-    public IReadOnlyList<EglPendingUpdate> PendingUpdates() => Pending;
 
     /// <summary>AppName per folder declared by .egstore (DetectAppName).</summary>
     public Dictionary<string, string> Declared { get; } = new(StringComparer.OrdinalIgnoreCase);

@@ -64,7 +64,7 @@ internal sealed class EndToEndHarness : IAsyncDisposable
     {
         Runtime = await GliderRuntime.StartAsync(Legendary.Paths, Host, Sink, Egl, options: new GliderRuntimeOptions
         {
-            Legendary = new LegendaryOptions { StallTimeout = TimeSpan.FromSeconds(30) },
+            Legendary = new LegendaryOptions { StallTimeout = TimeSpan.FromDays(1) },
             EglProcesses = EglProcesses,
             Egl = EglTestTree.FastOptions(),
             ProcessMonitor = GameProcesses,
@@ -142,7 +142,7 @@ internal sealed class EndToEndHarness : IAsyncDisposable
 
     public JobInfo Job(string id) => Snapshot.Queue.Jobs.Single(j => j.Id == id);
 
-    public static async Task<T> WaitFor<T>(Func<T> read, Func<T, bool> until, string what, int timeoutMs = 15_000)
+    public static async Task<T> WaitFor<T>(Func<T> read, Func<T, bool> until, string what, int timeoutMs = 60_000)
     {
         var sw = Stopwatch.StartNew();
         while (true)

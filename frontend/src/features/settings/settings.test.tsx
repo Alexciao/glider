@@ -182,13 +182,13 @@ describe("Settings search", () => {
 
 describe("Ready to uninstall Epic Games Launcher?", () => {
   it("ready: one all-clear line", () => {
-    render(<ReadinessResult result={{ ready: true, items: [{ appName: null, title: "Everything checks out", severity: "ok", message: "x", fix: "none" }] }} />);
+    render(<ReadinessResult result={{ ready: true, items: [{ appName: null, title: "Everything checks out", severity: "ok", message: "x" }] }} />);
     expect(screen.getByText("Nothing depends on it. You can uninstall it.")).toBeInTheDocument();
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
   });
 
   it("ready with warnings is still one line: warnings are not shown", () => {
-    render(<ReadinessResult result={{ ready: true, items: [{ appName: "A", title: "Game A", severity: "warning", message: "Also listed in the launcher.", fix: "none" }] }} />);
+    render(<ReadinessResult result={{ ready: true, items: [{ appName: "A", title: "Game A", severity: "warning", message: "Also listed in the launcher." }] }} />);
     expect(screen.queryByText("Game A")).not.toBeInTheDocument();
   });
 
@@ -198,9 +198,9 @@ describe("Ready to uninstall Epic Games Launcher?", () => {
         result={{
           ready: false,
           items: [
-            { appName: "A", title: "Game A", severity: "blocker", message: "Link it with Ubisoft Connect first.", fix: "none" },
-            { appName: "B", title: "Game B", severity: "blocker", message: "Epic is still updating it.", fix: "none" },
-            { appName: "C", title: "Game C", severity: "warning", message: "Heads up.", fix: "none" },
+            { appName: "A", title: "Game A", severity: "blocker", message: "Link it with Ubisoft Connect first." },
+            { appName: "B", title: "Game B", severity: "blocker", message: "Epic is still updating it." },
+            { appName: "C", title: "Game C", severity: "warning", message: "Heads up." },
           ],
         }}
       />,

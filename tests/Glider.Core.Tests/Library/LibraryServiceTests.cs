@@ -75,7 +75,7 @@ public class LibraryServiceTests
         await rig.Service.LibraryForTests.FlushAsync();
         await rig.Service.LibraryForTests.SaveCacheAsync();
 
-        var cache = JsonSerializer.Deserialize(File.ReadAllBytes(LibraryService.PathFor(rig.Paths)), EngineJsonContext.Default.LibraryCacheFile)!;
+        var cache = JsonSerializer.Deserialize((await AtomicFile.TryReadAllBytesAsync(LibraryService.PathFor(rig.Paths), TestContext.Current.CancellationToken))!, EngineJsonContext.Default.LibraryCacheFile)!;
         Assert.Equal(2, cache.SchemaVersion);
         Assert.True(cache.Games.Single(g => g.AppName == "A").Favorite);
         Assert.Contains(cache.Games, g => g.AppName == FortniteLayout.AppName);

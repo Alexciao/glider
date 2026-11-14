@@ -669,11 +669,7 @@ public sealed record EglInstall(
 
 public sealed record EglImportRequest(IReadOnlyList<string> Ids, VerifyMode Verify);
 
-/// <summary>An id of an import request that was not queued, with why (per-game result next to the queued jobs).</summary>
-public sealed record EglImportSkip(string Id, string? AppName, string? Title, string Reason);
-
-/// <summary>One Import job per game that could be imported; <see cref="Skipped"/> holds every other requested id with its reason.</summary>
-public sealed record EglImportResult(IReadOnlyList<JobInfo> Jobs, IReadOnlyList<EglImportSkip>? Skipped = null);
+public sealed record EglImportResult(IReadOnlyList<JobInfo> Jobs);
 
 [JsonConverter(typeof(CamelEnumConverter<VerifyMode>))]
 public enum VerifyMode
@@ -689,18 +685,14 @@ public enum VerifyMode
 public sealed record ValidateFolderRequest(string Path);
 
 /// <summary>Result of "Locate another folder…": which game (if any) lives there.</summary>
-public sealed record FolderValidation(bool Valid, string? AppName, string? Title, string? GamePath, string? Version, string? Reason, long? SizeBytes = null);
+public sealed record FolderValidation(bool Valid, string? AppName, string? Title, string? GamePath, string? Version, string? Reason);
 
 public sealed record LocateRequest(string Path, VerifyMode Verify);
 
 [JsonConverter(typeof(CamelEnumConverter<ReadinessSeverity>))]
 public enum ReadinessSeverity { Ok, Warning, Blocker }
 
-/// <summary>What the user can do about a readiness item (the UI turns it into a button).</summary>
-[JsonConverter(typeof(CamelEnumConverter<ReadinessFix>))]
-public enum ReadinessFix { None, Import, WaitForEgl, TurnOnEpicLinks, SyncSaves, InstallOverlay, Launch, OpenSettings }
-
-public sealed record ReadinessItem(string? AppName, string Title, ReadinessSeverity Severity, string Message, ReadinessFix Fix = ReadinessFix.None);
+public sealed record ReadinessItem(string? AppName, string Title, ReadinessSeverity Severity, string Message);
 
 /// <summary>"Ready to uninstall EGL?": anything that would still depend on the Epic Games Launcher.</summary>
 public sealed record EglReadiness(bool Ready, IReadOnlyList<ReadinessItem> Items);

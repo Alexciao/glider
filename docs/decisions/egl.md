@@ -31,4 +31,3 @@ One line of reasoning per decision. Details: `docs/egl.md`.
 - **Wait = FileSystemWatcher wake-ups + a 2 s poll**: it reacts quickly to the evidence clearing without busy-looping, and still notices EGL exiting.
 - **"Remove from Glider only" touches no EGL file, and even "delete files" leaves EGL's `.item`/`.egstore`**: never delete EGL's records; EGL handles its own uninstall.
 - **The process lookup sits behind `IProcessProbe`**: tests fake EGL running or exiting without real processes.
-- **v0.2: adoption carries install tags, re-import is forget+import in a job, readiness is per game with fixes**: see `## v0.2` in DECISIONS.md and "v0.2: migrating the whole library" in `docs/egl.md`.
