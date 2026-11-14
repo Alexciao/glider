@@ -1,10 +1,9 @@
 {
   "version": "0.21.1-glider.1",
   "url": "https://github.com/Alexciao/glider/releases/download/legendary-fork-0.21.1-glider.1/legendary.exe",
-  "sha256": null,
+  "sha256": "a5ab5d23d37863272b6cab266154aeb41c753a6b60e853b40a7512fbd9e594c7",
   "license": "GPL-3.0",
   "source": "https://github.com/Alexciao/glider/releases/download/legendary-fork-0.21.1-glider.1/legendary-0.21.1-glider.1-source.tar.gz",
   "licenseUrl": "https://raw.githubusercontent.com/legendary-gl/legendary/0.21.1/LICENSE",
-  "licenseSha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
-  "_note": "Candidate pin for the Glider fork of Legendary. sha256 stays null until the legendary-fork workflow has published the release; then copy these fields into legendary.json and update LegendaryCli.PinnedSha256 in the same commit (see tools/legendary-fork/README.md)."
+  "licenseSha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
 }

@@ -8,6 +8,8 @@ import { Block, Group, Line, Setting } from "./parts";
 import { sectionById } from "./sections";
 
 const LEGENDARY_SOURCE = "https://github.com/legendary-gl/legendary/tree/0.21.1";
+// The fork's patch and corresponding source are assets of this release (GPLv3); the patch also ships in legendary/.
+const LEGENDARY_FORK_RELEASE = "https://github.com/Alexciao/glider/releases/tag/legendary-fork-";
 
 export function AboutPanel() {
   const app = useSnap((s) => s.app);
@@ -28,6 +30,8 @@ export function AboutPanel() {
 
   const legendary = items?.find((i) => /legendary/i.test(i.name));
   const others = items?.filter((i) => i !== legendary) ?? [];
+  const legendaryVersion = legendary?.version ?? app.legendaryVersion;
+  const modified = /-glider/i.test(legendaryVersion);
 
   return (
     <Block id="about" title={def.label}>
@@ -38,11 +42,22 @@ export function AboutPanel() {
         <Setting label="Legendary">
           <Line
             label="Legendary"
-            description={`Version ${legendary?.version ?? app.legendaryVersion} · ${legendary?.license ?? "GPL-3.0"}`}
+            description={`Version ${legendaryVersion} · ${legendary?.license ?? "GPL-3.0"}${modified ? " · Modified by Glider" : ""}`}
             control={
-              <Button size="sm" variant="secondary" onClick={() => void actions.openExternal(LEGENDARY_SOURCE)}>
-                Source code
-              </Button>
+              modified ? (
+                <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => void actions.openExternal(`${LEGENDARY_FORK_RELEASE}${legendaryVersion}`)}>
+                    Patch and source
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => void actions.openExternal(LEGENDARY_SOURCE)}>
+                    Original
+                  </Button>
+                </div>
+              ) : (
+                <Button size="sm" variant="secondary" onClick={() => void actions.openExternal(LEGENDARY_SOURCE)}>
+                  Source code
+                </Button>
+              )
             }
           />
         </Setting>

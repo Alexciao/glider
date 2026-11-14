@@ -188,6 +188,7 @@ public class CdnProbeTests
         var cli = new LegendaryCli(env.Paths, env.Log, new LegendaryOptions
         {
             StallTimeout = TimeSpan.FromSeconds(2),
+            Fork = false, // the stock exe fails over by restarting; the fork switches in place
             CdnProbeHandler = () => new FakeCdn(hosts),
         });
         return (env, cli);

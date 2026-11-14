@@ -13,6 +13,7 @@ public class LegendaryCliTests
     {
         StallTimeout = stall ?? TimeSpan.FromDays(1),
         SharedMemoryRetryCeilingMb = 8192,
+        Fork = false, // these tests pin the stock command lines; the fork's have their own tests
         // These tests exercise the CLI paths; the no-spawn shortcuts have their own tests below.
         PinnedVersion = null,
         ReadAccountFromUserJson = false,
@@ -129,7 +130,7 @@ public class LegendaryCliTests
         Assert.Null(await cli.GetAccountOfflineAsync(ct)); // no user.json = signed out
         File.Copy(Fixture.PathOf("synthetic-user.json"), userJson);
         Assert.Equal(new LegendaryAccount("Åsa 日本", "0123456789abcdef0123456789abcdef"), await cli.GetAccountOfflineAsync(ct));
-        Assert.Equal("0.21.1", await cli.GetVersionAsync(ct)); // pinned constant from build/legendary.json
+        Assert.Equal(LegendaryPin.Version, await cli.GetVersionAsync(ct)); // pinned constant from build/legendary.json
         Assert.Empty(env.Invocations());
     }
 

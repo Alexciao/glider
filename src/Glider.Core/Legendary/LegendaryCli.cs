@@ -69,8 +69,8 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
 {
     private const string NotLoggedIn = "<not logged in>";
 
-    /// <summary>SHA-256 of the bundled legendary_windows_x64.exe 0.21.1 (build/legendary.json; a test keeps them equal).</summary>
-    public const string PinnedSha256 = "6be77857dc0a6dd33ea7442ce8b5291944ec6da53757f81ca95b57ce794baf5b";
+    /// <summary>SHA-256 of the bundled legendary.exe 0.21.1-glider.1, the Glider fork (build/legendary.json; a test keeps them equal).</summary>
+    public const string PinnedSha256 = "a5ab5d23d37863272b6cab266154aeb41c753a6b60e853b40a7512fbd9e594c7";
 
     private readonly AppPaths _paths;
     private readonly ILog _log;

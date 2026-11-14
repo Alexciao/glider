@@ -2,6 +2,9 @@
 // Usage: dotnet run build/FetchLegendary.cs [-- [--fork] [<repo-root>]]
 // Pins live in build/legendary.json (--fork: build/legendary-fork.json, the Glider fork, which also ships its patch and source offer).
 // Idempotent: files whose hash already matches are left alone.
+// Private repo: with GH_TOKEN or GITHUB_TOKEN set, a github.com release-asset URL is downloaded through the GitHub REST API
+// (anonymous release downloads 404 on a private repo). The token is only ever sent as an Authorization header, never printed.
+// The fork is used when --fork is given or the pinned version says "-glider"; it also fetches SOURCE-OFFER.txt and glider-legendary.patch.
 using System.Security.Cryptography;
 using System.Text.Json;
 
@@ -17,11 +20,12 @@ catch (Exception ex)
 
 static async Task<int> RunAsync(string[] args)
 {
-    var fork = args.Contains("--fork");
+    var forkFlag = args.Contains("--fork");
     var positional = args.Where(a => a != "--fork").ToArray();
     var root = positional.Length > 0 ? Path.GetFullPath(positional[0]) : FindRoot();
-    var pinPath = Path.Combine(root, "build", fork ? "legendary-fork.json" : "legendary.json");
+    var pinPath = Path.Combine(root, "build", forkFlag ? "legendary-fork.json" : "legendary.json");
     using var pinDoc = JsonDocument.Parse(await File.ReadAllTextAsync(pinPath));
+    var fork = forkFlag || (pinDoc.RootElement.GetProperty("version").GetString() ?? "").Contains("-glider", StringComparison.OrdinalIgnoreCase);
     string Pin(string name) => pinDoc.RootElement.GetProperty(name).GetString()
         ?? throw new InvalidDataException($"{pinPath}: '{name}' is null" + (fork && name == "sha256"
             ? " (the fork is not published yet: run the legendary-fork workflow on a legendary-fork-* tag and record the hash, see tools/legendary-fork/README.md)"
@@ -33,20 +37,39 @@ static async Task<int> RunAsync(string[] args)
     using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
     http.DefaultRequestHeaders.UserAgent.ParseAdd("glider-build");
 
-    await EnsureAsync(http, "legendary.exe", Pin("url"), Pin("sha256"), Path.Combine(destDir, "legendary.exe"));
-    await EnsureAsync(http, "LICENSE.txt", Pin("licenseUrl"), Pin("licenseSha256"), Path.Combine(destDir, "LICENSE.txt"));
+    var token = Environment.GetEnvironmentVariable("GH_TOKEN") is { Length: > 0 } t1 ? t1
+        : Environment.GetEnvironmentVariable("GITHUB_TOKEN") is { Length: > 0 } t2 ? t2 : null;
+    var fetcher = new Downloader(http, token);
+
+    await EnsureAsync(fetcher, "legendary.exe", Pin("url"), Pin("sha256"), Path.Combine(destDir, "legendary.exe"));
+    await EnsureAsync(fetcher, "LICENSE.txt", Pin("licenseUrl"), Pin("licenseSha256"), Path.Combine(destDir, "LICENSE.txt"));
     if (fork)
     {
-        // GPLv3: the patch and the source offer travel with the modified binary.
-        File.Copy(Path.Combine(root, "tools", "bench", "legendary-0.21.1-glider.patch"), Path.Combine(destDir, "glider-legendary.patch"), overwrite: true);
-        File.Copy(Path.Combine(root, "tools", "legendary-fork", "SOURCE-OFFER.txt"), Path.Combine(destDir, "SOURCE-OFFER.txt"), overwrite: true);
+        // GPLv3: the patch and the source offer travel with the modified binary; both are assets of the same release as the exe.
+        var exeUrl = Pin("url");
+        foreach (var name in new[] { "glider-legendary.patch", "SOURCE-OFFER.txt" })
+        {
+            var url = exeUrl[..(exeUrl.LastIndexOf('/') + 1)] + name;
+            Console.WriteLine($"{name}: downloading {url}");
+            var tmp = Path.Combine(Path.GetTempPath(), $"glider-fetch-{Guid.NewGuid():N}.tmp");
+            try
+            {
+                await fetcher.DownloadAsync(url, tmp);
+                if (new FileInfo(tmp).Length == 0) throw new InvalidDataException($"{name}: empty download from {url}");
+                File.Move(tmp, Path.Combine(destDir, name), overwrite: true);
+            }
+            finally
+            {
+                if (File.Exists(tmp)) File.Delete(tmp);
+            }
+        }
     }
 
     Console.WriteLine($"Legendary {Pin("version")} ready in {destDir}");
     return 0;
 }
 
-static async Task EnsureAsync(HttpClient http, string label, string url, string expected, string dest)
+static async Task EnsureAsync(Downloader fetcher, string label, string url, string expected, string dest)
 {
     if (File.Exists(dest) && string.Equals(await HashAsync(dest), expected, StringComparison.OrdinalIgnoreCase))
     {
@@ -58,13 +81,7 @@ static async Task EnsureAsync(HttpClient http, string label, string url, string 
     var tmp = Path.Combine(Path.GetTempPath(), $"glider-fetch-{Guid.NewGuid():N}.tmp");
     try
     {
-        using (var resp = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead))
-        {
-            resp.EnsureSuccessStatusCode();
-            await using var src = await resp.Content.ReadAsStreamAsync();
-            await using var dst = File.Create(tmp);
-            await src.CopyToAsync(dst);
-        }
+        await fetcher.DownloadAsync(url, tmp);
 
         var actual = await HashAsync(tmp);
         if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
@@ -90,4 +107,60 @@ static string FindRoot()
     for (var dir = new DirectoryInfo(Directory.GetCurrentDirectory()); dir != null; dir = dir.Parent)
         if (File.Exists(Path.Combine(dir.FullName, "Glider.slnx"))) return dir.FullName;
     throw new DirectoryNotFoundException("Glider.slnx not found above the current directory; pass the repo root as an argument.");
+}
+
+sealed class Downloader(HttpClient http, string? token)
+{
+    // https://github.com/{owner}/{repo}/releases/download/{tag}/{asset}
+    private static readonly System.Text.RegularExpressions.Regex ReleaseAsset = new(
+        @"^https://github\.com/(?<o>[^/]+)/(?<r>[^/]+)/releases/download/(?<t>[^/]+)/(?<a>[^/?#]+)$",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    public async Task DownloadAsync(string url, string dest)
+    {
+        var m = ReleaseAsset.Match(url);
+        if (token is null || !m.Success)
+        {
+            await SaveAsync(new HttpRequestMessage(HttpMethod.Get, url), dest);
+            return;
+        }
+
+        string Esc(string g) => Uri.EscapeDataString(Uri.UnescapeDataString(m.Groups[g].Value));
+        var api = $"https://api.github.com/repos/{Esc("o")}/{Esc("r")}";
+        var wanted = Uri.UnescapeDataString(m.Groups["a"].Value);
+
+        using var rel = Api(HttpMethod.Get, $"{api}/releases/tags/{Esc("t")}", "application/vnd.github+json");
+        using var relResp = await http.SendAsync(rel);
+        if (!relResp.IsSuccessStatusCode) throw new HttpRequestException($"GitHub API: release '{Uri.UnescapeDataString(m.Groups["t"].Value)}' of {m.Groups["o"].Value}/{m.Groups["r"].Value} returned {(int)relResp.StatusCode}");
+        using var doc = JsonDocument.Parse(await relResp.Content.ReadAsStringAsync());
+        var id = doc.RootElement.GetProperty("assets").EnumerateArray()
+            .Where(a => a.GetProperty("name").GetString() == wanted)
+            .Select(a => (long?)a.GetProperty("id").GetInt64()).FirstOrDefault()
+            ?? throw new FileNotFoundException($"release has no asset named '{wanted}'");
+
+        await SaveAsync(Api(HttpMethod.Get, $"{api}/releases/assets/{id}", "application/octet-stream"), dest);
+    }
+
+    private HttpRequestMessage Api(HttpMethod method, string url, string accept)
+    {
+        var req = new HttpRequestMessage(method, url);
+        req.Headers.Accept.ParseAdd(accept);
+        req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        req.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
+        return req;
+    }
+
+    private async Task SaveAsync(HttpRequestMessage req, string dest)
+    {
+        using (req)
+        {
+            // The API answers 302 to a pre-signed storage URL; HttpClient follows it and drops the Authorization header
+            // when the host changes, which is what we want (storage rejects a Bearer token).
+            using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+            if (!resp.IsSuccessStatusCode) throw new HttpRequestException($"download returned {(int)resp.StatusCode} {resp.ReasonPhrase} for {req.RequestUri?.GetLeftPart(UriPartial.Path)}");
+            await using var src = await resp.Content.ReadAsStreamAsync();
+            await using var dst = File.Create(dest);
+            await src.CopyToAsync(dst);
+        }
+    }
 }
