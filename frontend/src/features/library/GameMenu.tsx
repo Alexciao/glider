@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { ArrowDownToLine, Download, Eye, EyeOff, FolderInput, FolderOpen, FolderPlus, Layers, MoreHorizontal, Play, Star, Trash2, Wrench } from "lucide-react";
 import type { GameSummary } from "../../ipc/contract.gen";
 import { actions } from "../../state/actions";
@@ -6,7 +6,7 @@ import { collectionActions } from "../../state/collections";
 import { isBusy } from "../../state/derive";
 import { useSnap } from "../../state/store";
 import { useUi } from "../../state/ui";
-import { ContextMenu, ContextMenuTrigger, DropdownMenu, DropdownMenuTrigger, cx, contextKit, dropdownKit, type MenuKit } from "../../ui";
+import { ContextMenu, ContextMenuTrigger, contextKit, cx, type MenuKit } from "../../ui";
 import { useCollectionDialog } from "./collectionDialog";
 import { quickAction, runQuick, runUpdate } from "./status";
 
@@ -84,42 +84,58 @@ export function GameMenuItems({ kit, game }: { kit: MenuKit; game: GameSummary }
   );
 }
 
-/** Right-click (or the context-menu key / Shift+F10) on `children` opens the game's menu. */
-export function GameContextMenu({ game, children }: { game: GameSummary; children: ReactNode }) {
+/**
+ * One context menu for the whole library, not one per tile: mounting a Radix menu root per tile made every tile several
+ * milliseconds dearer to mount, which is what a search or a filter pays 30 times over. The wrapper reads which tile was
+ * hit (right-click, the context-menu key, or a tile's "…" button) and renders that game's items when it opens.
+ */
+export function LibraryContextMenu({ games, children }: { games: readonly GameSummary[]; children: ReactNode }) {
+  const [target, setTarget] = useState<GameSummary | null>(null);
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-      <contextKit.Content className="w-60">
-        <GameMenuItems kit={contextKit} game={game} />
-      </contextKit.Content>
+      <ContextMenuTrigger asChild>
+        <div
+          className="h-full"
+          onContextMenuCapture={(e) => {
+            const li = (e.target as HTMLElement).closest<HTMLElement>("li[data-index]");
+            const game = li ? games[Number(li.dataset.index)] : undefined;
+            // Anywhere that is not a game keeps the browser's (or the host's) own behaviour.
+            if (!game) e.stopPropagation();
+            else setTarget(game);
+          }}
+        >
+          {children}
+        </div>
+      </ContextMenuTrigger>
+      {target && (
+        <contextKit.Content className="w-60">
+          <GameMenuItems kit={contextKit} game={target} />
+        </contextKit.Content>
+      )}
     </ContextMenu>
   );
 }
 
-/** The "…" button. Not a tab stop (the game's own button is; its menu is reachable with the context-menu key). */
-export function GameMoreMenu({ game, className, tone = "glass" }: { game: GameSummary; className?: string; tone?: "glass" | "plain" }) {
+/** The "…" button: asks the library's context menu to open at the button. Not a tab stop (the context-menu key does the same). */
+export function MoreButton({ game, className, tone = "glass" }: { game: GameSummary; className?: string; tone?: "glass" | "plain" }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          tabIndex={-1}
-          aria-label={`More actions for ${game.title}`}
-          className={cx(
-            "grid place-items-center outline-none transition-[background-color,color,opacity,transform] duration-150 ease-out active:scale-95 focus-visible:outline-2 focus-visible:outline-focus",
-            tone === "glass"
-              ? "size-7 rounded-full bg-[oklch(0.14_0.006_265/0.72)] text-white/90 ring-1 ring-inset ring-white/10 hover:bg-[oklch(0.14_0.006_265/0.88)]"
-              : "size-8 rounded-md text-fg-muted hover:bg-surface-active hover:text-fg",
-            className,
-          )}
-        >
-          <MoreHorizontal size={15} />
-        </button>
-      </DropdownMenuTrigger>
-      <dropdownKit.Content align="end" sideOffset={6} className="w-60">
-        <GameMenuItems kit={dropdownKit} game={game} />
-      </dropdownKit.Content>
-    </DropdownMenu>
+    <button
+      type="button"
+      tabIndex={-1}
+      aria-label={`More actions for ${game.title}`}
+      onClick={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        e.currentTarget.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left, clientY: r.bottom + 4 }));
+      }}
+      className={cx(
+        "grid place-items-center outline-none transition-[background-color,color,opacity,transform] duration-150 ease-out active:scale-95 focus-visible:outline-2 focus-visible:outline-focus",
+        tone === "glass"
+          ? "size-7 rounded-full bg-[oklch(0.14_0.006_265/0.72)] text-white/90 ring-1 ring-inset ring-white/10 hover:bg-[oklch(0.14_0.006_265/0.88)]"
+          : "size-8 rounded-md text-fg-muted hover:bg-surface-active hover:text-fg",
+        className,
+      )}
+    >
+      <MoreHorizontal size={15} />
+    </button>
   );
 }
-

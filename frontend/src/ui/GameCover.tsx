@@ -3,6 +3,15 @@ import type { GameArt } from "../ipc/contract.gen";
 import { hueOf, initialsOf } from "./Avatar";
 import { cx } from "./cx";
 
+/** Initials for the no-art fallback. Plain ASCII titles (nearly all) skip the grapheme segmenter, which is slow per tile. */
+function monogram(title: string): string {
+  if (!/^[\x20-\x7e]*$/.test(title)) return initialsOf(title);
+  const words = title.split(/[\s._-]+/).filter(Boolean);
+  if (words.length === 0) return "?";
+  const first = words[0]!;
+  return (first[0]! + (words.length > 1 ? words[words.length - 1]![0]! : (first[1] ?? ""))).toUpperCase();
+}
+
 export type CoverShape = "tall" | "wide";
 
 export interface GameCoverProps {
@@ -77,7 +86,7 @@ export function GameCover({ art, title, shape = "tall", size = "full", priority,
           style={{ background: `linear-gradient(160deg, oklch(0.42 0.08 ${hue}), oklch(0.24 0.05 ${(hue + 40) % 360}))` }}
         >
           <span className={cx("select-none font-semibold tracking-tight text-white/55", size === "thumb" ? "text-sm" : shape === "tall" ? "text-3xl" : "text-2xl")}>
-            {initialsOf(title)}
+            {monogram(title)}
           </span>
         </div>
       ) : (

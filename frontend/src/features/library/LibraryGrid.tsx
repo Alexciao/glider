@@ -3,6 +3,7 @@ import type { GameSummary } from "../../ipc/contract.gen";
 import type { LibraryView } from "../../state/libraryPrefs";
 import { goGame } from "../../state/router";
 import { computeRange, cx, navigateWithCover, useScrollViewport } from "../../ui";
+import { LibraryContextMenu } from "./GameMenu";
 import { GameListRow, LIST_COL } from "./GameListRow";
 import { GameTile } from "./GameTile";
 import { GRID_GAP, LIST_ROW, gridLayout, listColumns, padFor } from "./gridLayout";
@@ -62,7 +63,7 @@ export function LibraryGrid({ games, view, resetKey, onScrolled }: LibraryGridPr
   const rowH = isGrid ? layout.rowH : LIST_ROW;
   const rowCount = Math.ceil(games.length / cols);
   const head = isGrid ? GRID_TOP : LIST_HEADER;
-  const win = computeRange(Math.max(0, vp.top - head), vp.height, rowH, rowCount, 2);
+  const win = computeRange(Math.max(0, vp.top - head), vp.height, rowH, rowCount, 1);
   const total = rowCount * rowH + head + BOTTOM;
   const listCols = useMemo(() => listColumns(vp.width), [vp.width]);
 
@@ -180,6 +181,7 @@ export function LibraryGrid({ games, view, resetKey, onScrolled }: LibraryGridPr
   }
 
   return (
+    <LibraryContextMenu games={games}>
     <div ref={setScroller} className="h-full overflow-y-auto [scrollbar-gutter:stable]">
       {!isGrid && (
         <div style={{ paddingInline: padFor(vp.width) }}>
@@ -200,5 +202,6 @@ export function LibraryGrid({ games, view, resetKey, onScrolled }: LibraryGridPr
         {rows}
       </ul>
     </div>
+    </LibraryContextMenu>
   );
 }

@@ -1,10 +1,10 @@
-import { memo, type MouseEvent } from "react";
+import { memo, useState, type MouseEvent } from "react";
 import { Download, Play, Star, Wrench } from "lucide-react";
 import type { GameSummary } from "../../ipc/contract.gen";
 import { formatBytes, formatRelativeTime } from "../../state/format";
 import { Button, GameCover, ProgressRing, cx } from "../../ui";
 import { useJobState } from "./CoverProgress";
-import { GameContextMenu, GameMoreMenu } from "./GameMenu";
+import { MoreButton } from "./GameMenu";
 import { LIST_ROW, type ListColumns } from "./gridLayout";
 import { describeState, quickAction, rowStatus, runQuick } from "./status";
 
@@ -48,17 +48,22 @@ export interface GameListRowProps {
 /** A list row: thumbnail, title and developer, then status, size, last played and playtime as the window allows. */
 export const GameListRow = memo(function GameListRow({ game, index, count, y, cols, tabbable, onOpen }: GameListRowProps) {
   const quick = quickAction(game);
+  const [hot, setHot] = useState(false);
   const size = game.installStatus === "installed" || game.installStatus === "broken" ? (game.installedSizeBytes ?? game.installSizeBytes) : game.installSizeBytes;
   const open = (e: MouseEvent<HTMLButtonElement>) => onOpen(game, e.currentTarget.querySelector<HTMLElement>("[data-cover]"));
   return (
     <li
+      data-index={index}
       aria-posinset={index + 1}
       aria-setsize={count}
       className="absolute inset-x-0 top-0 list-none"
       style={{ height: LIST_ROW, transform: `translateY(${y}px)` }}
     >
-      <GameContextMenu game={game}>
-        <div className={cx("group/row relative mx-[-8px] h-[60px] rounded-lg transition-colors duration-100 hover:bg-surface-hover", game.hidden && "opacity-60")}>
+      <div
+          onPointerEnter={() => setHot(true)}
+          onPointerLeave={() => setHot(false)}
+          className={cx("group/row relative mx-[-8px] h-[60px] rounded-lg transition-colors duration-100 hover:bg-surface-hover", game.hidden && "opacity-60")}
+        >
           <button
             type="button"
             data-tile-index={index}
@@ -69,13 +74,16 @@ export const GameListRow = memo(function GameListRow({ game, index, count, y, co
             <GameCover art={game.art} title={game.title} size="thumb" className="h-[52px] w-[39px] shrink-0 rounded-md" />
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-1.5 text-sm font-medium text-fg">
-                <span className="truncate">{game.title}</span>
+                <span className="truncate" title={game.title}>{game.title}</span>
                 {game.favorite && <Star size={12} aria-label="Favorite" className="shrink-0 fill-current text-warning-text" />}
               </span>
-              <span className="block truncate text-xs text-fg-muted">
-                {game.thirdParty !== "none" && game.thirdPartyName ? game.thirdPartyName : (game.developer ?? "Unknown developer")}
-                {game.dlcCount > 0 ? ` · ${game.dlcCount} DLC` : ""}
-              </span>
+              {(game.developer || game.dlcCount > 0) && (
+                <span className="block truncate text-xs text-fg-muted">
+                  {game.developer && <bdi>{game.developer}</bdi>}
+                  {game.developer && game.dlcCount > 0 ? " · " : ""}
+                  {game.dlcCount > 0 ? <bdi>{game.dlcCount} DLC</bdi> : null}
+                </span>
+              )}
             </span>
             {cols.status && (
               <span className={cx("shrink-0", LIST_COL.status)}>
@@ -88,28 +96,25 @@ export const GameListRow = memo(function GameListRow({ game, index, count, y, co
             )}
             <span className="sr-only">{describeState(game)}</span>
           </button>
-          <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center gap-1.5">
-            {quick && (
-              <Button
-                size="sm"
-                variant="secondary"
-                tabIndex={-1}
-                aria-label={`${quick.label} ${game.title}`}
-                icon={quick.kind === "play" ? <Play size={12} className="fill-current" /> : quick.kind === "install" ? <Download size={13} /> : <Wrench size={13} />}
-                onClick={() => void runQuick(quick.kind, game.appName)}
-                className="pointer-events-auto opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100"
-              >
-                {quick.label}
-              </Button>
-            )}
-            <GameMoreMenu
-              game={game}
-              tone="plain"
-              className="pointer-events-auto opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
-            />
-          </div>
+          {hot && (
+            <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center gap-1.5 [animation:g-fade-in_150ms_var(--ease-out)]">
+              {quick && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  tabIndex={-1}
+                  aria-label={`${quick.label} ${game.title}`}
+                  icon={quick.kind === "play" ? <Play size={12} className="fill-current" /> : quick.kind === "install" ? <Download size={13} /> : <Wrench size={13} />}
+                  onClick={() => void runQuick(quick.kind, game.appName)}
+                  className="pointer-events-auto"
+                >
+                  {quick.label}
+                </Button>
+              )}
+              <MoreButton game={game} tone="plain" className="pointer-events-auto" />
+            </div>
+          )}
         </div>
-      </GameContextMenu>
     </li>
   );
 });
