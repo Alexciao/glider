@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LogIn, LogOut, Settings as SettingsIcon } from "lucide-react";
+import { LogIn, LogOut, Settings as SettingsIcon, WifiOff } from "lucide-react";
 import { rpc } from "../ipc/rpc";
 import { useApp, useSnap, type MaxButtonState } from "../state/store";
 import { useUi } from "../state/ui";
@@ -14,6 +14,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   GliderWordmark,
+  Tooltip,
   cx,
 } from "../ui";
 import { ActivityPill } from "./ActivityPill";
@@ -79,6 +80,24 @@ export function CaptionButtons() {
       <CaptionButton kind={maximized ? "restore" : "maximize"} label={maximized ? "Restore" : "Maximize"} onClick={call("window.toggleMaximize")} dim={!focused} forced={maxButton} />
       <CaptionButton kind="close" label="Close" onClick={call("window.close")} dim={!focused} />
     </div>
+  );
+}
+
+/** Shown only while the app has no connection. The window never goes blank: the saved library and offline-capable games keep working. */
+export function OfflineIndicator() {
+  const offline = useSnap((s) => s.connectivity === "offline");
+  if (!offline) return null;
+  return (
+    <Tooltip content="No internet connection. Installed games that support offline play still launch." side="bottom" align="end">
+      <span
+        role="status"
+        aria-label="Offline"
+        className="app-no-drag mr-2 inline-flex h-7 items-center gap-1.5 rounded-full border border-border-strong bg-surface-2 pl-2.5 pr-3 text-xs font-medium text-fg-muted"
+      >
+        <WifiOff size={13} className="text-warning-text" aria-hidden />
+        Offline
+      </span>
+    </Tooltip>
   );
 }
 
@@ -149,6 +168,7 @@ export function TitleBar({ minimal = false }: { minimal?: boolean }) {
       <div className="ml-auto flex h-10 items-center">
         {!minimal && (
           <div className="mr-2 flex items-center">
+            <OfflineIndicator />
             <AccountMenu />
           </div>
         )}

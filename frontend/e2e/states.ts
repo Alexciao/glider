@@ -673,6 +673,43 @@ const RAW_STATES: ShotState[] = [
       await wait(450);
     },
   },
+
+  // ------------------------------------------------- Library + Home (v0.2 UI-1)
+  { name: "home-returning", query: "scenario=returning&timescale=1", setup: async (p) => go(p, "home"), settle: 700 },
+  { name: "home-downloading", query: "scenario=downloading&freeze=1&timescale=1", setup: async (p) => go(p, "home"), settle: 700 },
+  { name: "home-empty-library", query: "scenario=emptyLibrary", setup: async (p) => go(p, "home") },
+  { name: "home-offline", query: "scenario=offline", setup: async (p) => go(p, "home") },
+  { name: "lib-grid", query: "scenario=returning", setup: async (p) => go(p, "library") },
+  { name: "lib-grid-600", query: "scenario=perf600", setup: async (p) => go(p, "library") },
+  {
+    name: "lib-list",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await go(p, "library");
+      await p.getByRole("radio", { name: "List view" }).click();
+      await wait(300);
+    },
+  },
+  { name: "lib-empty", query: "scenario=emptyLibrary", setup: async (p) => go(p, "library") },
+  { name: "lib-sync-error", query: "scenario=syncError", setup: async (p) => go(p, "library") },
+  {
+    name: "lib-no-results",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await go(p, "library");
+      await p.getByRole("textbox", { name: "Search your library" }).fill("zzzzqq");
+      await wait(300);
+    },
+  },
+  {
+    name: "lib-context-menu",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await go(p, "library");
+      await p.locator("[data-tile-index='3']").click({ button: "right" });
+      await wait(300);
+    },
+  },
 ];
 
 const NEEDS_GAME_PAGE = /^(library-|focus-library|focus-rail|toasts|dialog-(uninstall|move|error))/;
