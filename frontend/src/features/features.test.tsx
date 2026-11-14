@@ -313,7 +313,7 @@ describe("Shell routing", () => {
     act(() => navigate("downloads"));
     expect(await screen.findByRole("heading", { name: "Downloads" })).toBeInTheDocument();
     act(() => navigate("store"));
-    expect(await screen.findByRole("heading", { name: "Store" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Open in browser" })).toBeInTheDocument(); // the Store toolbar
     act(() => navigate("settings"));
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
   });

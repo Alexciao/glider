@@ -1,17 +1,19 @@
 import { create } from "zustand";
+import type { StoreTarget } from "../ipc/contract.gen";
 
 /**
  * A tiny hash router. Routes are plain strings so the host can send them in the `navigate` event
  * ("game/Fortnite", "downloads", …) and glider:// links map onto them one to one.
  *
  *   home · library · game/<appName> · downloads · store · settings
+ *   store/product/<slug> · store/bundle/<slug> · store/free-games · store/wishlist · store/browse   (a typed Store destination)
  */
 export type Route =
   | { page: "home" }
   | { page: "library" }
   | { page: "game"; appName: string }
   | { page: "downloads" }
-  | { page: "store" }
+  | { page: "store"; target?: StoreTarget }
   | { page: "settings" };
 
 export type Page = Route["page"];
@@ -30,16 +32,44 @@ export function parseRoute(input: string | null | undefined): Route | null {
     const name = decodeURIComponent(rest.join("/"));
     return name ? { page: "game", appName: name } : null;
   }
+  if (head === "store" && rest.length > 0) return parseStore(rest);
   if (rest.length === 0 && SIMPLE.has(head as Page)) return { page: head as Exclude<Page, "game"> } as Route;
   return null;
 }
 
-/** "game/Fortnite"; appNames are percent-encoded so odd characters can't break the hash. */
-export function formatRoute(r: Route): string {
-  return r.page === "game" ? `game/${encodeURIComponent(r.appName)}` : r.page;
+const SLUG = /^[a-z0-9][a-z0-9-]{0,127}$/;
+
+function parseStore(rest: string[]): Route | null {
+  const [kind, slug, ...more] = rest;
+  if (more.length > 0) return null;
+  if ((kind === "product" || kind === "bundle") && slug) {
+    const clean = decodeURIComponent(slug).toLowerCase();
+    return SLUG.test(clean) ? { page: "store", target: { kind, slug: clean } } : null;
+  }
+  if (slug) return null;
+  if (kind === "free-games") return { page: "store", target: { kind: "freeGames", slug: null } };
+  if (kind === "wishlist" || kind === "browse") return { page: "store", target: { kind, slug: null } };
+  return null;
 }
 
-export const sameRoute = (a: Route, b: Route): boolean => a.page === b.page && (a.page !== "game" || (b.page === "game" && a.appName === b.appName));
+/** The route that opens the Store at a typed target (never a raw URL). */
+export function storeRoute(target: StoreTarget | null | undefined): Route {
+  return target ? { page: "store", target } : { page: "store" };
+}
+
+/** "game/Fortnite"; appNames are percent-encoded so odd characters can't break the hash. */
+export function formatRoute(r: Route): string {
+  if (r.page === "game") return `game/${encodeURIComponent(r.appName)}`;
+  if (r.page === "store" && r.target) {
+    const t = r.target;
+    if ((t.kind === "product" || t.kind === "bundle") && t.slug) return `store/${t.kind}/${encodeURIComponent(t.slug)}`;
+    if (t.kind === "freeGames") return "store/free-games";
+    if (t.kind === "wishlist" || t.kind === "browse") return `store/${t.kind}`;
+  }
+  return r.page;
+}
+
+export const sameRoute = (a: Route, b: Route): boolean => a.page === b.page && formatRoute(a) === formatRoute(b);
 
 const readHash = (): Route => parseRoute(typeof location === "undefined" ? "" : location.hash) ?? DEFAULT_ROUTE;
 

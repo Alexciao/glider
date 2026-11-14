@@ -1801,7 +1801,7 @@ export class MockBackend {
 
     // ---- store / free games ----
     "store.show": async (r) => {
-      const loc = r.target ? mockStoreLocation(r.target) : null;
+      const loc = r.target || !this.store.url ? mockStoreLocation(r.target) : null;
       this.store = {
         ...this.store,
         created: true,
