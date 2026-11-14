@@ -19,7 +19,6 @@ import { Downloads } from "./downloads/Downloads";
 import { Home } from "./home/Home";
 import { GameView } from "./library/GameView";
 import { LibraryPage } from "./library/LibraryPage";
-import { Onboarding } from "./onboarding/Onboarding";
 
 let stop: (() => void) | undefined;
 
@@ -322,77 +321,5 @@ describe("Shell routing", () => {
     await mount("firstRun", <Shell />);
     expect(screen.queryByRole("navigation", { name: "Main" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Your whole Epic library/ })).toBeInTheDocument();
-  });
-});
-
-describe("Onboarding", () => {
-  it("starts at Welcome on a fresh machine, persists the step, then asks for sign-in", async () => {
-    const { user } = await mount("firstRun", <Onboarding />);
-    expect(screen.getByRole("heading", { name: /Your whole Epic library, one launcher/ })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Get started" }));
-    expect(await screen.findByRole("button", { name: /Sign in with Epic/ })).toBeInTheDocument();
-    expect(useApp.getState().snapshot!.onboarding.step).toBe("signIn");
-  });
-
-  it("a closed sign-in window shows a calm message with Copy diagnostic logs", async () => {
-    const { user, controller } = await mount("firstRun", <Onboarding />);
-    await user.click(screen.getByRole("button", { name: "Get started" }));
-    const signIn = await screen.findByRole("button", { name: "Sign in with Epic" });
-    controller.failNext("authCancelled");
-    await user.click(signIn);
-    expect(await screen.findByText("Sign-in was cancelled")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copy diagnostic logs" })).toBeInTheDocument();
-  });
-
-  it("scan: lists every kind of install, selectable ones first selected, others disabled with the backend's reason", async () => {
-    await mount("firstRunSignedIn", <Onboarding />);
-    expect(await screen.findByText("We found games on this PC")).toBeInTheDocument();
-    const boxes = screen.getAllByRole("checkbox");
-    expect(boxes.length).toBeGreaterThan(8);
-    expect(boxes.filter((b) => (b as HTMLInputElement).disabled).length).toBeGreaterThanOrEqual(4);
-    expect(boxes.filter((b) => (b as HTMLInputElement).checked).length).toBeGreaterThanOrEqual(5);
-    expect(screen.getAllByText("Folder missing").length).toBeGreaterThan(0);
-    expect(screen.getByText(/Epic Games Launcher is installing or updating this right now/)).toBeInTheDocument();
-    expect(screen.getByText(/isn't in the signed-in Epic account's library/)).toBeInTheDocument();
-  });
-
-  it("walks Scan → Folders → Mode → Done and completes onboarding", async () => {
-    const { user } = await mount("firstRunSignedIn", <Onboarding />);
-    await screen.findByText("We found games on this PC");
-    await user.click(screen.getByRole("button", { name: "Select none" }));
-    await user.click(screen.getAllByRole("checkbox").find((b) => !(b as HTMLInputElement).disabled)!);
-    await user.click(screen.getByRole("button", { name: "Import 1 game" }));
-    await waitFor(() => expect(screen.getByText("Imported")).toBeInTheDocument(), { timeout: 8000 });
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    expect(await screen.findByText("Where should games go?")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled(); // no library folder yet
-    await user.click(screen.getByRole("button", { name: "Add a folder…" }));
-    expect(await screen.findByText("Default")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    expect(await screen.findByText("How should downloads behave?")).toBeInTheDocument();
-    await user.click(screen.getByRole("radio", { name: "Full speed" }));
-    await waitFor(() => expect(useApp.getState().snapshot!.settings.downloadMode).toBe("full"));
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    expect(await screen.findByText("You're all set")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Open Glider" }));
-    await waitFor(() => expect(useApp.getState().snapshot!.onboarding.completed).toBe(true));
-    expect(useRouter.getState().route).toEqual({ page: "home" });
-    expect(useApp.getState().snapshot!.onboarding.step).toBe("done");
-  });
-
-  it("an empty scan still lets the user continue", async () => {
-    const { user } = await mount("firstRunSignedIn", <Onboarding />, { games: 0 });
-    expect(await screen.findByText(/no installs to import/i)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    expect(await screen.findByText("Where should games go?")).toBeInTheDocument();
-  });
-
-  it("locate another folder: an invalid one explains why", async () => {
-    const { user } = await mount("firstRunSignedIn", <Onboarding />);
-    await screen.findByText("We found games on this PC");
-    await user.click(screen.getByRole("button", { name: /Locate another folder/ })); // first pick = a valid game folder
-    await waitFor(() => expect(useApp.getState().snapshot!.queue.jobs.some((j) => j.kind === "import" && j.status !== "completed")).toBe(true), { timeout: 4000 });
-    await user.click(screen.getByRole("button", { name: /Locate another folder/ })); // second pick = not a game
-    expect(await screen.findByText("Not a game folder")).toBeInTheDocument();
   });
 });

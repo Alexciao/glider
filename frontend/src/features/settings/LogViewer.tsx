@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Copy, FolderOpen, RefreshCw } from "lucide-react";
+import { Copy, RefreshCw } from "lucide-react";
 import { rpc } from "../../ipc/rpc";
 import type { LogsResult } from "../../ipc/contract.gen";
 import { actions, toGliderError } from "../../state/actions";
@@ -21,7 +21,6 @@ export function LogViewer() {
   const [logs, setLogs] = useState<LogsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const logDir = useSnap((s) => s.app.logDirectory);
   const level = useSnap((s) => s.settings.logLevel);
   const focus = useUi((s) => s.logsFocus);
   const root = useRef<HTMLDivElement>(null);
@@ -57,18 +56,12 @@ export function LogViewer() {
 
   const lines = logs?.text ? logs.text.split("\n") : [];
   return (
-    <div ref={root} className="flex flex-col gap-2">
-      <div className="flex items-end justify-between gap-4 px-1">
-        <div>
-          <h2 className="text-sm font-semibold text-fg">Logs</h2>
-          <p className="mt-0.5 text-xs text-fg-muted">Copy these into a bug report. They never include your password.</p>
-        </div>
+    <div ref={root} className="flex flex-col gap-2 py-3">
+      <div className="flex items-center justify-between gap-4">
+        <h3 className="text-sm font-medium text-fg">Logs</h3>
         <div className="flex items-center gap-1">
           <IconButton label="Refresh logs" size="sm" onClick={() => load()}>
             <RefreshCw size={14} className={cx(loading && "g-spinner")} />
-          </IconButton>
-          <IconButton label="Open log folder" size="sm" onClick={() => void actions.openPath(logDir)}>
-            <FolderOpen size={14} />
           </IconButton>
           <Button size="sm" variant="secondary" icon={<Copy size={13} />} onClick={() => void actions.copyLogs()}>
             Copy logs
@@ -94,11 +87,6 @@ export function LogViewer() {
             >
               {lines.length === 0 ? <span className="text-fg-subtle">No log lines yet.</span> : lines.map((l, i) => <div key={i} className={lineTone(l)}>{l || " "}</div>)}
             </pre>
-          )}
-          {logs && (
-            <div className="border-t border-border px-4 py-2 text-2xs text-fg-subtle">
-              <span className="selectable">{logs.logFile}</span>
-            </div>
           )}
         </Surface>
       )}

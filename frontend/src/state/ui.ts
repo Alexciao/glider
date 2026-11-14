@@ -6,7 +6,21 @@ import { navigate, type Page } from "./router";
 export const READY_MOMENT_MS = 2800;
 
 export type { Page };
-export type SettingsSection = "general" | "downloads" | "library" | "egl" | "advanced" | "about";
+export type SettingsSection =
+  | "downloads"
+  | "library"
+  | "updates"
+  | "saves"
+  | "egl"
+  | "overlay"
+  | "links"
+  | "appearance"
+  | "startup"
+  | "account"
+  | "advanced"
+  | "about"
+  /** v0.1's catch-all page; Settings shows Startup and tray for it. Kept so old deep links keep working. */
+  | "general";
 
 export type DialogState =
   | { kind: "install"; appName: string }
@@ -56,7 +70,7 @@ interface UiStore {
 }
 
 export const useUi = create<UiStore>((set) => ({
-  settingsSection: "general",
+  settingsSection: "downloads",
   dialog: null,
   palette: false,
   pending: {},
