@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Glider.Core.Contracts;
 using Glider.Core.Legendary;
 using Glider.Core.Tests.TestSupport;
 
@@ -176,6 +177,79 @@ public class CdnProbeTests
 
         Assert.Equal(newer, CdnProbe.FindManifest(dir.Path, "Game"));
         Assert.Null(CdnProbe.FindManifest(dir.Path, "Nothing"));
+    }
+
+    /// <summary>Cached manifest + CDN list on disk, fake CDN hosts and a fake Legendary whose first run stalls: the job restarts once on the next good CDN.</summary>
+    private static (FakeLegendaryEnv Env, LegendaryCli Cli) CliWithManifest(Dictionary<string, Host> hosts)
+    {
+        var env = new FakeLegendaryEnv();
+        File.Copy(Path.Combine(Fixture.Dir, "manifest", "glider-test.manifest"), Path.Combine(env.Config, "manifests", "Game_Windows_1.0.manifest"));
+        File.WriteAllText(Path.Combine(env.Config, "metadata", "Game.json"), "{\"app_name\":\"Game\",\"base_urls\":[" + string.Join(',', EpicHosts.Select(h => $"\"https://{h}/Builds/Fortnite/CloudDir\"")) + "]}");
+        var cli = new LegendaryCli(env.Paths, env.Log, new LegendaryOptions
+        {
+            StallTimeout = TimeSpan.FromSeconds(2),
+            CdnProbeHandler = () => new FakeCdn(hosts),
+        });
+        return (env, cli);
+    }
+
+    private static readonly Dictionary<string, Host> GoodHosts = EpicHosts.ToDictionary(h => h, _ => new Host(Ttfb: 5, ReadDelayMs: 5));
+
+    [Fact]
+    public async Task AStalledDownloadRestartsOnceOnTheNextCdn()
+    {
+        var (env, cli) = CliWithManifest(GoodHosts);
+        using var _ = env;
+        using var __ = cli;
+        env.Script("install", "download chunks=100 files=10 mib=20 interval=10 stallat=50 spam", invocation: 1);
+        env.Script("install", $$"""
+            writefile {basepath}/Game/marker.txt x
+            download chunks=100 files=10 mib=20 interval=10
+            installed app=Game version=1.0 path={basepath}/Game
+            err [cli] INFO: Finished installation process in 0.20 seconds.
+            """, invocation: 2);
+
+        var outcome = await cli.InstallAsync(new InstallArgs("Game", InstallMode.Install, env.Root, 4, 1024, null), new Progress<LegendaryProgress>(), TestContext.Current.CancellationToken);
+
+        Assert.True(outcome.Success, outcome.Error?.Detail);
+        var installs = env.Invocations().Where(i => i.Command == "install").Select(i => i.Args).ToList();
+        Assert.Equal(2, installs.Count);
+        Assert.Equal("egdownload.fastly-edge.com", installs[0][Array.IndexOf(installs[0], "--preferred-cdn") + 1]);
+        Assert.Equal("epicgames-download1.akamaized.net", installs[1][Array.IndexOf(installs[1], "--preferred-cdn") + 1]);
+        Assert.True(env.Log.Contains("cdn probe: pick=egdownload.fastly-edge.com"));
+    }
+
+    [Fact]
+    public async Task AUserChosenCdnSkipsTheProbe()
+    {
+        var (env, cli) = CliWithManifest(GoodHosts);
+        using var _ = env;
+        using var __ = cli;
+        env.Script("install", $$"""
+            writefile {basepath}/Game/marker.txt x
+            download chunks=10 files=1 mib=2 interval=1
+            installed app=Game version=1.0 path={basepath}/Game
+            err [cli] INFO: Finished installation process in 0.20 seconds.
+            """);
+
+        var outcome = await cli.InstallAsync(new InstallArgs("Game", InstallMode.Install, env.Root, 4, 1024, "cloudflare.epicgamescdn.com"), new Progress<LegendaryProgress>(), TestContext.Current.CancellationToken);
+
+        Assert.True(outcome.Success, outcome.Error?.Detail + " | " + string.Join(';', env.Invocations().Select(i => i.Command)));
+        var args = env.Invocations().Single(i => i.Command == "install").Args;
+        Assert.Equal("cloudflare.epicgamescdn.com", args[Array.IndexOf(args, "--preferred-cdn") + 1]);
+        Assert.False(env.Log.Contains("cdn probe:"));
+    }
+
+    [Fact]
+    public void ExtraHostsAndTheForkControlFileReachTheCommandLine()
+    {
+        var args = new InstallArgs("Game", InstallMode.Update, null, 16, 1024, null, BaseUrl: "https://download.epicgames.com/Builds/Fortnite/CloudDir/");
+        var a = LegendaryCli.InstallArguments(args, installed: true, 1024, false, controlFile: @"C:\x\tmp\Game.control").ToList();
+
+        Assert.Equal("https://download.epicgames.com/Builds/Fortnite/CloudDir", a[a.IndexOf("--base-url") + 1]);
+        Assert.Equal(@"C:\x\tmp\Game.control", a[a.IndexOf("--control-file") + 1]);
+        Assert.DoesNotContain("--control-file", LegendaryCli.InstallArguments(args, true, 1024, false));
+        Assert.DoesNotContain("--base-url", LegendaryCli.InstallArguments(args with { BaseUrl = "file:///etc" }, true, 1024, false));
     }
 
     private static Task<CdnPlan?> ProbeAsync(Dictionary<string, Host> hosts) =>
