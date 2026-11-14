@@ -57,6 +57,9 @@ public sealed class Rig : IDisposable
 
     public TimeSpan SizeMinInterval { get; set; } = TimeSpan.Zero;
 
+    /// <summary>Whether EGL's own overlay "is installed" (readiness); false unless a test says so.</summary>
+    public bool EglOverlayInstalled { get; set; }
+
     /// <summary>Library delta coalescing window (zero = rebuild at once; with a value, deltas wait for <see cref="Time"/>).</summary>
     public TimeSpan LibraryCoalesce { get; set; } = TimeSpan.Zero;
 
@@ -78,6 +81,7 @@ public sealed class Rig : IDisposable
                         PublisherCheck = Publisher,
                         OnboardingStore = Onboarding,
                         IdleSignal = Idle,
+                        EglOverlayProbe = () => EglOverlayInstalled,
                         MeasureDirectory = Measure,
                         SizeMeasureMinInterval = SizeMinInterval,
                         LibraryCoalesceInterval = LibraryCoalesce,
