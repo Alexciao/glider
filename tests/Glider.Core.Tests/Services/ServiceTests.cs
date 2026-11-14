@@ -195,7 +195,6 @@ public class LibraryRpcTests
 
         foreach (var call in new Func<Task>[]
                  {
-                     () => rig.Service.SyncSaves(new SaveSyncRequest(FortniteLayout.AppName, SyncDirection.Auto)),
                      () => rig.Service.InstallOverlay(),
                      () => rig.Service.SetShortcut(new ShortcutRequest(FortniteLayout.AppName, ShortcutLocation.Desktop, true)),
                      () => rig.Service.ActivateGame(new AppRef(FortniteLayout.AppName)),

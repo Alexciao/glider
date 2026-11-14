@@ -271,7 +271,7 @@ internal sealed class LaunchService
         try
         {
             SetRun(app, summary.Title, RunState.Preparing, null, offline);
-            if (!request.SkipSaveSync && Saves is { } saves)
+            if (!request.SkipSaveSync && Saves is { } saves && saves.IsEnabled(app))
             {
                 // Download a newer cloud save / upload what changed; a conflict stops here (nothing is launched, nothing is overwritten).
                 SetRun(app, summary.Title, RunState.SyncingSaves, null, offline);
