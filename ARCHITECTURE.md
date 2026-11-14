@@ -80,13 +80,15 @@ and it drives the bundled **Legendary** CLI (v0.21.1) as the Epic protocol engin
 | Launch | `LaunchService` | unlimited; never queued behind the writer; jumps the auth gate |
 | Read | `LegendaryLibraryReader`, `LegendaryFiles` | in-process |
 
-Saves (S lane) arrive with cloud saves in Phase 2.
+Saves (S lane): `Saves/SaveService` — one sync at a time, exclusive per game with writer jobs and with the game running; details in [`docs/cloud-saves.md`](docs/cloud-saves.md).
 
 ## Data locations (all per-user, `%LocalAppData%\Glider\`)
 
 | Path | Content |
 |---|---|
 | `legendary\` | Legendary's isolated config (`LEGENDARY_CONFIG_PATH`): user.json, installed.json, metadata, manifests. Glider only reads it. |
+| `state\saves.json` | cloud-save ledger: per game the last synced file list (hashes, mtimes) and cloud manifests |
+| `backups\saves\<app>\<ts>\` | local save copies taken before every overwrite and after uploads |
 | `state\schema.json` | `{schemaVersion: 2, migratedFrom, migratedAt}` (migration commit marker) |
 | `state\settings.json`, `games.json`, `collections.json`, `jobs.json`, `onboarding.json` | schema 2 stores (`games.json` = per-app install record, favorite, hidden, playtime, settings, shortcuts) |
 | `cache\library.json`, `cache\installed-size.json`, `cache\art\` | caches (safe to delete) |
