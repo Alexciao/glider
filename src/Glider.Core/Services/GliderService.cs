@@ -127,6 +127,8 @@ public sealed class GliderService : IGliderRpc, IDisposable
 
     internal Prewarm PrewarmForTests => _prewarm;
 
+    internal Overlay.OverlayService OverlayForTests => _overlay;
+
     internal UpdateService UpdatesForTests => _updates;
 
     /// <summary>

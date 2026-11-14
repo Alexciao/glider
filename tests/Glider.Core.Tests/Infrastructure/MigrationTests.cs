@@ -283,6 +283,9 @@ public sealed class MigrationTests : IDisposable
                 ProcessStarter = new Services.FakeProcesses(),
                 DiskInfo = new Services.FakeDisk(),
                 Legendary = new Glider.Core.Legendary.LegendaryOptions { PinnedVersion = "0.21.1" },
+                OverlayRegistry = new Services.FakeOverlayRegistry(),
+                OverlayEnvironment = new Glider.Core.Overlay.OverlayEnvironment(null),
+                ThirdPartyLaunchers = new Services.FakeLaunchers(),
             }, ct: TestContext.Current.CancellationToken);
 
         Assert.Equal(MigrationStatus.Migrated, runtime.Migration.Status);
