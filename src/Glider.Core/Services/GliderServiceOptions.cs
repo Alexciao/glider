@@ -108,6 +108,24 @@ public sealed class GliderServiceOptions
 
     /// <summary>Cloud-save commands; null = the bundled Legendary when <c>ILegendary</c> is the real CLI (tests inject a fake).</summary>
     internal Saves.ILegendarySaves? SavesLegendary { get; init; }
+    /// <summary>
+    /// How Glider finds out that Epic is reachable again after it went offline (<see cref="ConnectivityMonitor"/>). Null = no probing
+    /// (unit tests never touch the network; the runtime passes <see cref="HttpConnectivityProbe"/>).
+    /// </summary>
+    public IConnectivityProbe? ConnectivityProbe { get; init; }
+
+    /// <summary>The host's network-change signal: probe at once instead of waiting for the next timed probe. Null = timed probes only.</summary>
+    public INetworkChangeSignal? NetworkChangeSignal { get; init; }
+
+    /// <summary>The first probe of an offline spell comes this long after going offline; later ones wait twice as long each time.</summary>
+    public TimeSpan ConnectivityProbeInitialDelay { get; init; } = TimeSpan.FromSeconds(15);
+
+    /// <summary>The longest wait between probes while offline.</summary>
+    public TimeSpan ConnectivityProbeMaxDelay { get; init; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>One probe gives up after this long.</summary>
+    public TimeSpan ConnectivityProbeTimeout { get; init; } = TimeSpan.FromSeconds(10);
+
     /// <summary>Null = download art over HTTP (tests inject a fake).</summary>
     public Art.IArtFetcher? ArtFetcher { get; init; }
 

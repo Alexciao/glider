@@ -126,6 +126,8 @@ public sealed class GliderRuntime : IAsyncDisposable
                 ArtFetcher = options.ArtFetcher,
                 WarmSerializers = options.WarmSerializers,
                 FreeGamesBackground = options.FreeGamesBackground,
+                ConnectivityProbe = options.ConnectivityBackground ? new HttpConnectivityProbe() : null,
+                NetworkChangeSignal = options.ConnectivityBackground ? new SystemNetworkChangeSignal() : null,
                 FreeGames = options.FreeGames,
             });
             Phase("service");
@@ -187,6 +189,9 @@ public sealed class GliderRuntimeOptions
     public bool FreeGamesBackground { get; init; } = true;
 
     public Store.FreeGamesOptions? FreeGames { get; init; }
+
+    /// <summary>Probe Epic while offline and react to network changes (<see cref="ConnectivityMonitor"/>). Defaults to on; tests that run the real runtime turn it off.</summary>
+    public bool ConnectivityBackground { get; init; } = true;
 }
 
 /// <summary>Bridges construction cycles: the queue needs the policy, the policy comes from GliderService (which needs the queue).</summary>
