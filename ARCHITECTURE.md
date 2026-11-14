@@ -90,7 +90,7 @@ Saves (S lane) arrive with cloud saves in Phase 2.
 | `legendary\` | Legendary's isolated config (`LEGENDARY_CONFIG_PATH`): user.json, installed.json, metadata, manifests. Glider only reads it. |
 | `state\schema.json` | `{schemaVersion: 2, migratedFrom, migratedAt}` (migration commit marker) |
 | `state\settings.json`, `games.json`, `collections.json`, `jobs.json`, `onboarding.json` | schema 2 stores (`games.json` = per-app install record, favorite, hidden, playtime, settings, shortcuts) |
-| `cacheibrary.json`, `cacheinstalled-size.json`, `cachePdate-notices.json`, `cachert<app>`, `cachertplaceholders.json` | caches (safe to delete) |
+| `cache\library.json`, `cache\installed-size.json`, `cache\update-notices.json`, `cache\art\<app>\`, `cache\art\placeholders.json` | caches (safe to delete) |
 | `backups\migration\v0.1-<ts>\` | byte copies of the v0.1 files before migrating |
 | `backups\egl\<ts>\` | copies of every EGL file before Glider writes it |
 | `logs\`, `webview2\` | rolling logs, WebView2 user data |
