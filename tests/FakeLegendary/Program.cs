@@ -19,7 +19,7 @@ namespace FakeLegendary;
 ///   sleep MS | hang | exit CODE | child | readstdin
 ///   download chunks=N files=F mib=M interval=MS [app=A] [stallat=PCT] [spam] [writefail=K [diskfull|locked]]
 ///   verify files=N interval=MS [app=A] [corrupt=K] [missing=K] [locked=K]
-///   installed version=V path=P [app=A] [tags=a,b] [needsverify]   |   uninstalled [app=A]
+///   installed version=V path=P [app=A] [exe=REL] [tags=a,b] [needsverify]   |   uninstalled [app=A]
 ///   refuseifinstalled [app=A]    "Game is already installed!" and exit 0 when installed.json has the app (real `import`)
 ///   writefile RELPATH TEXT | deletefile RELPATH
 /// </summary>
@@ -512,7 +512,7 @@ internal static class Program
             ["base_urls"] = new JsonArray("https://epicgames-download1.akamaized.net/Builds/Fortnite/CloudDir/ChunksV4"),
             ["can_run_offline"] = false,
             ["egl_guid"] = kv.GetValueOrDefault("eglguid", ""),
-            ["executable"] = "FortniteGame/Binaries/Win64/FortniteLauncher.exe",
+            ["executable"] = kv.GetValueOrDefault("exe", app == "Fortnite" ? "FortniteGame/Binaries/Win64/FortniteLauncher.exe" : "Game.exe"),
             ["install_path"] = kv["path"],
             ["install_size"] = long.Parse(kv.GetValueOrDefault("size", "53687091200"), CultureInfo.InvariantCulture),
             ["install_tags"] = tags,
