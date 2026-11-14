@@ -16,7 +16,7 @@ questions against that record, so no clock of one machine is compared with anoth
 | no | no | InSync |
 | yes | no | Upload |
 | no | yes | Download |
-| yes | yes | **Conflict** (unless both newest times are within 60 s: same moment) |
+| yes | yes | **Conflict** (always: the tie window is never used once a ledger exists) |
 | no ledger, one side only | | Upload / Download |
 | no ledger, both sides | | Conflict unless the newest times are within 60 s |
 

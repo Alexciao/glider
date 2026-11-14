@@ -49,7 +49,6 @@ internal static class SaveSyncPlanner
             (false, false) => new(SaveDecisionKind.InSync, "Neither side changed since the last sync."),
             (true, false) => new(SaveDecisionKind.Upload, "Only the local save changed since the last sync."),
             (false, true) => new(SaveDecisionKind.Download, "Only the cloud save changed since the last sync."),
-            _ when WithinTie(local, cloud) => new(SaveDecisionKind.InSync, "Both sides changed, but to the same moment (within a minute): treated as the same save."),
             _ => new(SaveDecisionKind.Conflict, "Both the local and the cloud save changed since the last sync."),
         };
     }

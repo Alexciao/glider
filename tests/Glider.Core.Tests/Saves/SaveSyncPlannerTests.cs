@@ -28,7 +28,7 @@ public class SaveSyncPlannerTests
         { "local changed only", "Upload" },
         { "cloud changed only", "Download" },
         { "both changed", "Conflict" },
-        { "both changed, same moment (within 60 s)", "InSync" },
+        { "both changed, same moment (within 60 s)", "Conflict" },
         { "clock skew: local mtime far in the future, nothing changed", "InSync" },
         { "clock skew: local changed but its mtime is older than the cloud head", "Upload" },
         { "clock skew: cloud changed but its name is older than the local mtime", "Download" },
@@ -109,6 +109,17 @@ public class SaveSyncPlannerTests
         var localNewer = SaveSyncPlanner.Decide(Local(F("x", 1, T0.AddDays(5))), Cloud(T0), null);
         Assert.Equal(SaveDecisionKind.Conflict, cloudNewer.Kind);
         Assert.Equal(SaveDecisionKind.Conflict, localNewer.Kind);
+    }
+
+    [Fact]
+    public void BothSidesChangingMustConflictEvenWhenTheirTimestampsAreWithinLegendarysTieWindow()
+    {
+        var baseline = F("x", 1, T0, "base");
+        var changedLocal = F("x", 2, T0.AddHours(1), "local");
+        var ledger = Ledger([baseline], T0);
+        var decision = SaveSyncPlanner.Decide(Local(changedLocal), Cloud(T0, T0.AddHours(1).AddSeconds(20)), ledger);
+
+        Assert.Equal(SaveDecisionKind.Conflict, decision.Kind);
     }
 
     [Fact]
