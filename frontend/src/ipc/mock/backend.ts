@@ -641,7 +641,13 @@ export class MockBackend {
   private versionsFor(kind: JobKind, appName: string): Pick<JobInfo, "fromVersion" | "toVersion"> {
     const s = this.games.get(appName)?.summary;
     if (!s) return { fromVersion: null, toVersion: null };
-    if (kind === "update") return { fromVersion: s.installedVersion, toVersion: s.latestVersion };
+    if (kind === "update") {
+      // Seeded history may update a game that has nothing pending now: show a plausible step up, not "1.2.3 → 1.2.3".
+      const from = s.installedVersion;
+      const parts = (from ?? "").split(".").map(Number);
+      const stepped = parts.length > 1 && parts.every(Number.isFinite) ? [...parts.slice(0, -1), parts.at(-1)! + 1].join(".") : s.latestVersion;
+      return { fromVersion: from, toVersion: s.latestVersion !== from ? s.latestVersion : stepped };
+    }
     if (kind === "install") return { fromVersion: null, toVersion: s.latestVersion };
     return { fromVersion: null, toVersion: null };
   }

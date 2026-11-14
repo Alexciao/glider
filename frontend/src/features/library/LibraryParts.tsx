@@ -1,7 +1,7 @@
 import { CircleCheck, EyeOff, FolderInput, FolderOpen, MoreHorizontal, RefreshCw, Star, Trash2, TriangleAlert, Wrench } from "lucide-react";
 import type { GameSummary, JobInfo } from "../../ipc/contract.gen";
 import { actions } from "../../state/actions";
-import { JOB_VERB, PHASE_LABEL, isBusy } from "../../state/derive";
+import { PHASE_LABEL, isBusy, jobVerb } from "../../state/derive";
 import { buildOf, formatBytes, formatEta, formatPercent, formatPlaytime, formatRelativeTime, formatSpeed, prettyVersion } from "../../state/format";
 import { useJobProgress } from "../../state/progress";
 import { useSnap } from "../../state/store";
@@ -42,7 +42,7 @@ export function JobLine({ job }: { job: JobInfo }) {
         tone={paused ? "warning" : "accent"}
         paused={paused}
         speed={net ? net.bytesPerSecond : null}
-        label={`${JOB_VERB[job.kind]} ${job.title}`}
+        label={`${jobVerb(job.kind, p?.phase ?? job.phase)} ${job.title}`}
       />
       <div className="mt-2 flex items-center justify-between gap-4 text-xs text-fg-muted tabular-nums">
         <span>{left}</span>

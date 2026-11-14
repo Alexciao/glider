@@ -53,6 +53,13 @@ export const JOB_NOUN: Record<JobKind, string> = {
   overlay: "Overlay install",
 };
 
+/** The verb for what a job is doing right now: a verify that moved on to repairing says so. */
+export function jobVerb(kind: JobKind, phase?: JobPhase | null): string {
+  if ((kind === "verify" || kind === "repair") && phase === "repairing") return "Repairing";
+  if (kind === "repair" && phase === "verifying") return "Verifying";
+  return JOB_VERB[kind];
+}
+
 export const PHASE_LABEL: Record<JobPhase, string> = {
   preparing: "Preparing",
   verifying: "Verifying files",

@@ -21,7 +21,7 @@ const AA_LARGE = 3;
 
 const ARTS = ["default", "none", "busy", "bright", "white"] as const;
 const CASES = [
-  { name: "installed", query: "scenario=installed" },
+  { name: "installed", query: "scenario=returning" },
   { name: "error", query: "scenario=diskFull" },
   { name: "downloading", query: "scenario=downloading&freeze=1&seek=0.42&timescale=1" },
 ] as const;
@@ -152,7 +152,7 @@ for (const theme of THEMES) {
         const id = `${theme} ${w}x${h} art=${art} ${c.name}`;
         test(id, async ({ page }) => {
           await page.setViewportSize({ width: w, height: h });
-          await page.goto(`/?${c.query}&art=${art}&theme=${theme}&backdrop=solid&dev=0`);
+          await page.goto(`/?${c.query}&art=${art}&theme=${theme}&backdrop=solid&dev=0#/game/Fortnite`);
           await page.waitForSelector("html[data-ready='1']");
           // Let the art decode and the entrance settle; measured frames have animations fast-forwarded.
           await page.waitForTimeout(1200);

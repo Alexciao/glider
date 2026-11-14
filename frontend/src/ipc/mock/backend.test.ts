@@ -99,6 +99,10 @@ describe("scenarios", () => {
     expect(by("notOwned")).toHaveLength(1);
     expect(new Set(s.egl.installs.map((i) => i.drive)).size).toBeGreaterThanOrEqual(3);
     expect(s.egl.installs.find((i) => i.source === "gliderV1")?.appName).toBe("Fortnite");
+    // Nothing else is installed in Glider yet: the importable installs are still only in Epic Games Launcher.
+    const lib = await library(h);
+    expect([...lib.values()].filter((g) => g.installStatus === "installed").map((g) => g.appName)).toEqual(["Fortnite"]);
+    expect(lib.get(by("importable")[0]!.appName)!.installStatus).toBe("notInstalled");
     for (const i of by("stale")) expect(i.reason).toBeTruthy();
     for (const i of by("importable")) expect(i.reason).toBeNull();
   });
@@ -1223,16 +1227,22 @@ describe("modify, move and uninstall", () => {
   });
 
   it("'Remove from Glider only' keeps the EGL record; 'delete files' drops it", async () => {
-    const h = setup({ scenario: "firstRunSignedIn", ...fast });
-    const lib = await library(h);
-    const g = find(lib, (x) => x.kind === "game" && x.installStatus === "installed" && x.sharedWithEgl && x.thirdParty === "none" && x.appName !== "Fortnite");
+    // Games Glider shares with EGL are the ones the scan reports as already imported.
+    const pick = async (h: H) => {
+      const lib = await library(h);
+      const rec = (await h.snapshot()).egl.installs.find((i) => i.status === "imported" && i.appName !== "Fortnite" && lib.get(i.appName)?.installStatus === "installed");
+      if (!rec) throw new Error("no imported EGL install in the mock");
+      return lib.get(rec.appName)!;
+    };
+    const h = setup({ scenario: "returning", ...fast });
+    const g = await pick(h);
     const a = await h.call("game.uninstall", { appName: g.appName, mode: "gliderOnly" });
     await until(h, async () => (await h.job(a.id))?.status === "completed");
     expect((await library(h)).get(g.appName)).toMatchObject({ installStatus: "notInstalled", installPath: null, installedVersion: null, sharedWithEgl: false });
     expect((await h.snapshot()).egl.installs.find((i) => i.appName === g.appName)?.status).toBe("importable");
 
-    const del = setup({ scenario: "firstRunSignedIn", ...fast });
-    const g2 = find(await library(del), (x) => x.kind === "game" && x.installStatus === "installed" && x.sharedWithEgl && x.thirdParty === "none" && x.appName !== "Fortnite");
+    const del = setup({ scenario: "returning", ...fast });
+    const g2 = await pick(del);
     const b = await del.call("game.uninstall", { appName: g2.appName, mode: "deleteFiles" });
     expect(b.phases).toEqual(["removing"]);
     await until(del, async () => (await del.job(b.id))?.status === "completed");

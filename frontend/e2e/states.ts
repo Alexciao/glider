@@ -6,7 +6,7 @@ import type { Page } from "@playwright/test";
  */
 export interface ShotState {
   name: string;
-  /** Extra mock query params, e.g. "scenario=installed&freeze=1". */
+  /** Extra mock query params, e.g. "scenario=returning&freeze=1". */
   query: string;
   setup?: (page: Page) => Promise<void>;
   /** Extra settle time after setup, ms (default 350). */
@@ -17,8 +17,9 @@ export interface ShotState {
 
 /** Structural subset of window.__glider (src/app/testHooks.ts); kept local so e2e needn't compile the app. */
 interface G {
-  ui: { getState(): { go(page: string, section?: string): void; openDialog(d: object): void; markReady(): void } };
+  ui: { getState(): { go(page: string, section?: string): void; openDialog(d: object): void; markReady(appName: string): void } };
   app: { getState(): { snapshot: { settings: Record<string, unknown> } | null } };
+  router: { getState(): { go(route: string): void } };
   rpc(method: string, params?: unknown): Promise<unknown>;
   mock: { failNext(code: string): void; failActiveJob(code: string): void; emitNotice(n: object): void };
 }
@@ -28,18 +29,21 @@ const g = <T>(page: Page, fn: (g: G) => T | Promise<T>): Promise<T> =>
 const btn = (page: Page, name: string | RegExp) => page.getByRole("button", { name });
 const go = (page: Page, p: string, section?: string) =>
   page.evaluate(([pg, sec]) => (window as unknown as { __glider: G }).__glider.ui.getState().go(pg!, sec), [p, section] as const);
+/** v2 has one page per game: the v0.1 "library" screens are Fortnite's game page. */
+const goGame = (page: Page, appName = "Fortnite") =>
+  page.evaluate((a) => (window as unknown as { __glider: G }).__glider.router.getState().go(`game/${a}`), appName);
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const finishOnboarding = async (page: Page) => {
-  await g(page, (h) => h.rpc("app.completeOnboarding"));
+  await g(page, (h) => h.rpc("onboarding.complete"));
   await wait(400);
 };
 
-export const STATES: ShotState[] = [
+const RAW_STATES: ShotState[] = [
   // ------------------------------------------------------------ onboarding
-  { name: "onboarding-1-welcome", query: "scenario=fresh" },
+  { name: "onboarding-1-welcome", query: "scenario=firstRun" },
   {
     name: "onboarding-2-signin",
-    query: "scenario=fresh",
+    query: "scenario=firstRun",
     setup: async (p) => {
       await btn(p, "Get started").click();
       await wait(700);
@@ -47,7 +51,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "onboarding-2-signin-waiting",
-    query: "scenario=fresh&latency=1",
+    query: "scenario=firstRun&latency=1",
     setup: async (p) => {
       await btn(p, "Get started").click();
       await wait(700);
@@ -57,7 +61,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "onboarding-2-signin-error",
-    query: "scenario=fresh",
+    query: "scenario=firstRun",
     setup: async (p) => {
       await g(p, (h) => h.mock.failNext("authFailed"));
       await btn(p, "Get started").click();
@@ -66,10 +70,10 @@ export const STATES: ShotState[] = [
       await wait(1900);
     },
   },
-  { name: "onboarding-3-fresh-install", query: "scenario=signedIn", settle: 900 },
+  { name: "onboarding-3-fresh-install", query: "scenario=firstRunSignedIn", settle: 900 },
   {
     name: "onboarding-3-fresh-insufficient",
-    query: "scenario=signedIn",
+    query: "scenario=firstRunSignedIn",
     setup: async (p) => {
       await wait(800);
       await btn(p, "Change…").click();
@@ -78,11 +82,11 @@ export const STATES: ShotState[] = [
       await wait(1600);
     },
   },
-  { name: "onboarding-4-found-one", query: "scenario=eglDetected", settle: 700 },
-  { name: "onboarding-4-found-multiple", query: "scenario=eglMultiple", settle: 700 },
+  { name: "onboarding-4-found-one", query: "scenario=firstRunSignedIn", settle: 700 },
+  { name: "onboarding-4-found-multiple", query: "scenario=firstRunSignedIn", settle: 700 },
   {
     name: "onboarding-4-found-located",
-    query: "scenario=eglDetected",
+    query: "scenario=firstRunSignedIn",
     setup: async (p) => {
       await wait(600);
       await btn(p, /Locate another folder/).click();
@@ -91,7 +95,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "onboarding-4-locate-invalid",
-    query: "scenario=eglDetected",
+    query: "scenario=firstRunSignedIn",
     setup: async (p) => {
       await wait(600);
       await btn(p, /Locate another folder/).click();
@@ -102,7 +106,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "onboarding-4-linking",
-    query: "scenario=eglDetected",
+    query: "scenario=firstRunSignedIn",
     setup: async (p) => {
       await wait(600);
       await btn(p, "Use this install").click();
@@ -111,7 +115,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "onboarding-5-done",
-    query: "scenario=eglDetected",
+    query: "scenario=firstRunSignedIn",
     setup: async (p) => {
       await wait(600);
       await btn(p, "Use this install").click();
@@ -120,25 +124,25 @@ export const STATES: ShotState[] = [
   },
   {
     name: "onboarding-5-done-installing",
-    query: "scenario=signedIn&freeze=1",
+    query: "scenario=firstRunSignedIn&freeze=1",
     setup: async (p) => {
       await wait(900);
       await btn(p, "Install Fortnite").click();
       await wait(2200);
     },
   },
-  { name: "onboarding-eglsignedout-welcome", query: "scenario=eglSignedOut" },
+  { name: "onboarding-eglsignedout-welcome", query: "scenario=firstRun" },
 
   // --------------------------------------------------------------- library
-  { name: "library-installed", query: "scenario=installed" },
-  { name: "library-installed-no-art", query: "scenario=installed&art=none" },
+  { name: "library-installed", query: "scenario=returning" },
+  { name: "library-installed-no-art", query: "scenario=returning&art=none" },
   // Worst-case key art: the hero must stay AA on anything Epic's catalog can serve.
-  { name: "library-art-busy", query: "scenario=installed&art=busy" },
-  { name: "library-art-bright", query: "scenario=installed&art=bright" },
-  { name: "library-art-white", query: "scenario=installed&art=white" },
+  { name: "library-art-busy", query: "scenario=returning&art=busy" },
+  { name: "library-art-bright", query: "scenario=returning&art=bright" },
+  { name: "library-art-white", query: "scenario=returning&art=white" },
   { name: "library-art-busy-downloading", query: "scenario=downloading&freeze=1&seek=0.42&timescale=1&art=busy", settle: 900 },
   { name: "library-art-bright-error", query: "scenario=diskFull&art=bright", settle: 700 },
-  { name: "library-update-available", query: "scenario=updateAvailable" },
+  { name: "library-update-available", query: "scenario=updates" },
   { name: "library-downloading", query: "scenario=downloading&freeze=1&seek=0.42&timescale=1", settle: 900 },
   {
     name: "library-downloading-paused",
@@ -149,7 +153,7 @@ export const STATES: ShotState[] = [
       await wait(400);
       await btn(p, "Pause").click();
       await wait(500);
-      await go(p, "library");
+      await goGame(p);
     },
   },
   { name: "library-waiting-for-egl", query: "scenario=eglBusy&freeze=1", settle: 700 },
@@ -158,7 +162,7 @@ export const STATES: ShotState[] = [
   { name: "library-playing", query: "scenario=playing" },
   {
     name: "library-launching",
-    query: "scenario=installed&freeze=1",
+    query: "scenario=returning&freeze=1",
     setup: async (p) => {
       await wait(500);
       await btn(p, "Play").click();
@@ -167,7 +171,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "library-error-launch-failed",
-    query: "scenario=installed",
+    query: "scenario=returning",
     setup: async (p) => {
       await wait(500);
       await g(p, (h) => h.mock.failNext("launchFailed"));
@@ -186,7 +190,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "library-signed-out",
-    query: "scenario=installed",
+    query: "scenario=returning",
     setup: async (p) => {
       await wait(500);
       await btn(p, /^Account:/).click();
@@ -197,7 +201,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "library-existing-install-hint",
-    query: "scenario=eglDetected",
+    query: "scenario=firstRunSignedIn",
     setup: async (p) => {
       await finishOnboarding(p);
     },
@@ -205,7 +209,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "library-not-installed",
-    query: "scenario=signedIn",
+    query: "scenario=firstRunSignedIn",
     setup: async (p) => {
       await finishOnboarding(p);
     },
@@ -213,18 +217,18 @@ export const STATES: ShotState[] = [
   },
   {
     name: "library-ready-moment",
-    query: "scenario=installed",
+    query: "scenario=returning",
     live: true,
     setup: async (p) => {
       await wait(900);
-      await g(p, (h) => h.ui.getState().markReady());
+      await g(p, (h) => h.ui.getState().markReady("Fortnite"));
       await wait(650);
     },
     settle: 0,
   },
   {
     name: "library-menu-more",
-    query: "scenario=installed",
+    query: "scenario=returning",
     setup: async (p) => {
       await wait(600);
       await btn(p, "More actions").click();
@@ -233,7 +237,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "library-menu-account",
-    query: "scenario=installed",
+    query: "scenario=returning",
     setup: async (p) => {
       await wait(600);
       await btn(p, /^Account:/).click();
@@ -242,7 +246,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "library-command-palette",
-    query: "scenario=installed",
+    query: "scenario=returning",
     setup: async (p) => {
       await wait(600);
       await p.keyboard.press("Control+k");
@@ -251,7 +255,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "library-command-palette-query",
-    query: "scenario=installed",
+    query: "scenario=returning",
     setup: async (p) => {
       await wait(600);
       await p.keyboard.press("Control+k");
@@ -261,7 +265,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "toasts",
-    query: "scenario=installed",
+    query: "scenario=returning",
     live: true,
     setup: async (p) => {
       await wait(700);
@@ -276,7 +280,7 @@ export const STATES: ShotState[] = [
 
   {
     name: "focus-library-play",
-    query: "scenario=installed",
+    query: "scenario=returning",
     setup: async (p) => {
       await wait(600);
       await p.keyboard.press("Tab");
@@ -286,7 +290,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "focus-rail",
-    query: "scenario=installed",
+    query: "scenario=returning",
     setup: async (p) => {
       await wait(600);
       await p.keyboard.press("Tab");
@@ -296,7 +300,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "focus-settings-switch",
-    query: "scenario=installed",
+    query: "scenario=returning",
     setup: async (p) => {
       await go(p, "settings", "general");
       await wait(500);
@@ -319,11 +323,11 @@ export const STATES: ShotState[] = [
     settle: 700,
   },
   { name: "downloads-waiting-for-egl", query: "scenario=eglBusy&freeze=1", setup: async (p) => go(p, "downloads"), settle: 700 },
-  { name: "downloads-history", query: "scenario=installed", setup: async (p) => go(p, "downloads") },
+  { name: "downloads-history", query: "scenario=returning", setup: async (p) => go(p, "downloads") },
   { name: "downloads-failed-disk-full", query: "scenario=diskFull", setup: async (p) => go(p, "downloads") },
   {
     name: "downloads-empty",
-    query: "scenario=signedIn",
+    query: "scenario=firstRunSignedIn",
     setup: async (p) => {
       await finishOnboarding(p);
       await go(p, "downloads");
@@ -331,21 +335,21 @@ export const STATES: ShotState[] = [
   },
   {
     name: "downloads-queued",
-    query: "scenario=updateAvailable&freeze=1",
+    query: "scenario=updates&freeze=1",
     setup: async (p) => {
       await go(p, "downloads");
-      await g(p, (h) => h.rpc("game.update"));
+      await g(p, (h) => h.rpc("game.update", { appName: "Fortnite" }));
       await wait(500);
-      await g(p, (h) => h.rpc("game.verify"));
+      await g(p, (h) => h.rpc("game.verify", { appName: "Fortnite" }));
       await wait(700);
     },
   },
   {
     name: "downloads-verifying",
-    query: "scenario=installed&freeze=1",
+    query: "scenario=returning&freeze=1",
     setup: async (p) => {
       await go(p, "downloads");
-      await g(p, (h) => h.rpc("game.verify"));
+      await g(p, (h) => h.rpc("game.verify", { appName: "Fortnite" }));
       await wait(1800);
     },
   },
@@ -353,7 +357,7 @@ export const STATES: ShotState[] = [
   // -------------------------------------------------------------- settings
   ...(["general", "downloads", "game", "egl", "advanced", "about"] as const).map<ShotState>((s) => ({
     name: `settings-${s}`,
-    query: "scenario=installed",
+    query: "scenario=returning",
     setup: async (p) => {
       await go(p, "settings", s);
     },
@@ -361,7 +365,7 @@ export const STATES: ShotState[] = [
   })),
   {
     name: "settings-downloads-custom",
-    query: "scenario=installed",
+    query: "scenario=returning",
     setup: async (p) => {
       await go(p, "settings", "downloads");
       await wait(300);
@@ -371,7 +375,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "settings-select-open",
-    query: "scenario=installed",
+    query: "scenario=returning",
     setup: async (p) => {
       await go(p, "settings", "downloads");
       await wait(300);
@@ -381,7 +385,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "settings-egl-sync-off-missing",
-    query: "scenario=installed",
+    query: "scenario=returning",
     setup: async (p) => {
       await g(p, async (h) => {
         const s = h.app.getState().snapshot!.settings;
@@ -395,7 +399,7 @@ export const STATES: ShotState[] = [
   // --------------------------------------------------------------- dialogs
   {
     name: "dialog-uninstall",
-    query: "scenario=installed",
+    query: "scenario=returning",
     setup: async (p) => {
       await wait(500);
       await g(p, (h) => h.ui.getState().openDialog({ kind: "uninstall" }));
@@ -404,7 +408,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "dialog-uninstall-delete",
-    query: "scenario=installed",
+    query: "scenario=returning",
     setup: async (p) => {
       await wait(500);
       await g(p, (h) => h.ui.getState().openDialog({ kind: "uninstall" }));
@@ -415,7 +419,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "dialog-move",
-    query: "scenario=installed",
+    query: "scenario=returning",
     setup: async (p) => {
       await wait(500);
       await g(p, (h) => h.ui.getState().openDialog({ kind: "move" }));
@@ -426,7 +430,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "dialog-move-egl-warning",
-    query: "scenario=installed",
+    query: "scenario=returning",
     setup: async (p) => {
       await g(p, async (h) => {
         const s = h.app.getState().snapshot!.settings;
@@ -451,7 +455,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "dialog-install",
-    query: "scenario=signedIn",
+    query: "scenario=firstRunSignedIn",
     setup: async (p) => {
       await finishOnboarding(p);
       await wait(500);
@@ -461,7 +465,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "dialog-install-insufficient",
-    query: "scenario=signedIn",
+    query: "scenario=firstRunSignedIn",
     setup: async (p) => {
       await finishOnboarding(p);
       await wait(500);
@@ -475,7 +479,7 @@ export const STATES: ShotState[] = [
   },
   {
     name: "dialog-error",
-    query: "scenario=installed",
+    query: "scenario=returning",
     setup: async (p) => {
       await wait(500);
       await g(p, (h) =>
@@ -487,6 +491,7 @@ export const STATES: ShotState[] = [
             message: "A required component is missing. Reinstall Glider to fix it.",
             fix: "openLogs",
             detail: "legendary.exe not found at C:\\Users\\alex\\AppData\\Local\\Programs\\Glider\\bin",
+            appName: null,
           },
         }),
       );
@@ -494,3 +499,25 @@ export const STATES: ShotState[] = [
     },
   },
 ];
+
+const NEEDS_GAME_PAGE = /^(library-|focus-library|focus-rail|toasts|dialog-(uninstall|move|error))/;
+
+/**
+ * Screenshot states. NOTE (Phase 1): the setups below were written for the v0.1 single-game screens. Scenario names and
+ * RPC shapes are updated and game-page states open Fortnite's page, but states that click v0.1 onboarding/install
+ * widgets (onboarding-*, dialog-install*, library-existing-install-hint, library-not-installed) and the art-variant
+ * options are stale until the UI phases rebuild those screens and re-shoot them.
+ */
+export const STATES: ShotState[] = RAW_STATES.map((st) => {
+  if (!NEEDS_GAME_PAGE.test(st.name)) return st;
+  const setup = st.setup;
+  return {
+    ...st,
+    setup: async (p) => {
+      await wait(500);
+      await goGame(p);
+      await wait(350);
+      await setup?.(p);
+    },
+  };
+});

@@ -275,12 +275,41 @@ function history(games: MockGame[], seed: number): SeedJob[] {
   return out;
 }
 
+/** The game as Glider sees it before anything was imported: not installed (Epic's install, if any, is still in EGL). */
+function notInstalledYet(g: MockGame): MockGame {
+  const s = g.summary;
+  if (s.installStatus !== "installed" && s.installStatus !== "broken") return g;
+  return {
+    ...g,
+    badFiles: 0,
+    badBytes: 0,
+    installedAt: null,
+    executable: null,
+    eglManifestPath: null,
+    summary: {
+      ...s,
+      installStatus: "notInstalled",
+      installedVersion: null,
+      installPath: null,
+      installedSizeBytes: null,
+      downloadSizeBytes: g.fullDownloadBytes,
+      updateAvailable: false,
+      needsVerification: false,
+      sharedWithEgl: false,
+      saveStatus: g.saves ? "unknown" : s.saveStatus,
+    },
+    saves: g.saves && { ...g.saves, status: "unknown", savePath: null },
+    conflict: null,
+  };
+}
+
 export function buildWorld(name: ScenarioName, cfg: WorldConfig): World {
   const { now } = cfg;
   const count = cfg.games ?? (name === "perf600" ? 600 : name === "emptyLibrary" ? 0 : 300);
   const all = count === 0 ? [] : generateCatalog({ seed: cfg.seed, count, now, art: cfg.art });
-  const games = [...all];
   const firstRun = name === "firstRun";
+  const freshStart = firstRun || name === "firstRunSignedIn";
+  const games = freshStart ? all.map((g) => (g.summary.appName === FORTNITE ? g : notInstalledYet(g))) : [...all];
 
   const libraryFolders = ["D:\\Games", "E:\\Epic Games", "F:\\Library", "C:\\Program Files\\Epic Games"];
   const settings: Settings = { ...DEFAULT_SETTINGS, libraryFolders, defaultInstallBase: "D:\\Games" };

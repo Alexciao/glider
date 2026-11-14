@@ -2,7 +2,7 @@ import { useCallback, useEffect } from "react";
 import { Activity, ArrowDownToLine, Download, FolderInput, HardDrive, Layers, Pause, Play, ShieldCheck, Trash2, Wrench, X } from "lucide-react";
 import type { JobInfo, JobKind, JobPhase } from "../../ipc/contract.gen";
 import { actions } from "../../state/actions";
-import { JOB_VERB, PHASE_LABEL } from "../../state/derive";
+import { PHASE_LABEL, jobVerb } from "../../state/derive";
 import { formatBytes, formatClock, formatEta, formatSpeed, prettyVersion } from "../../state/format";
 import { HISTORY_CAPACITY, loadHistory, readHistory, subscribeHistory, useJobProgress, useProgress } from "../../state/progress";
 import { usePending, useUi } from "../../state/ui";
@@ -54,7 +54,7 @@ function ProgressAnnouncer({ job }: { job: JobInfo }) {
   const phase = useProgress((s) => s.latest[job.id]?.phase ?? job.progress?.phase);
   return (
     <span className="sr-only" role="status" aria-live="polite">
-      {job.status === "running" ? `${JOB_VERB[job.kind]} ${job.title}. ${phase ? PHASE_LABEL[phase] + ", " : ""}${bucket} percent.` : ""}
+      {job.status === "running" ? `${jobVerb(job.kind, phase)} ${job.title}. ${phase ? PHASE_LABEL[phase] + ", " : ""}${bucket} percent.` : ""}
     </span>
   );
 }
@@ -74,6 +74,7 @@ export function ActiveJobCard({ job }: { job: JobInfo }) {
   const verify = p?.verify ?? null;
   const channel = net ? "network" : "disk";
   const hasChart = (net ?? disk ?? verify) !== null && job.kind !== "uninstall";
+  const verb = jobVerb(job.kind, p?.phase ?? job.phase);
 
   // The graph survives a UI reload: fetch the backend's history once, then the live events extend it.
   useEffect(() => {
@@ -97,7 +98,7 @@ export function ActiveJobCard({ job }: { job: JobInfo }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <h2 className="text-md font-semibold tracking-tight text-fg">
-              {JOB_VERB[job.kind]} {job.title}
+              {verb} {job.title}
             </h2>
             {paused && <Badge tone="warning" dot>Paused</Badge>}
             {waiting && <Badge tone="warning" dot>Waiting</Badge>}
@@ -164,7 +165,7 @@ export function ActiveJobCard({ job }: { job: JobInfo }) {
           tone={paused || waiting ? "warning" : "accent"}
           paused={paused}
           speed={net && running ? net.bytesPerSecond : null}
-          label={`${JOB_VERB[job.kind]} ${job.title}`}
+          label={`${verb} ${job.title}`}
         />
       </div>
 
