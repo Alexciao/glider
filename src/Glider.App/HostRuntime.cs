@@ -8,7 +8,8 @@ namespace Glider.App;
 /// <summary>Process-wide wiring: paths, UI dispatcher, WebView2 environment, bridge, event sink, platform and the RPC service.</summary>
 internal sealed class HostRuntime
 {
-    public HostRuntime(AppPaths paths, Dispatcher ui)
+    /// <param name="shellIntegration">Shortcuts and URL protocols touch the user's Desktop, Start menu and registry; test runs pass false.</param>
+    public HostRuntime(AppPaths paths, Dispatcher ui, bool shellIntegration = true)
     {
         Paths = paths;
         Ui = ui;
@@ -20,7 +21,7 @@ internal sealed class HostRuntime
         EnvTask = StartEnvironment(paths);
 
         // 2) Core's service layer is built on the thread pool, in parallel with window construction.
-        RpcTask = Task.Run(() => Composition.BuildAsync(paths, Platform, Sink));
+        RpcTask = Task.Run(() => Composition.BuildAsync(paths, Platform, Sink, shellIntegration ? new WindowsShellIntegration() : null));
         Bridge.Dispatcher = RpcTask.ContinueWith(
             t =>
             {

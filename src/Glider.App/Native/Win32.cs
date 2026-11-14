@@ -316,6 +316,8 @@ internal static unsafe partial class Win32
     public const uint MF_STRING = 0x0;
     public const uint MF_SEPARATOR = 0x800;
     public const uint MF_GRAYED = 0x1;
+    public const uint MF_CHECKED = 0x8;
+    public const uint MF_POPUP = 0x10;
     public const uint TPM_RIGHTBUTTON = 0x2;
     public const uint TPM_BOTTOMALIGN = 0x20;
     public const uint TPM_RETURNCMD = 0x100;
@@ -467,6 +469,10 @@ internal static unsafe partial class Win32
     [LibraryImport("user32.dll", EntryPoint = "AppendMenuW", StringMarshalling = StringMarshalling.Utf16)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool AppendMenu(nint menu, uint flags, nuint id, string? text);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool SetMenuDefaultItem(nint menu, uint item, uint byPosition);
 
     [LibraryImport("user32.dll")]
     public static partial int TrackPopupMenuEx(nint menu, uint flags, int x, int y, nint hwnd, nint tpm);

@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Glider.App.Native;
+using Glider.Core.Tray;
 
 namespace Glider.App;
 
@@ -11,25 +12,25 @@ namespace Glider.App;
 internal sealed class TrayIcon : NativeWindow
 {
     private const uint CallbackMessage = Win32.WM_USER + 1;
-    private const uint IdOpen = 1, IdCheckUpdates = 3, IdQuit = 4, IdDynamic = 100;
+    private const uint IdFirst = 100;
 
     private readonly string _iconPath;
     private readonly Action _open;
-    private readonly Func<IReadOnlyList<(string Label, Action Run)>> _gameItems;
-    private readonly Action _checkUpdates;
-    private readonly Action _quit;
+    private readonly Func<TrayMenu> _buildMenu;
+    private readonly Action<TrayItem> _run;
     private readonly uint _taskbarCreated;
     private nint _icon;
     private bool _added;
+    private string _tooltip = "Glider";
 
-    /// <param name="gameItems">Built when the menu opens: "Close X" per running game, else "Play &lt;last played&gt;".</param>
-    public TrayIcon(string iconPath, Action open, Func<IReadOnlyList<(string Label, Action Run)>> gameItems, Action checkUpdates, Action quit)
+    /// <param name="buildMenu">Called when the menu opens: the pure <see cref="TrayMenuModel"/> over the latest snapshot and library.</param>
+    /// <param name="run">Runs the chosen item (never called for separators and info lines).</param>
+    public TrayIcon(string iconPath, Action open, Func<TrayMenu> buildMenu, Action<TrayItem> run)
     {
         _iconPath = iconPath;
         _open = open;
-        _gameItems = gameItems;
-        _checkUpdates = checkUpdates;
-        _quit = quit;
+        _buildMenu = buildMenu;
+        _run = run;
         _taskbarCreated = Win32.RegisterWindowMessage("TaskbarCreated");
         CreateWindow("Glider.Tray", 0, 0, Win32.HWND_MESSAGE, 0, 0, 0, 0, "Glider tray");
         TryEnableDarkMenus();
@@ -87,7 +88,7 @@ internal sealed class TrayIcon : NativeWindow
         }
 
         var d = NewData(Win32.NIF_MESSAGE | Win32.NIF_ICON | Win32.NIF_TIP | Win32.NIF_SHOWTIP);
-        CopyTo(d.Tip, 128, "Glider");
+        CopyTo(d.Tip, 128, _tooltip);
         _added = Win32.Shell_NotifyIcon(Win32.NIM_ADD, ref d);
         HostLog.Info($"tray icon added: {_added}");
         if (_added)
@@ -99,6 +100,25 @@ internal sealed class TrayIcon : NativeWindow
         {
             HostLog.Warn("Shell_NotifyIcon(NIM_ADD) failed (explorer not ready?); will retry on TaskbarCreated");
         }
+    }
+
+    /// <summary>Updates the hover tooltip (UI thread). The caller throttles; unchanged text is skipped here.</summary>
+    public unsafe void SetTooltip(string text)
+    {
+        if (text == _tooltip)
+        {
+            return;
+        }
+
+        _tooltip = text;
+        if (!_added)
+        {
+            return;
+        }
+
+        var d = NewData(Win32.NIF_TIP | Win32.NIF_SHOWTIP);
+        CopyTo(d.Tip, 128, text);
+        Win32.Shell_NotifyIcon(Win32.NIM_MODIFY, ref d);
     }
 
     public unsafe void ShowBalloon(string title, string message)
@@ -118,45 +138,74 @@ internal sealed class TrayIcon : NativeWindow
 
     private void ShowMenu(int x, int y)
     {
+        TrayMenu model;
+        try
+        {
+            model = _buildMenu();
+        }
+        catch (Exception ex)
+        {
+            HostLog.Warn("Tray menu model failed", ex);
+            model = new TrayMenu([TrayItem.Cmd("Open Glider", TrayCommand.Open, isDefault: true), TrayItem.Separator, TrayItem.Cmd("Quit Glider", TrayCommand.Quit)], "Glider");
+        }
+
         var menu = Win32.CreatePopupMenu();
         try
         {
-            Win32.AppendMenu(menu, Win32.MF_STRING, IdOpen, "Open Glider");
-            IReadOnlyList<(string Label, Action Run)> games;
-            try
-            {
-                games = _gameItems();
-            }
-            catch (Exception ex)
-            {
-                HostLog.Warn("Tray game items failed", ex);
-                games = [];
-            }
-
-            for (var i = 0; i < games.Count; i++)
-            {
-                Win32.AppendMenu(menu, Win32.MF_STRING, IdDynamic + (uint)i, games[i].Label.Replace("&", "&&", StringComparison.Ordinal));
-            }
-
-            Win32.AppendMenu(menu, Win32.MF_STRING, IdCheckUpdates, "Check for updates");
-            Win32.AppendMenu(menu, Win32.MF_SEPARATOR, 0, null);
-            Win32.AppendMenu(menu, Win32.MF_STRING, IdQuit, "Quit");
+            var commands = new List<TrayItem>();
+            Append(menu, model.Items, commands);
 
             // Required dance so the menu dismisses when the user clicks elsewhere.
             Win32.SetForegroundWindow(Handle);
             var cmd = Win32.TrackPopupMenuEx(menu, Win32.TPM_RETURNCMD | Win32.TPM_RIGHTBUTTON | Win32.TPM_BOTTOMALIGN, x, y, Handle, 0);
             Win32.PostMessage(Handle, 0, 0, 0);
-            switch ((uint)cmd)
+            var index = (long)(uint)cmd - IdFirst;
+            if (cmd != 0 && index >= 0 && index < commands.Count)
             {
-                case IdOpen: _open(); break;
-                case >= IdDynamic when (uint)cmd - IdDynamic < (uint)games.Count: games[(int)((uint)cmd - IdDynamic)].Run(); break;
-                case IdCheckUpdates: _checkUpdates(); break;
-                case IdQuit: _quit(); break;
+                _run(commands[(int)index]);
             }
         }
         finally
         {
-            Win32.DestroyMenu(menu);
+            Win32.DestroyMenu(menu); // also destroys the submenus
+        }
+    }
+
+    /// <summary>Adds the model's items; each command gets the next id so the chosen id maps back to its <see cref="TrayItem"/>.</summary>
+    private static void Append(nint menu, IReadOnlyList<TrayItem> items, List<TrayItem> commands)
+    {
+        foreach (var item in items)
+        {
+            var label = item.Label.Replace("&", "&&", StringComparison.Ordinal);
+            switch (item.Kind)
+            {
+                case TrayItemKind.Separator:
+                    Win32.AppendMenu(menu, Win32.MF_SEPARATOR, 0, null);
+                    break;
+                case TrayItemKind.Info:
+                    Win32.AppendMenu(menu, Win32.MF_STRING | Win32.MF_GRAYED, 0, label);
+                    break;
+                case TrayItemKind.Submenu:
+                {
+                    var sub = Win32.CreatePopupMenu();
+                    Append(sub, item.Children ?? [], commands);
+                    Win32.AppendMenu(menu, Win32.MF_POPUP | Win32.MF_STRING, (nuint)sub, label);
+                    break;
+                }
+
+                default:
+                {
+                    var id = IdFirst + (uint)commands.Count;
+                    commands.Add(item);
+                    Win32.AppendMenu(menu, Win32.MF_STRING | (item.Checked ? Win32.MF_CHECKED : 0), id, label);
+                    if (item.Default)
+                    {
+                        Win32.SetMenuDefaultItem(menu, id, 0);
+                    }
+
+                    break;
+                }
+            }
         }
     }
 
