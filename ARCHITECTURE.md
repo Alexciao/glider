@@ -57,7 +57,8 @@ and it drives the bundled **Legendary** CLI (v0.21.1) as the Epic protocol engin
 | `Game/InstallService.cs` | Plan (catalog FolderName, DLC options), install (+ one writer job per DLC, base with `--skip-dlcs`), update, verify→repair→verify, move, uninstall, import of EGL installs / located folders, folder validation (app from `.egstore`). |
 | `Services/JobHooks.cs` | Per-game gating (waits while that game runs, auth, EGL busy) and bookkeeping (install records, EGL write-back keyed by app, import outcomes and follow-up verify, notices with AppName/JobId). |
 | `Services/EglCoordinator.cs` | Contract `EglState` from the scan + library (status, drift, title, art) and startup drift reconciliation per EGL-shared game; `egl.checkReadiness`. |
-| `Services/UpdateService.cs` | Per-game auto-update policy (Default → Settings), notices once per version, `library.updateAll`, periodic checks; `QueuePolicy` (WhilePlaying, idle full speed, effective mode + reason). |
+| `Services/UpdateService.cs` | Per-game auto-update policy (Default → Settings): Always queues (game closed, idle when asked, retried by a timer that only exists while something waits), Ask = one notice per version with `FixAction.Update` + toast (ledger in `cache/update-notices.json`), Never = badge only; `library.updateAll`; periodic checks on the configured interval; `QueuePolicy` (WhilePlaying, idle full speed, effective mode + reason). |
+| `Art/` | `ArtCache` behind `https://art.glider/{app}/{tall|tall-thumb|wide|logo}?v={hash}`: lazy download of Epic's picture resized by the CDN, `cache/art/<app>/<variant>-<hash>.jpg`, de-duplicated, 6 parallel, LRU cap, offline = 404, v0.1 files adopted, cover colour via the host's `IImageProcessor` (WPF). The host side is `Glider.App/ArtHandler.cs` (`WebResourceRequested`). |
 | `Infrastructure/Migrations` | Versioned migrations (v0.1 → 2), run by `GliderRuntime` before any store loads; `state/schema.json` written last. |
 
 ## IPC

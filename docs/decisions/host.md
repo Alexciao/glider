@@ -43,3 +43,7 @@ Host → web (same envelope as other events):
 - `window` (`WindowInfo`) is pushed on maximize/restore and focus changes, coalesced.
 
 Startup contract: the frontend calls `app.ready` once it has painted. The host also reads `theme` from `state\settings.json` (`"theme"`, `"startMinimized"`) before Core is up.
+
+## Art (v0.2)
+- **`https://art.glider/…` is intercepted with `WebResourceRequested` (filter `https://art.glider/*`, all contexts), deliberately not mapped as a virtual host** (mapped hosts never raise the event). The handler (`ArtHandler`) answers from Core's `ArtCache`; responses carry `Cache-Control: public, max-age=31536000, immutable` (the URL holds the source hash), `X-Content-Type-Options: nosniff` and `Access-Control-Allow-Origin: https://app.glider`. Verified by `--selftest` (`GLIDER_SELFTEST_ONLY=art`): `<img>` loads, `fetch` 200 with the immutable header, unknown game/variant 404, malformed or foreign URLs 400.
+- `GLIDER_SELFTEST_ONLY=cache,art` limits `--selftest` to those steps (no Epic login smoke test).

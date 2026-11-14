@@ -46,8 +46,8 @@ here. What is robust under load is the time spent inside Core on the UI's critic
 |---|---|---|
 | `app.getSnapshot` inside Core (first call) | 145 ms | **2–4 ms** |
 | `library.get` inside Core, 500 games, 561 KiB (first call) | 179 ms | **21–25 ms** |
-| `rpc-ready` (Core composed + dispatcher built, ms since process start) | 1.5–2.3 s (load) | 1.0–1.5 s (load) |
-| Core composition alone (migrate / stores / legendary+queue / egl / service / started), one loaded run | 57 / 189 / 467 / 468 / 545 / 706 ms | 40 / 160 / 211 / 229 / 255 / 363 ms |
+| `rpc-ready` (Core composed + dispatcher built, ms since process start) | 0.69-1.5 s (6 runs, load 76-100 %) | 1.0-1.5 s (5 runs) + one 3.5 s outlier: **not improved**, load noise dominates |
+| Core composition alone, one loaded run each (migrate / stores / legendary+queue / egl / service / started, cumulative ms) | 57 / 189 / 467 / 468 / 545 / 706 | 40 / 160 / 211 / 229 / 255 / 363 (a single sample each: only shows where the time goes, not a gain) |
 | `revealed` (best / median of 6, **under 76–100 % CPU**) | 1.67 s / 2.4 s | 2.1 s / 3.6 s (heavier load: 100 % in 5 of 6 runs) |
 
 What the numbers say: Core is composed on a pool thread in parallel with WebView2 and finishes before the page asks for anything
