@@ -1,9 +1,9 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { Cog, Download, FolderOpen, Gamepad2, Info, RefreshCw, ScrollText, ShieldCheck } from "lucide-react";
-import type { LogLevel, Settings as SettingsT, ThemePreference } from "../../ipc/contract.gen";
+import type { AutoUpdatePolicy, DownloadMode, EglReadiness, LogLevel, Settings as SettingsT, ThemePreference, WhilePlayingPolicy } from "../../ipc/contract.gen";
 import { actions } from "../../state/actions";
-import { isBusy, candidateIssue, candidateStatus } from "../../state/derive";
-import { formatRelativeTime, prettyVersion, formatBytes } from "../../state/format";
+import { eglInstallStatus } from "../../state/derive";
+import { formatBytes, formatRelativeTime, prettyVersion } from "../../state/format";
 import { useSnap } from "../../state/store";
 import { useUi, usePending, type SettingsSection } from "../../state/ui";
 import {
@@ -16,7 +16,6 @@ import {
   Select,
   Slider,
   Switch,
-  TextArea,
   cx,
 } from "../../ui";
 import { ErrorView } from "../common/ErrorView";
@@ -28,7 +27,7 @@ import { LogViewer } from "./LogViewer";
 const SECTIONS: { id: SettingsSection; label: string; icon: ReactNode }[] = [
   { id: "general", label: "General", icon: <Cog size={16} /> },
   { id: "downloads", label: "Downloads", icon: <Download size={16} /> },
-  { id: "game", label: "Game", icon: <Gamepad2 size={16} /> },
+  { id: "library", label: "Library", icon: <Gamepad2 size={16} /> },
   { id: "egl", label: "Epic Games Launcher", icon: <ShieldCheck size={16} /> },
   { id: "advanced", label: "Advanced", icon: <ScrollText size={16} /> },
   { id: "about", label: "About", icon: <Info size={16} /> },
@@ -154,6 +153,14 @@ const CDNS = [
   { value: "cloudflare.epicgamescdn.com", label: "Cloudflare", hint: "epicgamescdn.com" },
 ] as const;
 
+const SPEED_LIMITS = [
+  { value: "none", label: "No limit" },
+  { value: String(5_000_000), label: "5 MB/s" },
+  { value: String(10_000_000), label: "10 MB/s" },
+  { value: String(25_000_000), label: "25 MB/s" },
+  { value: String(50_000_000), label: "50 MB/s" },
+] as const;
+
 const INTERVALS = [
   { value: "15", label: "Every 15 minutes" },
   { value: "30", label: "Every 30 minutes" },
@@ -245,9 +252,74 @@ function Downloads({ s }: { s: SettingsT }) {
           }
         />
       </Section>
+      <Section title="Speed">
+        <Row
+          label="Download mode"
+          description="Balanced keeps the network at full speed but yields the disk and CPU to your other programs."
+          control={
+            <SegmentedControl<DownloadMode>
+              aria-label="Download mode"
+              className="w-[300px]"
+              value={s.downloadMode}
+              onValueChange={(v) => void set({ downloadMode: v })}
+              options={[
+                { value: "background", label: "Background" },
+                { value: "balanced", label: "Balanced" },
+                { value: "full", label: "Full" },
+              ]}
+            />
+          }
+        />
+        <Row
+          label="Speed limit"
+          description="Caps the whole download queue."
+          control={
+            <Select
+              aria-label="Speed limit"
+              minWidth={190}
+              value={s.speedLimitBytesPerSecond === null ? "none" : String(s.speedLimitBytesPerSecond)}
+              onValueChange={(v) => void set({ speedLimitBytesPerSecond: v === "none" ? null : Number(v) })}
+              options={SPEED_LIMITS.some((l) => l.value === String(s.speedLimitBytesPerSecond)) || s.speedLimitBytesPerSecond === null ? SPEED_LIMITS : [...SPEED_LIMITS, { value: String(s.speedLimitBytesPerSecond), label: `${formatBytes(s.speedLimitBytesPerSecond)}/s` }]}
+            />
+          }
+        />
+        <SwitchRow label="Full speed when I'm away" description="Go to Full mode while the PC is idle and no game is running." checked={s.idleFullSpeed} onChange={(v) => void set({ idleFullSpeed: v })} />
+        <Row
+          label="While a game is running"
+          control={
+            <Select<WhilePlayingPolicy>
+              aria-label="While a game is running"
+              minWidth={190}
+              value={s.whilePlaying}
+              onValueChange={(v) => void set({ whilePlaying: v })}
+              options={[
+                { value: "pause", label: "Pause downloads" },
+                { value: "throttle", label: "Slow downloads down" },
+                { value: "continue", label: "Keep going" },
+              ]}
+            />
+          }
+        />
+      </Section>
       <Section title="Updates">
-        <SwitchRow label="Update automatically" description="Download new versions of Fortnite in the background." checked={s.autoUpdate} onChange={(v) => void set({ autoUpdate: v })} />
-        <SwitchRow label="Only when I'm not playing" description="Wait until the game is closed before starting an automatic update." checked={s.autoUpdateOnlyWhenIdle} disabled={!s.autoUpdate} onChange={(v) => void set({ autoUpdateOnlyWhenIdle: v })} />
+        <Row
+          label="Update automatically"
+          description="Games can override this on their own page."
+          control={
+            <Select<Exclude<AutoUpdatePolicy, "default">>
+              aria-label="Update automatically"
+              minWidth={190}
+              value={s.autoUpdate === "default" ? "always" : s.autoUpdate}
+              onValueChange={(v) => void set({ autoUpdate: v })}
+              options={[
+                { value: "always", label: "Always" },
+                { value: "ask", label: "Ask me first" },
+                { value: "never", label: "Never" },
+              ]}
+            />
+          }
+        />
+        <SwitchRow label="Only when I'm not playing" description="Wait until the game is closed before starting an automatic update." checked={s.autoUpdateOnlyWhenIdle} disabled={s.autoUpdate === "never"} onChange={(v) => void set({ autoUpdateOnlyWhenIdle: v })} />
         <Row
           label="Check for updates"
           control={
@@ -265,97 +337,70 @@ function Downloads({ s }: { s: SettingsT }) {
   );
 }
 
-function Game({ s }: { s: SettingsT }) {
-  const installed = useSnap((x) => x.game.installed);
-  const snap = useSnap((x) => x);
-  const busy = isBusy(snap);
-  const openDialog = useUi((x) => x.openDialog);
-  const verifying = usePending("verify");
-  const [args, setArgs] = useState(s.launchArgs);
-  const [seenArgs, setSeenArgs] = useState(s.launchArgs);
-  if (seenArgs !== s.launchArgs) {
-    setSeenArgs(s.launchArgs);
-    setArgs(s.launchArgs);
-  }
-  const commitArgs = () => args !== s.launchArgs && void actions.updateSettings({ launchArgs: args });
-
+function LibrarySettings({ s }: { s: SettingsT }) {
+  const folders = useSnap((x) => x.storage.folders);
+  const overlay = useSnap((x) => x.overlay);
+  const addFolder = async () => {
+    const p = await actions.pickFolder(s.defaultInstallBase, "Choose a library folder");
+    if (!p || s.libraryFolders.includes(p)) return;
+    await actions.updateSettings({ libraryFolders: [...s.libraryFolders, p], defaultInstallBase: s.defaultInstallBase ?? p });
+  };
+  const remove = (path: string) => {
+    const left = s.libraryFolders.filter((f) => f !== path);
+    void actions.updateSettings({ libraryFolders: left, defaultInstallBase: s.defaultInstallBase === path ? (left[0] ?? null) : s.defaultInstallBase });
+  };
   return (
     <div className="flex flex-col gap-7">
-      <Section title="Launch">
-        <Row
-          label="Launch arguments"
-          description="Extra command-line options passed to Fortnite. Leave empty unless you know you need them."
-        >
-          <div className="mt-2.5">
-            <TextArea
-              aria-label="Launch arguments"
-              placeholder="-windowed -nosplash"
-              value={args}
-              onChange={(e) => setArgs(e.target.value.replace(/[\r\n]+/g, " "))}
-              onBlur={commitArgs}
-              onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), e.currentTarget.blur())}
-              className="font-mono text-xs"
-            />
-          </div>
-        </Row>
-      </Section>
-
-      <Section title="Install">
-        <PathRow
-          label="Install location"
-          empty="Fortnite isn't installed"
-          path={installed?.installPath ?? null}
-          actions={
-            installed ? (
-              <>
-                <Button size="sm" variant="secondary" icon={<FolderOpen size={13} />} onClick={() => void actions.openInstallFolder()}>
-                  Open
-                </Button>
-                <Button size="sm" variant="secondary" disabled={busy} onClick={() => openDialog({ kind: "move" })}>
-                  Move…
-                </Button>
-              </>
+      <Section
+        title="Library folders"
+        description="Games install into the default folder unless you pick another one."
+        action={
+          <Button size="sm" variant="secondary" onClick={() => void addFolder()}>
+            Add folder…
+          </Button>
+        }
+      >
+        {folders.length === 0 && <div className="px-4 py-5 text-sm text-fg-muted">No library folders yet.</div>}
+        {folders.map((f) => (
+          <div key={f.path} className="flex items-center gap-3 px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <PathText path={f.path} className="text-sm font-medium text-fg" tailSegments={3} />
+              <p className="mt-0.5 text-xs text-fg-muted tabular-nums">
+                {formatBytes(f.freeBytes)} free on {f.drive} · {f.gameCount} {f.gameCount === 1 ? "game" : "games"}
+                {!f.exists && " · folder missing"}
+              </p>
+            </div>
+            {f.isDefault ? (
+              <Badge tone="accent">Default</Badge>
             ) : (
-              <Button size="sm" variant="primary" disabled={snap.auth.status !== "signedIn"} onClick={() => openDialog({ kind: "install" })}>
-                Install…
+              <Button size="sm" variant="ghost" onClick={() => void actions.updateSettings({ defaultInstallBase: f.path })}>
+                Make default
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" icon={<FolderOpen size={13} />} onClick={() => void actions.openPath(f.path)}>
+              Open
+            </Button>
+            <Button size="sm" variant="ghost" disabled={f.gameCount > 0} onClick={() => remove(f.path)}>
+              Remove
+            </Button>
+          </div>
+        ))}
+      </Section>
+      <Section title="Cloud saves">
+        <SwitchRow label="Sync saves with Epic's cloud" description="Before and after you play. Games can opt out on their own page." checked={s.cloudSaves} onChange={(v) => void actions.updateSettings({ cloudSaves: v })} />
+      </Section>
+      <Section title="Epic overlay">
+        <Row
+          label="Epic Games overlay"
+          description={overlay.installed ? `Version ${overlay.version ?? "unknown"}${overlay.updateAvailable ? `, ${overlay.latestVersion ?? "a newer version"} is available` : ""}.` : "Needed by a few games for friends and achievements."}
+          control={
+            overlay.installed ? (
+              <Switch aria-label="Epic overlay" checked={overlay.enabled} onCheckedChange={(v) => void actions.setOverlayEnabled(v)} />
+            ) : (
+              <Button size="sm" variant="secondary" loading={overlay.busy} onClick={() => void actions.installOverlay()}>
+                Install
               </Button>
             )
-          }
-        />
-        <PathRow
-          label="Default install folder"
-          description="Where new installs go. You can still pick a different folder each time."
-          path={s.defaultInstallBase}
-          empty="Chosen each time"
-          actions={
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={async () => {
-                const p = await actions.pickFolder(s.defaultInstallBase, "Choose the default install folder");
-                if (p) void actions.updateSettings({ defaultInstallBase: p });
-              }}
-            >
-              Change…
-            </Button>
-          }
-        />
-        <Row
-          label="Verify and repair"
-          description="Checks every file against Epic's manifest and re-downloads only what's missing or damaged."
-          control={
-            <Button size="sm" variant="secondary" disabled={!installed || busy || snap.auth.status !== "signedIn"} loading={verifying} onClick={() => void actions.verify("settings")}>
-              Verify files
-            </Button>
-          }
-        />
-        <Row
-          label="Uninstall"
-          description="Remove Fortnite from Glider, with the option to delete its files."
-          control={
-            <Button size="sm" variant="secondary" className="text-danger-text" disabled={!installed || busy} onClick={() => openDialog({ kind: "uninstall" })}>
-              Uninstall…
-            </Button>
           }
         />
       </Section>
@@ -365,10 +410,10 @@ function Game({ s }: { s: SettingsT }) {
 
 function Egl({ s }: { s: SettingsT }) {
   const egl = useSnap((x) => x.egl);
-  const game = useSnap((x) => x.game);
-  const rescanning = usePending("rescan");
-  const installed = game.installed;
+  const rescanning = usePending("rescan") || egl.scanning;
   const authed = useSnap((x) => x.auth.status === "signedIn");
+  const importing = usePending("import");
+  const [readiness, setReadiness] = useState<EglReadiness | null>(null);
 
   return (
     <div className="flex flex-col gap-7">
@@ -376,66 +421,83 @@ function Egl({ s }: { s: SettingsT }) {
         <Row label="Epic Games Launcher" control={<Badge tone={egl.launcherInstalled ? "success" : "neutral"} dot>{egl.launcherInstalled ? "Detected" : "Not installed"}</Badge>} />
         <Row
           label="Launcher is running"
-          description={egl.busyWithGame ? "It's installing or updating Fortnite right now. Glider waits so the two don't collide." : undefined}
-          control={<Badge tone={egl.busyWithGame ? "warning" : egl.launcherRunning ? "accent" : "neutral"} dot>{egl.busyWithGame ? "Busy with Fortnite" : egl.launcherRunning ? "Running" : "Closed"}</Badge>}
-        />
-        <PathRow
-          label="Shared install"
-          description={installed?.sharedWithEgl ? "Glider and Epic Games Launcher point at the same folder, so the game is stored once." : undefined}
-          path={installed?.sharedWithEgl ? installed.installPath : null}
-          empty="Glider's install isn't shared with the launcher"
+          description={egl.busyApps.length > 0 ? "It's installing or updating a game right now. Glider waits so the two don't collide." : undefined}
+          control={<Badge tone={egl.busyApps.length > 0 ? "warning" : egl.launcherRunning ? "accent" : "neutral"} dot>{egl.busyApps.length > 0 ? "Busy with a game" : egl.launcherRunning ? "Running" : "Closed"}</Badge>}
         />
       </Section>
 
       <Section title="Sync">
         <SwitchRow
           label="Keep Epic Games Launcher in sync"
-          description={
-            <>
-              When Glider updates or moves Fortnite, it tells Epic Games Launcher the new version and location, so the launcher doesn't try to
-              re-download or repair it. Glider backs up the launcher's files first and never writes while the launcher is busy with the game.
-              {installed?.sharedWithEgl && !egl.syncAvailable && <span className="mt-1 block text-warning-text">Epic Games Launcher has no record of this install yet, so there's nothing to sync.</span>}
-            </>
-          }
+          description="When Glider updates or moves a game, it tells Epic Games Launcher the new version and location, so the launcher doesn't try to re-download or repair it. Glider backs up the launcher's files first and never writes while the launcher is busy with the game."
           checked={s.eglSync}
           onChange={(v) => void actions.updateSettings({ eglSync: v })}
+        />
+        <SwitchRow
+          label="Open Epic links in Glider"
+          description="Store buttons and old Epic Games Launcher shortcuts (com.epicgames.launcher://) open here."
+          checked={s.handleEpicLinks}
+          onChange={(v) => void actions.updateSettings({ handleEpicLinks: v })}
         />
       </Section>
 
       <Section
-        title="Existing installs"
-        description={egl.lastScan ? `Last scanned ${formatRelativeTime(egl.lastScan)}` : "Looks for Fortnite installs known to Epic Games Launcher."}
+        title="Installs found"
+        description={egl.lastScan ? `Last scanned ${formatRelativeTime(egl.lastScan)}` : "Looks for games installed by Epic Games Launcher."}
         action={
-          <Button size="sm" variant="secondary" loading={rescanning} icon={<RefreshCw size={13} />} onClick={() => void actions.rescanEgl()}>
-            Re-scan
-          </Button>
+          <span className="flex gap-1">
+            <Button size="sm" variant="secondary" loading={rescanning} icon={<RefreshCw size={13} />} onClick={() => void actions.rescanEgl()}>
+              Re-scan
+            </Button>
+            <Button size="sm" variant="ghost" disabled={rescanning} onClick={() => void actions.rescanEgl(true)}>
+              Scan all drives
+            </Button>
+          </span>
         }
       >
-        {egl.candidates.length === 0 ? (
-          <div className="px-4 py-5 text-sm text-fg-muted">No installs found. Epic Games Launcher {egl.launcherInstalled ? "doesn't list Fortnite." : "isn't installed."}</div>
+        {egl.installs.length === 0 ? (
+          <div className="px-4 py-5 text-sm text-fg-muted">No installs found. Epic Games Launcher {egl.launcherInstalled ? "has nothing to import." : "isn't installed."}</div>
         ) : (
-          egl.candidates.map((c) => {
-            const status = candidateStatus(c, game.latestVersion);
-            const issue = candidateIssue(c);
-            const usable = !issue;
+          egl.installs.map((i) => {
+            const status = eglInstallStatus(i);
             return (
-              <div key={c.id} className="flex items-center gap-4 px-4 py-3">
+              <div key={i.id} className="flex items-center gap-4 px-4 py-3">
                 <div className="min-w-0 flex-1">
-                  <PathText path={c.installPath} className="text-sm font-medium text-fg" tailSegments={3} />
+                  <p className="truncate text-sm font-medium text-fg">{i.title}</p>
+                  <PathText path={i.installPath} className="text-xs text-fg-muted" tailSegments={3} />
                   <p className="mt-0.5 text-xs text-fg-muted tabular-nums">
-                    {issue ?? `${c.version ? `Version ${prettyVersion(c.version)}` : "Version unknown"}${c.sizeBytes ? `, ${formatBytes(c.sizeBytes)}` : ""}`}
+                    {i.reason ?? `${i.version ? `Version ${prettyVersion(i.version)}` : "Version unknown"}${i.sizeBytes ? `, ${formatBytes(i.sizeBytes)}` : ""}`}
                   </p>
                 </div>
                 <Badge tone={status.tone}>{status.text}</Badge>
-                {installed === null && usable && authed && (
-                  <Button size="sm" variant="secondary" onClick={() => void actions.adopt({ candidateId: c.id, path: null, verify: "auto" }, "settings")}>
-                    Use this install
+                {i.status === "importable" && authed && (
+                  <Button size="sm" variant="secondary" loading={importing} onClick={() => void actions.importInstalls([i.id], "auto", "settings")}>
+                    Import
                   </Button>
                 )}
               </div>
             );
           })
         )}
+      </Section>
+
+      <Section title="Ready to uninstall Epic Games Launcher?">
+        <Row
+          label="Check what still depends on it"
+          description={readiness ? (readiness.ready ? "Nothing blocks removing it." : "Some games still need it.") : undefined}
+          control={
+            <Button size="sm" variant="secondary" onClick={() => void actions.checkEglReadiness().then((r) => r && setReadiness(r))}>
+              Check
+            </Button>
+          }
+        />
+        {readiness?.items.map((it, i) => (
+          <div key={i} className="px-4 py-2.5 text-sm">
+            <Badge tone={it.severity === "blocker" ? "danger" : it.severity === "warning" ? "warning" : "success"}>{it.severity}</Badge>
+            <span className="ml-2 text-fg">{it.title}</span>
+            <span className="ml-2 text-fg-muted">{it.message}</span>
+          </div>
+        ))}
       </Section>
     </div>
   );
@@ -476,6 +538,17 @@ function Advanced({ s }: { s: SettingsT }) {
         />
       </Section>
       <LogViewer />
+      <Section title="Setup">
+        <Row
+          label="Run setup again"
+          description="Walks through sign-in, finding installed games, library folders and download mode again. Nothing is removed."
+          control={
+            <Button size="sm" variant="secondary" onClick={() => void actions.restartOnboarding()}>
+              Run setup
+            </Button>
+          }
+        />
+      </Section>
       <Section title="Reset">
         <Row
           label="Reset all settings"
@@ -537,7 +610,7 @@ export function Settings() {
           {err && <ErrorView className="mb-5" error={err.error} retry={err.retry} onDismiss={() => useUi.getState().setError("settings", undefined)} />}
           {current.id === "general" && <General s={settings} />}
           {current.id === "downloads" && <Downloads s={settings} />}
-          {current.id === "game" && <Game s={settings} />}
+          {current.id === "library" && <LibrarySettings s={settings} />}
           {current.id === "egl" && <Egl s={settings} />}
           {current.id === "advanced" && <Advanced s={settings} />}
           {current.id === "about" && <AboutPanel />}

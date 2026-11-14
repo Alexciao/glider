@@ -118,8 +118,7 @@ describe("library events", () => {
     const g = list.find((x) => x.kind === "game" && !x.favorite) as GameSummary;
     const full: LibraryDelta = { revision: 5, reset: true, upserts: list, removes: [] };
     // The host pushes revisions 4 (older than the load: dropped) and 6 (newer: replayed) before library.get answers.
-    let host!: ReturnType<typeof fakeHost>;
-    host = fakeHost(w.snap, full, () => {
+    const host: ReturnType<typeof fakeHost> = fakeHost(w.snap, full, () => {
       host.push("library", { revision: 4, reset: false, upserts: [{ ...g, title: "OLD" }], removes: [] } satisfies LibraryDelta);
       host.push("library", { revision: 6, reset: false, upserts: [{ ...g, favorite: true }], removes: [] } satisfies LibraryDelta);
       return full;

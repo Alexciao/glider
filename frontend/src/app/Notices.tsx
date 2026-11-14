@@ -19,7 +19,7 @@ export function Notices() {
           message: t.message,
           duration: t.duration,
           actionLabel: t.actionLabel ?? (fix ? FIX_LABELS[fix] : undefined),
-          onAction: t.onAction ?? (fix ? () => runFix(fix) : undefined),
+          onAction: t.onAction ?? (fix ? () => runFix(fix, { appName: t.appName }) : undefined),
         };
       }),
     [items],

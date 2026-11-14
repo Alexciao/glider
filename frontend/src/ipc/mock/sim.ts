@@ -521,7 +521,7 @@ export class JobSim {
     const percent = done ? 100 : Math.max(this.lastPercent, this.percentNow());
     this.lastPercent = percent;
     const later = this.remainingAfter(index);
-    let phasePercent = done ? 100 : this.phaseFrac(spec) * 100;
+    const phasePercent = done ? 100 : this.phaseFrac(spec) * 100;
     let eta: number | null = null;
     let network: NetworkStats | null = null;
     let disk: DiskStats | null = null;

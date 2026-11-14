@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { FolderOpen, HardDrive } from "lucide-react";
 import type { InstallPlan } from "../../ipc/contract.gen";
 import { actions } from "../../state/actions";
+import { useGame } from "../../state/library";
 import { driveOf, formatBytes } from "../../state/format";
 import { Button, Skeleton, cx } from "../../ui";
 import { PathText } from "./PathText";
@@ -20,14 +21,17 @@ function Stat({ label, children, tone }: { label: string; children: React.ReactN
  * Used by onboarding's fresh-install path and by the Library install dialog.
  */
 export function InstallPlanner({
+  appName,
   onPlan,
   onUseExisting,
 }: {
+  appName: string;
   /** Reports the current plan upward (null while loading) so the parent can enable its Install button. */
   onPlan: (plan: InstallPlan | null) => void;
   /** Offered when the chosen folder already holds a valid install. */
   onUseExisting?: (gamePath: string) => void;
 }) {
+  const title = useGame(appName)?.title ?? "This game";
   const [base, setBase] = useState<string | null>(null);
   // A plan answers a request; while the newest request has no answer we are loading.
   const [request, setRequest] = useState(0);
@@ -41,7 +45,7 @@ export function InstallPlanner({
 
   useEffect(() => {
     let alive = true;
-    void actions.planInstall(base).then((p) => {
+    void actions.planInstall(appName, base).then((p) => {
       if (!alive) return;
       setAnswer({ request, plan: p ?? null });
       report.current(p ?? null);
@@ -49,10 +53,10 @@ export function InstallPlanner({
     return () => {
       alive = false;
     };
-  }, [base, request]);
+  }, [appName, base, request]);
 
   const change = async () => {
-    const picked = await actions.pickFolder(plan?.basePath ?? null, "Choose where to install Fortnite");
+    const picked = await actions.pickFolder(plan?.basePath ?? null, `Choose where to install ${title}`);
     if (!picked) return;
     onPlan(null);
     setBase(picked);
@@ -110,7 +114,7 @@ export function InstallPlanner({
 
       {plan?.existingInstallFound && onUseExisting && (
         <div className="flex items-center gap-3 rounded-xl border border-accent/30 bg-accent-soft p-3 pl-4">
-          <p className="min-w-0 flex-1 text-sm text-fg">Fortnite is already in this folder. Use it instead of downloading again.</p>
+          <p className="min-w-0 flex-1 text-sm text-fg">{title} is already in this folder. Use it instead of downloading again.</p>
           <Button variant="secondary" onClick={() => onUseExisting(plan.gamePath)}>
             Use existing
           </Button>

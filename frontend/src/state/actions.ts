@@ -1,6 +1,7 @@
 import { RpcError } from "../ipc/client";
 import type {
   EglImportResult,
+  EglReadiness,
   FixAction,
   FolderValidation,
   GliderError,
@@ -281,6 +282,18 @@ export const actions = {
         duration: 3500,
       });
     }
+  },
+
+  async installOverlay(): Promise<void> {
+    await run("overlay", () => rpc().call("overlay.install"), asToast(() => void actions.installOverlay()));
+  },
+
+  async setOverlayEnabled(value: boolean): Promise<void> {
+    await run("overlay", () => rpc().call("overlay.setEnabled", { appName: "eos-overlay", value }), asToast());
+  },
+
+  checkEglReadiness(): Promise<EglReadiness | undefined> {
+    return run("readiness", () => rpc().call("egl.checkReadiness"), asToast());
   },
 
   async openInstallFolder(appName: string): Promise<void> {

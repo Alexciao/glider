@@ -1,9 +1,10 @@
-import { CircleCheck, FolderInput, FolderOpen, MoreHorizontal, RefreshCw, Trash2, Wrench, TriangleAlert } from "lucide-react";
-import type { AppSnapshot, InstallCandidate, JobInfo } from "../../ipc/contract.gen";
+import { CircleCheck, EyeOff, FolderInput, FolderOpen, MoreHorizontal, RefreshCw, Star, Trash2, TriangleAlert, Wrench } from "lucide-react";
+import type { GameSummary, JobInfo } from "../../ipc/contract.gen";
 import { actions } from "../../state/actions";
-import { PHASE_LABEL, isBusy } from "../../state/derive";
+import { JOB_VERB, PHASE_LABEL, isBusy } from "../../state/derive";
 import { buildOf, formatBytes, formatEta, formatPercent, formatPlaytime, formatRelativeTime, formatSpeed, prettyVersion } from "../../state/format";
 import { useJobProgress } from "../../state/progress";
+import { useSnap } from "../../state/store";
 import { useUi } from "../../state/ui";
 import {
   Button,
@@ -24,15 +25,30 @@ export function JobLine({ job }: { job: JobInfo }) {
   const p = useJobProgress(job.id, job.progress);
   const percent = p?.percent ?? 0;
   const paused = job.status === "paused";
-  const downloading = p?.phase === "downloading";
+  const net = p?.network ?? null;
+  const verify = p?.verify ?? null;
+  const left = p
+    ? net
+      ? `${formatBytes(net.downloadedBytes)} of ${formatBytes(net.totalBytes)}`
+      : verify && p.phase === "verifying"
+        ? `${verify.filesChecked.toLocaleString()} of ${verify.filesTotal.toLocaleString()} files${verify.badFiles > 0 ? `  ·  ${verify.badFiles} to fix` : ""}`
+        : `${PHASE_LABEL[p.phase]} · ${formatPercent(percent)}`
+    : "Starting…";
+  const right = net ? formatSpeed(net.bytesPerSecond) : verify && p?.phase === "verifying" ? formatSpeed(verify.readBytesPerSecond) : null;
   return (
     <div className="w-[min(440px,100%)]">
-      <ProgressBar value={job.status === "running" && !p ? null : percent} tone={paused ? "warning" : "accent"} paused={paused} speed={downloading ? p?.downloadBytesPerSecond : null} label={`${job.kind} progress`} />
+      <ProgressBar
+        value={job.status === "running" && !p ? null : percent}
+        tone={paused ? "warning" : "accent"}
+        paused={paused}
+        speed={net ? net.bytesPerSecond : null}
+        label={`${JOB_VERB[job.kind]} ${job.title}`}
+      />
       <div className="mt-2 flex items-center justify-between gap-4 text-xs text-fg-muted tabular-nums">
-        <span>{p ? (downloading ? `${formatBytes(p.downloadedBytes)} of ${formatBytes(p.totalDownloadBytes)}` : `${PHASE_LABEL[p.phase]} · ${formatPercent(percent)}`) : "Starting…"}</span>
+        <span>{left}</span>
         {p && !paused && job.status === "running" && (
           <span>
-            {downloading ? `${formatSpeed(p.downloadBytesPerSecond)}  ·  ` : ""}
+            {right ? `${right}  ·  ` : ""}
             {formatEta(p.etaSeconds)} left
           </span>
         )}
@@ -60,16 +76,16 @@ function Fact({ label, children, grow, hint }: { label: string; children: React.
 }
 
 /** Quiet definition list pinned to the bottom of the hero. */
-export function Facts({ snap }: { snap: AppSnapshot }) {
-  const { game, egl, settings } = snap;
-  const installed = game.installed;
+export function Facts({ game }: { game: GameSummary }) {
+  const eglSync = useSnap((s) => s.settings.eglSync);
+  const installed = game.installStatus === "installed" || game.installStatus === "broken";
   const items: React.ReactNode[] = [];
 
   if (installed) {
-    const build = buildOf(installed.version);
+    const build = buildOf(game.installedVersion);
     items.push(
       <Fact key="v" label="Version">
-        <span className="tabular-nums">{prettyVersion(installed.version)}</span>
+        <span className="tabular-nums">{prettyVersion(game.installedVersion)}</span>
         {build && <span className="ml-1.5 text-xs font-normal text-fg-subtle tabular-nums">build {build}</span>}
       </Fact>,
       <Fact key="s" label="Installed size" hint="Space the game files take on your drive right now, measured from disk.">
@@ -99,18 +115,19 @@ export function Facts({ snap }: { snap: AppSnapshot }) {
         </Fact>,
       );
     }
-    items.push(
-      <Fact key="l" label="Location" grow>
-        <PathText path={installed.installPath} />
-      </Fact>,
-    );
-    if (installed.sharedWithEgl) {
-      const synced = settings.eglSync && egl.syncAvailable;
+    if (game.installPath) {
+      items.push(
+        <Fact key="l" label="Location" grow>
+          <PathText path={game.installPath} />
+        </Fact>,
+      );
+    }
+    if (game.sharedWithEgl) {
       items.push(
         <Fact key="e" label="Epic Games Launcher">
-          <span className={cx("inline-flex items-center gap-1.5", synced ? "text-success-text" : "text-warning-text")}>
-            {synced ? <CircleCheck size={14} /> : <TriangleAlert size={14} />}
-            {synced ? "Shared, in sync" : "Shared, not syncing"}
+          <span className={cx("inline-flex items-center gap-1.5", eglSync ? "text-success-text" : "text-warning-text")}>
+            {eglSync ? <CircleCheck size={14} /> : <TriangleAlert size={14} />}
+            {eglSync ? "Shared, in sync" : "Shared, not syncing"}
           </span>
         </Fact>,
       );
@@ -120,16 +137,17 @@ export function Facts({ snap }: { snap: AppSnapshot }) {
     if (game.installSizeBytes) items.push(<Fact key="i" label="Installed size" hint="Space the game will take on your drive once installed."><span className="tabular-nums">{formatBytes(game.installSizeBytes)}</span></Fact>);
     if (game.latestVersion) items.push(<Fact key="v" label="Latest version"><span className="tabular-nums">{prettyVersion(game.latestVersion)}</span></Fact>);
   }
+  if (game.developer) items.push(<Fact key="dev" label="Developer">{game.developer}</Fact>);
   if (items.length === 0) return null;
   return <dl className="mt-8 flex flex-wrap items-start gap-x-9 gap-y-4 border-t border-border pt-5 max-[1100px]:mt-6 max-[1100px]:gap-x-6">{items}</dl>;
 }
 
-export function MoreMenu({ snap, primary }: { snap: AppSnapshot; primary: boolean }) {
+export function MoreMenu({ game, primary }: { game: GameSummary; primary: boolean }) {
   const openDialog = useUi((s) => s.openDialog);
-  const busy = isBusy(snap);
-  const installed = snap.game.installed !== null;
+  const snap = useSnap((s) => s);
+  const busy = isBusy(snap, game.appName);
+  const installed = game.installStatus === "installed" || game.installStatus === "broken";
   const signedIn = snap.auth.status === "signedIn";
-  if (!installed) return null;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -148,44 +166,54 @@ export function MoreMenu({ snap, primary }: { snap: AppSnapshot; primary: boolea
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-60">
-        <DropdownMenuItem icon={<Wrench size={15} />} disabled={busy || !signedIn} onSelect={() => void actions.verify()}>
-          Verify and repair
+        <DropdownMenuItem icon={<Star size={15} />} onSelect={() => void actions.setFavorite(game.appName, !game.favorite)}>
+          {game.favorite ? "Remove from favorites" : "Add to favorites"}
         </DropdownMenuItem>
-        <DropdownMenuItem icon={<RefreshCw size={15} />} disabled={busy || !signedIn} onSelect={() => void actions.checkForUpdates()}>
-          Check for updates
+        <DropdownMenuItem icon={<EyeOff size={15} />} onSelect={() => void actions.setHidden(game.appName, !game.hidden)}>
+          {game.hidden ? "Show in library" : "Hide from library"}
         </DropdownMenuItem>
-        <DropdownMenuItem icon={<FolderInput size={15} />} disabled={busy} onSelect={() => openDialog({ kind: "move" })}>
-          Move install…
-        </DropdownMenuItem>
-        <DropdownMenuItem icon={<FolderOpen size={15} />} onSelect={() => void actions.openInstallFolder()}>
-          Open install folder
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem icon={<Trash2 size={15} />} destructive disabled={busy} onSelect={() => openDialog({ kind: "uninstall" })}>
-          Uninstall…
-        </DropdownMenuItem>
+        {installed && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem icon={<Wrench size={15} />} disabled={busy || !signedIn} onSelect={() => void actions.verify(game.appName)}>
+              Verify and repair
+            </DropdownMenuItem>
+            <DropdownMenuItem icon={<RefreshCw size={15} />} disabled={!signedIn} onSelect={() => void actions.checkForUpdates()}>
+              Check for updates
+            </DropdownMenuItem>
+            <DropdownMenuItem icon={<FolderInput size={15} />} disabled={busy} onSelect={() => openDialog({ kind: "move", appName: game.appName })}>
+              Move install…
+            </DropdownMenuItem>
+            <DropdownMenuItem icon={<FolderOpen size={15} />} onSelect={() => void actions.openInstallFolder(game.appName)}>
+              Open install folder
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem icon={<Trash2 size={15} />} destructive disabled={busy} onSelect={() => openDialog({ kind: "uninstall", appName: game.appName })}>
+              Uninstall…
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
 
-/** "Fortnite is already on this PC": offered on Library when nothing is installed but EGL has a usable copy. */
-export function ExistingInstallHint({ candidate, pending }: { candidate: InstallCandidate; pending: boolean }) {
+/** Minimal inline resolution for a save conflict: choose a side (the other is backed up first) or play without syncing. */
+export function SaveConflictCallout({ appName }: { appName: string }) {
   return (
-    <div className="mt-6 flex w-[min(560px,100%)] items-center gap-3 rounded-xl border border-border-strong bg-surface-2 p-3 pl-4 backdrop-blur-md">
+    <div className="mt-6 flex w-[min(560px,100%)] flex-wrap items-center gap-3 rounded-xl border border-border-strong bg-surface-2 p-3 pl-4 backdrop-blur-md">
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-fg">Fortnite is already on this PC</p>
-        <p className="mt-0.5 flex min-w-0 text-xs text-fg-muted">
-          <PathText path={candidate.installPath} />
-        </p>
+        <p className="text-sm font-medium text-fg">Your cloud and local saves both changed</p>
+        <p className="mt-0.5 text-xs text-fg-muted">Choose which to keep. The other one is backed up first.</p>
       </div>
-      <Button
-        size="md"
-        variant="secondary"
-        loading={pending}
-        onClick={() => void actions.adopt({ candidateId: candidate.id, path: null, verify: "auto" }, "hero")}
-      >
-        Use this install
+      <Button size="sm" variant="secondary" onClick={() => void actions.resolveSaves(appName, "local", false)}>
+        Keep local
+      </Button>
+      <Button size="sm" variant="secondary" onClick={() => void actions.resolveSaves(appName, "cloud", false)}>
+        Keep cloud
+      </Button>
+      <Button size="sm" variant="ghost" onClick={() => void actions.launch(appName, { skipSaveSync: true })}>
+        Play without syncing
       </Button>
     </div>
   );

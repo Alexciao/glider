@@ -1,11 +1,10 @@
-import { useCallback } from "react";
-import { Activity, ArrowDownToLine, Download, FolderInput, Pause, Play, ShieldCheck, Trash2, Wrench, X } from "lucide-react";
-import type { JobInfo, JobKind } from "../../ipc/contract.gen";
+import { useCallback, useEffect } from "react";
+import { Activity, ArrowDownToLine, Download, FolderInput, HardDrive, Layers, Pause, Play, ShieldCheck, Trash2, Wrench, X } from "lucide-react";
+import type { JobInfo, JobKind, JobPhase } from "../../ipc/contract.gen";
 import { actions } from "../../state/actions";
 import { JOB_VERB, PHASE_LABEL } from "../../state/derive";
 import { formatBytes, formatClock, formatEta, formatSpeed, prettyVersion } from "../../state/format";
-import { HISTORY_CAPACITY, readHistory, subscribeHistory, useJobProgress, useProgress } from "../../state/progress";
-import { useSnap } from "../../state/store";
+import { HISTORY_CAPACITY, loadHistory, readHistory, subscribeHistory, useJobProgress, useProgress } from "../../state/progress";
 import { usePending, useUi } from "../../state/ui";
 import { Badge, Button, ProgressBar, Sparkline, Surface, cx } from "../../ui";
 import { PathText } from "../common/PathText";
@@ -18,7 +17,11 @@ export const KIND_ICON: Record<JobKind, React.ReactNode> = {
   move: <FolderInput size={18} />,
   uninstall: <Trash2 size={18} />,
   import: <FolderInput size={18} />,
+  modify: <Layers size={18} />,
+  overlay: <HardDrive size={18} />,
 };
+
+const PAUSABLE: readonly JobKind[] = ["install", "update", "repair", "verify", "modify", "overlay"];
 
 function Metric({ label, children, dim }: { label: string; children: React.ReactNode; dim?: boolean }) {
   return (
@@ -29,19 +32,34 @@ function Metric({ label, children, dim }: { label: string; children: React.React
   );
 }
 
+/** The job's planned phases as a row of steps; the current one is highlighted, finished ones are checked. */
+function PhaseSteps({ phases, current }: { phases: readonly JobPhase[]; current: JobPhase | null }) {
+  if (phases.length < 2) return null;
+  const at = current ? phases.indexOf(current) : -1;
+  return (
+    <ol aria-label="Steps" className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
+      {phases.map((p, i) => (
+        <li key={p} aria-current={i === at ? "step" : undefined} className="flex items-center gap-1.5">
+          <span className={cx("transition-colors duration-200", i === at ? "font-medium text-fg" : i < at ? "text-fg-muted" : "text-fg-subtle")}>{PHASE_LABEL[p]}</span>
+          {i < phases.length - 1 && <span aria-hidden className="text-fg-subtle">›</span>}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 /** Announces progress to assistive tech at 10% steps and phase changes, not at 10 Hz. */
 function ProgressAnnouncer({ job }: { job: JobInfo }) {
   const bucket = useProgress((s) => Math.floor((s.latest[job.id]?.percent ?? job.progress?.percent ?? 0) / 10) * 10);
   const phase = useProgress((s) => s.latest[job.id]?.phase ?? job.progress?.phase);
   return (
     <span className="sr-only" role="status" aria-live="polite">
-      {job.status === "running" ? `${JOB_VERB[job.kind]} Fortnite. ${phase ? PHASE_LABEL[phase] + ", " : ""}${bucket} percent.` : ""}
+      {job.status === "running" ? `${JOB_VERB[job.kind]} ${job.title}. ${phase ? PHASE_LABEL[phase] + ", " : ""}${bucket} percent.` : ""}
     </span>
   );
 }
 
 export function ActiveJobCard({ job }: { job: JobInfo }) {
-  const title = useSnap((s) => s.game.title);
   const p = useJobProgress(job.id, job.progress);
   const busy = usePending(`job:${job.id}`);
   const openDialog = useUi((s) => s.openDialog);
@@ -51,10 +69,17 @@ export function ActiveJobCard({ job }: { job: JobInfo }) {
   const queued = job.status === "queued";
   const running = job.status === "running";
   const percent = p?.percent ?? 0;
-  const downloading = p?.phase === "downloading";
-  const hasBytes = job.kind === "install" || job.kind === "update" || job.kind === "repair";
+  const net = p?.network ?? null;
+  const disk = p?.disk ?? null;
+  const verify = p?.verify ?? null;
+  const channel = net ? "network" : "disk";
+  const hasChart = (net ?? disk ?? verify) !== null && job.kind !== "uninstall";
 
-  const read = useCallback(() => readHistory(job.id), [job.id]);
+  // The graph survives a UI reload: fetch the backend's history once, then the live events extend it.
+  useEffect(() => {
+    void loadHistory(job.id);
+  }, [job.id]);
+  const read = useCallback(() => readHistory(job.id, channel), [job.id, channel]);
   const subscribe = useCallback((n: () => void) => subscribeHistory(job.id, n), [job.id]);
 
   const subtitle =
@@ -62,11 +87,7 @@ export function ActiveJobCard({ job }: { job: JobInfo }) {
       ? `${prettyVersion(job.fromVersion)} → ${prettyVersion(job.toVersion)}`
       : job.kind === "install" && job.toVersion
         ? `Version ${prettyVersion(job.toVersion)}`
-        : job.kind === "move" && job.targetPath
-          ? null
-          : job.kind === "verify" || job.kind === "repair"
-            ? "Checking every file against Epic's manifest"
-            : null;
+        : null;
 
   return (
     <Surface tone="raised" className="overflow-hidden">
@@ -76,15 +97,15 @@ export function ActiveJobCard({ job }: { job: JobInfo }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <h2 className="text-md font-semibold tracking-tight text-fg">
-              {JOB_VERB[job.kind]} {title}
+              {JOB_VERB[job.kind]} {job.title}
             </h2>
             {paused && <Badge tone="warning" dot>Paused</Badge>}
             {waiting && <Badge tone="warning" dot>Waiting</Badge>}
             {queued && <Badge tone="neutral">Queued</Badge>}
-            {running && p && <Badge tone="accent">{PHASE_LABEL[p.phase]}</Badge>}
           </div>
-          <div className="mt-1 flex flex-col gap-0.5 text-sm text-fg-muted">
+          <div className="mt-1 flex flex-col gap-1 text-sm text-fg-muted">
             {subtitle && <p>{subtitle}</p>}
+            {running && <PhaseSteps phases={job.phases} current={p?.phase ?? job.phase} />}
             {job.kind === "move" && job.targetPath && (
               <p className="flex min-w-0 gap-1">
                 to <PathText path={job.targetPath} className="text-fg" />
@@ -94,7 +115,7 @@ export function ActiveJobCard({ job }: { job: JobInfo }) {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {(running || paused) && job.kind !== "uninstall" && (
+          {(running || paused) && PAUSABLE.includes(job.kind) && (
             <Button
               variant={paused ? "primary" : "secondary"}
               loading={busy}
@@ -118,51 +139,68 @@ export function ActiveJobCard({ job }: { job: JobInfo }) {
             {Math.floor(Math.min(100, Math.max(0, percent)))}
             <span className="ml-0.5 text-xl font-medium text-fg-subtle">%</span>
           </p>
-          {hasBytes && p && (
+          {p && (
             <p className="pb-1 text-sm text-fg-muted tabular-nums">
-              {downloading ? (
+              {net ? (
                 <>
-                  <span className="text-fg">{formatBytes(p.downloadedBytes)}</span> of {formatBytes(p.totalDownloadBytes)}
+                  <span className="text-fg">{formatBytes(net.downloadedBytes)}</span> of {formatBytes(net.totalBytes)}
                 </>
-              ) : (
+              ) : verify ? (
                 <>
-                  <span className="text-fg">{formatBytes(p.writtenBytes)}</span> of {formatBytes(p.totalWriteBytes)}
+                  <span className="text-fg">{verify.filesChecked.toLocaleString()}</span> of {verify.filesTotal.toLocaleString()} files
                 </>
-              )}
+              ) : disk ? (
+                <>
+                  <span className="text-fg">{formatBytes(disk.writtenBytes)}</span> of {formatBytes(disk.totalBytes)}
+                </>
+              ) : null}
             </p>
           )}
         </div>
-        <ProgressBar className="mt-3.5" size="lg" value={queued || (waiting && !p) ? 0 : percent} tone={paused || waiting ? "warning" : "accent"} paused={paused} speed={downloading && running ? p?.downloadBytesPerSecond : null} label={`${JOB_VERB[job.kind]} progress`} />
+        <ProgressBar
+          className="mt-3.5"
+          size="lg"
+          value={queued || (waiting && !p) ? 0 : percent}
+          tone={paused || waiting ? "warning" : "accent"}
+          paused={paused}
+          speed={net && running ? net.bytesPerSecond : null}
+          label={`${JOB_VERB[job.kind]} ${job.title}`}
+        />
       </div>
 
       <dl className="grid grid-cols-4 gap-4 px-5 pb-5 pt-5 max-[1100px]:grid-cols-2">
-        {downloading ? (
+        {net ? (
           <>
-            <Metric label="Download speed" dim={!running}>{running && p ? formatSpeed(p.downloadBytesPerSecond) : "—"}</Metric>
-            <Metric label="Disk write" dim={!running}>{running && p ? formatSpeed(p.diskBytesPerSecond) : "—"}</Metric>
+            <Metric label="Download speed" dim={!running}>{running && p ? formatSpeed(net.bytesPerSecond) : "—"}</Metric>
+            <Metric label="Disk write" dim={!running}>{running && disk ? formatSpeed(disk.bytesPerSecond) : "—"}</Metric>
+          </>
+        ) : verify ? (
+          <>
+            <Metric label="Disk read" dim={!running}>{running ? formatSpeed(verify.readBytesPerSecond) : "—"}</Metric>
+            <Metric label="Damaged files">{verify.badFiles > 0 ? `${verify.badFiles} · ${verify.fixedFiles} fixed` : "None so far"}</Metric>
           </>
         ) : (
           <>
-            <Metric label={p?.phase === "verifying" ? "Disk read" : "Disk speed"} dim={!running}>{running && p ? formatSpeed(p.diskBytesPerSecond) : "—"}</Metric>
-            <Metric label="Phase">{p ? PHASE_LABEL[p.phase] : "—"}</Metric>
+            <Metric label="Disk speed" dim={!running}>{running && disk ? formatSpeed(disk.bytesPerSecond) : "—"}</Metric>
+            <Metric label="Step">{p ? PHASE_LABEL[p.phase] : "—"}</Metric>
           </>
         )}
         <Metric label="Time left" dim={!running}>{running && p ? formatEta(p.etaSeconds) : "—"}</Metric>
         <Metric label="Elapsed">{p ? formatClock(p.elapsedSeconds) : "0:00"}</Metric>
       </dl>
 
-      {hasBytes && (running || paused || percent > 0) && (
+      {hasChart && (running || paused || percent > 0) && (
         <div className="border-t border-border bg-surface-1 px-5 pb-4 pt-3.5">
           <Sparkline
             read={read}
             subscribe={subscribe}
-            rate={10}
-            minWindow={100}
+            rate={1}
+            minWindow={60}
             maxWindow={HISTORY_CAPACITY}
             format={formatSpeed}
             title={
               <>
-                <Activity size={12} /> {downloading ? "Network speed" : "Disk speed"}
+                <Activity size={12} /> {net ? "Network speed" : verify ? "Disk read speed" : "Disk speed"}
               </>
             }
             label="Throughput history"

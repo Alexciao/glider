@@ -93,7 +93,6 @@ export class LibraryIndex {
   readonly size: number;
   readonly counts: LibraryCounts;
   /** Items by sort order, base games and add-ons together (queries filter by kind). */
-  private readonly byAz: Entry[];
   private readonly orders: Record<LibrarySort, Entry[]>;
   private readonly dlcByBase = new Map<string, GameSummary[]>();
   private readonly byApp = new Map<string, GameSummary>();
@@ -116,7 +115,6 @@ export class LibraryIndex {
     }
     const az = entries.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : a.g.appName < b.g.appName ? -1 : 1));
     az.forEach((e, i) => (e.az = i));
-    this.byAz = az;
     const by = (cmp: (a: Entry, b: Entry) => number): Entry[] => [...az].sort((a, b) => cmp(a, b) || a.az - b.az);
     this.orders = {
       az,

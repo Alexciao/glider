@@ -7,25 +7,29 @@ import {
   FolderInput,
   FolderOpen,
   Gamepad2,
+  House,
   LogOut,
   Moon,
   Play,
   RefreshCw,
   Search,
   Settings as SettingsIcon,
+  Store,
   Trash2,
   Wrench,
 } from "lucide-react";
-import { useHero } from "../state/bridge";
 import { actions } from "../state/actions";
 import { isBusy } from "../state/derive";
-import { useApp } from "../state/store";
+import { useGame } from "../state/library";
+import { useLibraryIndex } from "../state/libraryIndex";
+import { goGame, useRoute } from "../state/router";
+import { jobForGame, useApp } from "../state/store";
 import { useUi, type SettingsSection } from "../state/ui";
 import { Kbd, cx } from "../ui";
 
 interface Command {
   id: string;
-  group: "Game" | "Go to" | "App";
+  group: "Games" | "Game" | "Go to" | "App";
   label: string;
   icon: ReactNode;
   keywords?: string;
@@ -37,7 +41,7 @@ interface Command {
 const SETTINGS_SECTIONS: [SettingsSection, string][] = [
   ["general", "General"],
   ["downloads", "Downloads"],
-  ["game", "Game"],
+  ["library", "Library"],
   ["egl", "Epic Games Launcher"],
   ["advanced", "Advanced and logs"],
   ["about", "About and licenses"],
@@ -60,41 +64,44 @@ function PaletteBody({ close }: { close: () => void }) {
   const go = useUi((s) => s.go);
   const openDialog = useUi((s) => s.openDialog);
   const snap = useApp((s) => s.snapshot);
-  const hero = useHero();
+  const route = useRoute();
+  const currentGame = useGame(route.page === "game" ? route.appName : undefined);
+  const index = useLibraryIndex();
   const [query, setQuery] = useState("");
-  const [index, setIndex] = useState(0);
+  const [cursor, setCursor] = useState(0);
   const list = useRef<HTMLDivElement>(null);
 
   const commands = useMemo<Command[]>(() => {
     if (!snap) return [];
-    const busy = isBusy(snap);
-    const installed = snap.game.installed !== null;
     const signedIn = snap.auth.status === "signedIn";
     const cmds: Command[] = [];
 
-    const primary: Record<string, Pick<Command, "label" | "icon" | "run"> | undefined> = {
-      play: { label: "Play Fortnite", icon: <Play size={15} />, run: () => void actions.launch() },
-      update: { label: "Update Fortnite", icon: <ArrowDownToLine size={15} />, run: () => void actions.update() },
-      install: { label: "Install Fortnite", icon: <Download size={15} />, run: () => openDialog({ kind: "install" }) },
-      resume: { label: "Resume download", icon: <Play size={15} />, run: () => hero.job && void actions.resumeJob(hero.job.id) },
-      signIn: { label: "Sign in with Epic", icon: <Play size={15} />, run: () => void actions.signIn("hero") },
-      repair: { label: "Repair Fortnite", icon: <Wrench size={15} />, run: () => void actions.verify() },
-    };
-    const p = primary[hero.kind];
-    if (p) cmds.push({ id: "primary", group: "Game", keywords: "launch start", ...p });
-    if (installed) {
-      cmds.push(
-        { id: "verify", group: "Game", label: "Verify and repair files", icon: <Wrench size={15} />, keywords: "check integrity", disabled: busy || !signedIn, run: () => void actions.verify() },
-        { id: "check", group: "Game", label: "Check for updates", icon: <RefreshCw size={15} />, disabled: busy || !signedIn, run: () => void actions.checkForUpdates() },
-        { id: "move", group: "Game", label: "Move install…", icon: <FolderInput size={15} />, disabled: busy, run: () => openDialog({ kind: "move" }) },
-        { id: "folder", group: "Game", label: "Open install folder", icon: <FolderOpen size={15} />, run: () => void actions.openInstallFolder() },
-        { id: "uninstall", group: "Game", label: "Uninstall…", icon: <Trash2 size={15} />, disabled: busy, run: () => openDialog({ kind: "uninstall" }) },
-      );
+    if (currentGame) {
+      const g = currentGame;
+      const busy = isBusy(snap, g.appName);
+      const installed = g.installStatus === "installed" || g.installStatus === "broken";
+      const job = jobForGame(snap.queue.jobs, g.appName);
+      if (job?.status === "paused") cmds.push({ id: "primary", group: "Game", label: `Resume ${g.title}`, icon: <Play size={15} />, keywords: "continue", run: () => void actions.resumeJob(job.id) });
+      else if (installed && g.updateAvailable) cmds.push({ id: "primary", group: "Game", label: `Update ${g.title}`, icon: <ArrowDownToLine size={15} />, keywords: "launch start", run: () => void actions.update(g.appName) });
+      else if (installed) cmds.push({ id: "primary", group: "Game", label: `Play ${g.title}`, icon: <Play size={15} />, keywords: "launch start", run: () => void actions.launch(g.appName) });
+      else if (g.installStatus === "notInstalled") cmds.push({ id: "primary", group: "Game", label: `Install ${g.title}`, icon: <Download size={15} />, keywords: "download", run: () => openDialog({ kind: "install", appName: g.appName }) });
+      if (installed) {
+        cmds.push(
+          { id: "verify", group: "Game", label: `Verify and repair ${g.title}`, icon: <Wrench size={15} />, keywords: "check integrity", disabled: busy || !signedIn, run: () => void actions.verify(g.appName) },
+          { id: "move", group: "Game", label: `Move ${g.title}…`, icon: <FolderInput size={15} />, disabled: busy, run: () => openDialog({ kind: "move", appName: g.appName }) },
+          { id: "folder", group: "Game", label: `Open ${g.title}'s install folder`, icon: <FolderOpen size={15} />, run: () => void actions.openInstallFolder(g.appName) },
+          { id: "uninstall", group: "Game", label: `Uninstall ${g.title}…`, icon: <Trash2 size={15} />, disabled: busy, run: () => openDialog({ kind: "uninstall", appName: g.appName }) },
+        );
+      }
     }
     cmds.push(
-      { id: "go-library", group: "Go to", label: "Library", icon: <Gamepad2 size={15} />, shortcut: "Ctrl+1", run: () => go("library") },
-      { id: "go-downloads", group: "Go to", label: "Downloads", icon: <Download size={15} />, shortcut: "Ctrl+2", run: () => go("downloads") },
-      { id: "go-settings", group: "Go to", label: "Settings", icon: <SettingsIcon size={15} />, shortcut: "Ctrl+3", run: () => go("settings") },
+      { id: "check", group: "App", label: "Check all games for updates", icon: <RefreshCw size={15} />, disabled: !signedIn, run: () => void actions.checkForUpdates() },
+      { id: "updateAll", group: "App", label: "Update all games", icon: <ArrowDownToLine size={15} />, disabled: !signedIn || snap.library.updatesAvailable === 0, run: () => void actions.updateAll() },
+      { id: "go-home", group: "Go to", label: "Home", icon: <House size={15} />, shortcut: "Ctrl+1", run: () => go("home") },
+      { id: "go-library", group: "Go to", label: "Library", icon: <Gamepad2 size={15} />, shortcut: "Ctrl+2", run: () => go("library") },
+      { id: "go-downloads", group: "Go to", label: "Downloads", icon: <Download size={15} />, shortcut: "Ctrl+3", run: () => go("downloads") },
+      { id: "go-store", group: "Go to", label: "Store", icon: <Store size={15} />, shortcut: "Ctrl+4", run: () => go("store") },
+      { id: "go-settings", group: "Go to", label: "Settings", icon: <SettingsIcon size={15} />, shortcut: "Ctrl+5", run: () => go("settings") },
       ...SETTINGS_SECTIONS.map<Command>(([id, label]) => ({
         id: `settings-${id}`,
         group: "Go to",
@@ -115,27 +122,38 @@ function PaletteBody({ close }: { close: () => void }) {
           void actions.updateSettings({ theme: cur === "light" ? "dark" : "light" });
         },
       },
-      { id: "rescan", group: "App", label: "Re-scan for existing installs", icon: <RefreshCw size={15} />, run: () => void actions.rescanEgl() },
-      { id: "scanDrives", group: "App", label: "Scan all drives for an existing install", icon: <RefreshCw size={15} />, run: () => void actions.rescanEgl(true) },
+      { id: "rescan", group: "App", label: "Re-scan for Epic Games Launcher installs", icon: <RefreshCw size={15} />, run: () => void actions.rescanEgl() },
+      { id: "scanDrives", group: "App", label: "Scan all drives for existing installs", icon: <RefreshCw size={15} />, run: () => void actions.rescanEgl(true) },
       { id: "logs", group: "App", label: "Copy logs for a bug report", icon: <Wrench size={15} />, run: () => void actions.copyLogs() },
     );
     if (signedIn) cmds.push({ id: "signout", group: "App", label: "Sign out", icon: <LogOut size={15} />, run: () => void actions.signOut() });
     return cmds;
-  }, [snap, hero.kind, hero.job, go, openDialog]);
+  }, [snap, currentGame, go, openDialog]);
+
+  // Typing also searches the library (through the in-memory index): "Open <game>" jumps to its page.
+  const games = useMemo<Command[]>(() => {
+    if (!query.trim()) return [];
+    return index
+      .query({ search: query })
+      .slice(0, 8)
+      .map((g) => ({ id: `game-${g.appName}`, group: "Games" as const, label: g.title, icon: <Gamepad2 size={15} />, run: () => goGame(g.appName) }));
+  }, [index, query]);
 
   const results = useMemo(
-    () =>
-      commands
+    () => [
+      ...games,
+      ...commands
         .map((c) => ({ c, s: score(query, `${c.label} ${c.keywords ?? ""}`) }))
         .filter((r) => r.s > 0)
         .sort((a, b) => (query ? b.s - a.s : 0))
         .map((r) => r.c),
-    [commands, query],
+    ],
+    [commands, games, query],
   );
 
   useEffect(() => {
-    list.current?.querySelector<HTMLElement>(`[data-index="${index}"]`)?.scrollIntoView({ block: "nearest" });
-  }, [index]);
+    list.current?.querySelector<HTMLElement>(`[data-index="${cursor}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [cursor]);
 
   const run = (c: Command | undefined) => {
     if (!c || c.disabled) return;
@@ -152,22 +170,22 @@ function PaletteBody({ close }: { close: () => void }) {
               role="combobox"
               aria-expanded
               aria-controls="palette-list"
-              aria-activedescendant={results[index] ? `cmd-${results[index]!.id}` : undefined}
+              aria-activedescendant={results[cursor] ? `cmd-${results[cursor]!.id}` : undefined}
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
-                setIndex(0);
+                setCursor(0);
               }}
               onKeyDown={(e) => {
                 if (e.key === "ArrowDown") {
                   e.preventDefault();
-                  setIndex((i) => Math.min(results.length - 1, i + 1));
+                  setCursor((i) => Math.min(results.length - 1, i + 1));
                 } else if (e.key === "ArrowUp") {
                   e.preventDefault();
-                  setIndex((i) => Math.max(0, i - 1));
+                  setCursor((i) => Math.max(0, i - 1));
                 } else if (e.key === "Enter") {
                   e.preventDefault();
-                  run(results[index]);
+                  run(results[cursor]);
                 }
               }}
               placeholder="Type a command or search…"
@@ -186,19 +204,19 @@ function PaletteBody({ close }: { close: () => void }) {
                     id={`cmd-${c.id}`}
                     role="option"
                     data-index={i}
-                    aria-selected={i === index}
+                    aria-selected={i === cursor}
                     aria-disabled={c.disabled || undefined}
-                    onMouseMove={() => setIndex(i)}
+                    onMouseMove={() => setCursor(i)}
                     onClick={() => run(c)}
                     className={cx(
                       "flex h-9 items-center gap-3 rounded-lg px-3 text-sm",
                       c.disabled ? "opacity-45" : "text-fg",
-                      i === index && "bg-surface-hover",
+                      i === cursor && "bg-surface-hover",
                     )}
                   >
                     <span className="text-fg-muted">{c.icon}</span>
                     <span className="min-w-0 flex-1 truncate">{c.label}</span>
-                    {c.shortcut ? <Kbd>{c.shortcut}</Kbd> : i === index && !c.disabled ? <CornerDownLeft size={13} className="text-fg-subtle" /> : null}
+                    {c.shortcut ? <Kbd>{c.shortcut}</Kbd> : i === cursor && !c.disabled ? <CornerDownLeft size={13} className="text-fg-subtle" /> : null}
                   </div>
                 </div>
               );

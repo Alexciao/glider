@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { connectRpc, postHostTheme, rpc } from "../ipc/rpc";
 import { isHosted } from "../ipc/client";
 import { startBridge } from "../state/bridge";
+import { installRouter } from "../state/router";
 import { useApp } from "../state/store";
 import { useUi } from "../state/ui";
 
@@ -9,6 +10,7 @@ let booting: Promise<void> | null = null;
 
 /** Idempotent (StrictMode runs effects twice): connect, wire events, load the first snapshot. */
 export function boot(): Promise<void> {
+  installRouter();
   booting ??= connectRpc().then(startBridge).then(() => undefined);
   return booting;
 }

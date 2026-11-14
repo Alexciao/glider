@@ -202,7 +202,7 @@ export function generateCatalog(opts: CatalogOptions): MockGame[] {
   const thirdPartyName = (s: ThirdPartyStore): string | null => (s === "ubisoft" ? "Ubisoft Connect" : s === "ea" ? "EA app" : s === "other" ? "Another launcher" : null);
 
   // The first installed game (after Fortnite) with cloud saves that is not unverified/broken sits in conflict; two more differ.
-  const installedList = [...installed].filter((i) => !broken.has(i) && thirdPartyOf(i) === "none" && !noCloud.has(i));
+  const installedList = [...installed].filter((i) => !broken.has(i) && !updates.has(i) && thirdPartyOf(i) === "none" && !noCloud.has(i));
   const conflictIdx = installedList[0] ?? -1;
   const localNewer = new Set(installedList.slice(1, 3));
   const cloudNewer = new Set(installedList.slice(3, 5));
