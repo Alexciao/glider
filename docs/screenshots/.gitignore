@@ -1,4 +1,4 @@
-# Only dark-solid-1280x800 and light-solid-1280x800 are committed (see README.md).
+# Committed: dark-solid-1280x800, light-solid-1280x800 (the README set), v0.2 (before/after), and the surface-* folders except mica-active (see README.md).
 dark-mica-*/
 light-mica-*/
 dark-solid-960x600/
@@ -8,3 +8,4 @@ _before/
 _round*/
 _motion/
 _sheets/
+surface-*-mica-active/

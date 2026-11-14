@@ -1,14 +1,16 @@
 # Glider
 
-A fast, quiet Windows launcher for Fortnite that fully replaces the Epic Games Launcher. Sign in, install
-(or adopt your existing install with zero re-download), update, verify/repair and play, without opening
+A fast, quiet Windows launcher for your whole Epic library that fully replaces the Epic Games Launcher. Sign in,
+import the games you already have (no re-download), then install, update, verify, repair and play, without opening
 the Epic Games Launcher.
 
 <p>
-  <img src="docs/screenshots/dark-solid-1280x800/library-installed.png" width="49%" alt="Library, ready to play">
-  <img src="docs/screenshots/dark-solid-1280x800/onboarding-4-found-one.png" width="49%" alt="Onboarding: existing install found">
-  <img src="docs/screenshots/dark-solid-1280x800/library-downloading.png" width="49%" alt="Installing with live progress">
-  <img src="docs/screenshots/light-solid-1280x800/settings-egl.png" width="49%" alt="Epic Games Launcher settings (light theme)">
+  <img src="docs/screenshots/dark-solid-1280x800/home.png" width="49%" alt="Home: continue playing, updates, free this week">
+  <img src="docs/screenshots/dark-solid-1280x800/library-grid.png" width="49%" alt="Library, grid view">
+  <img src="docs/screenshots/dark-solid-1280x800/game-page.png" width="49%" alt="A game's page, ready to play">
+  <img src="docs/screenshots/dark-solid-1280x800/downloads.png" width="49%" alt="Downloads: an install with live progress and speed">
+  <img src="docs/screenshots/dark-solid-1280x800/onboarding-scan.png" width="49%" alt="Onboarding: installed games found on this PC">
+  <img src="docs/screenshots/light-solid-1280x800/settings.png" width="49%" alt="Settings (light theme)">
 </p>
 
 > Glider is an unofficial, independent project. It is not affiliated with or endorsed by Epic Games.
