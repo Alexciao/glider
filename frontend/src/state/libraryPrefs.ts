@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { create } from "zustand";
 import { navigate } from "./router";
 import { getSnapshot, useSnap } from "./store";
@@ -71,7 +72,8 @@ export function useLibraryPrefs(): [LibraryPrefs, (patch: Partial<LibraryPrefs>)
   const cached = useLibraryPrefsStore((s) => s.byUser[user]);
   const prefs = cached ?? readPrefs(user);
   const patch = useLibraryPrefsStore((s) => s.patch);
-  return [prefs, (p) => patch(user, p)];
+  const set = useCallback((p: Partial<LibraryPrefs>) => patch(user, p), [patch, user]);
+  return [prefs, set];
 }
 
 /** Opens the Library with these preferences applied (Home's "See updates" → the Updates filter). */

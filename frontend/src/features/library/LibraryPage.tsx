@@ -4,8 +4,8 @@ import { actions } from "../../state/actions";
 import { collectionActions } from "../../state/collections";
 import { useHotkey } from "../../state/hooks";
 import { useLibrary } from "../../state/library";
-import { useLibraryCounts, useLibraryQuery, type LibraryFilter } from "../../state/libraryIndex";
-import { useLibraryPrefs } from "../../state/libraryPrefs";
+import { useLibraryCounts, useLibraryQuery, type LibraryFilter, type LibrarySort } from "../../state/libraryIndex";
+import { useLibraryPrefs, type LibraryView } from "../../state/libraryPrefs";
 import { useSnap } from "../../state/store";
 import { usePending } from "../../state/ui";
 import type { Collection } from "../../ipc/contract.gen";
@@ -64,6 +64,13 @@ export function LibraryPage() {
     setPrefs({ filter: "all", collectionId: "all" });
   };
   const onScrolled = useCallback((v: boolean) => setScrolled(v), []);
+  // Stable handlers: the toolbar's controls are memoized, so a keystroke in the search box doesn't re-render them.
+  const onFilter = useCallback((filter: LibraryFilter) => setPrefs({ filter }), [setPrefs]);
+  const onSort = useCallback((sort: LibrarySort) => setPrefs({ sort }), [setPrefs]);
+  const onView = useCallback((view: LibraryView) => setPrefs({ view }), [setPrefs]);
+  const onCollection = useCallback((collectionId: string) => setPrefs({ collectionId }), [setPrefs]);
+  const onNewCollection = useCallback(() => openCreate(), [openCreate]);
+  const onRenameCollection = useCallback((c: Collection) => openRename(c.id), [openRename]);
 
   let body;
   if (showSkeleton) {
@@ -145,18 +152,18 @@ export function LibraryPage() {
             onSearch={setSearch}
             searchRef={searchRef}
             filter={prefs.filter}
-            onFilter={(filter) => setPrefs({ filter })}
+            onFilter={onFilter}
             sort={prefs.sort}
-            onSort={(sort) => setPrefs({ sort })}
+            onSort={onSort}
             view={prefs.view}
-            onView={(view) => setPrefs({ view })}
+            onView={onView}
             counts={counts}
             total={total}
             collections={collections}
             collection={collection}
-            onCollection={(collectionId) => setPrefs({ collectionId })}
-            onNewCollection={() => openCreate()}
-            onRenameCollection={(c) => openRename(c.id)}
+            onCollection={onCollection}
+            onNewCollection={onNewCollection}
+            onRenameCollection={onRenameCollection}
             onDeleteCollection={setDeleting}
           />
         )}

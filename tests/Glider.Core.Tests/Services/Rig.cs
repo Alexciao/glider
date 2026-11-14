@@ -80,6 +80,9 @@ public sealed class Rig : IDisposable
     /// <summary>Library delta coalescing window (zero = rebuild at once; with a value, deltas wait for <see cref="Time"/>).</summary>
     public TimeSpan LibraryCoalesce { get; set; } = TimeSpan.Zero;
 
+    /// <summary>Quiet delay before cache/library.json is rewritten (zero = at once; with a value, the write waits for <see cref="Time"/>).</summary>
+    public TimeSpan LibraryCacheDelay { get; set; } = TimeSpan.Zero;
+
     public GliderService Service
     {
         get
@@ -113,7 +116,7 @@ public sealed class Rig : IDisposable
                         SaveOptions = SaveOptions,
                         ConnectivityProbe = Probe,
                         NetworkChangeSignal = NetworkSignal,
-                        LibraryCacheDelay = TimeSpan.Zero,
+                        LibraryCacheDelay = LibraryCacheDelay,
                         LibraryRetryDelay = TimeSpan.FromMilliseconds(5),
                         AppVersion = "0.2.0-test",
                         LicensesDirectory = Path.Combine(Root, "licenses"),

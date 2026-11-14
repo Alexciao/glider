@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Glider.Core.Contracts;
 using Glider.Core.Infrastructure;
 using Glider.Core.Library;
@@ -14,8 +15,11 @@ namespace Glider.Core.Tests.Benchmarks;
 /// </summary>
 public sealed class StartupBenchmarks
 {
-    /// <summary>Wall-clock budgets are catastrophe guards, not tight limits: 10x the target keeps a loaded machine green.</summary>
-    internal const int LoadSlack = 10;
+    /// <summary>Slack on the wall-clock budgets of the Core-only numbers (a loaded machine must stay green; a regression must not).</summary>
+    internal const int LoadSlack = 3;
+
+    /// <summary>The v0.2 target for `library.get` at cold start, asserted without any slack (docs/perf.md).</summary>
+    private const double LibraryGetBudgetMs = 50;
 
     private const int Games = 500;
 
@@ -46,31 +50,63 @@ public sealed class StartupBenchmarks
         return list;
     }
 
+    /// <summary>
+    /// Legendary's metadata folder as a real account has it: one <c>metadata/&lt;app&gt;.json</c> per game, sized like the public
+    /// catalog responses in docs/research/fixtures/legendary/catalog-v0.21.1 (75 % a 27 KB AAA item, 20 % a 2 KB one, 5 % a 77 KB
+    /// one), written indented like Legendary's <c>json.dump(indent=2)</c>: about 24 KB on average, 12 MB for 500 games. One entitlement
+    /// per game. Call before <c>rig.Service</c> is first used.
+    /// </summary>
+    internal static long WriteRealShapedMetadata(Rig rig, IReadOnlyList<string> apps)
+    {
+        var indent = new JsonSerializerOptions { WriteIndented = true };
+        var big = LibraryFixture.CatalogItem(LibraryFixture.AlienCatalog);
+        var small = LibraryFixture.CatalogItem(LibraryFixture.CastlevaniaCatalog);
+        var huge = LibraryFixture.CatalogItem(LibraryFixture.FortniteCatalog);
+        for (var i = 0; i < apps.Count; i++)
+        {
+            var template = i % 20 == 0 ? huge : i % 5 == 1 ? small : big;
+            var n = i;
+            rig.Library.Add(apps[i], template, build: "1.2.4-12399+Release", edit: item =>
+            {
+                item["title"] = $"Synthetic Game Number {n} of the Library";
+                item["id"] = $"item{n:D5}";
+                item["namespace"] = $"ns{n:D5}";
+                item.Remove("mainGameItem");
+            });
+            var path = Path.Combine(rig.Paths.LegendaryConfig, "metadata", apps[i] + ".json");
+            File.WriteAllText(path, JsonNode.Parse(File.ReadAllText(path))!.ToJsonString(indent));
+            rig.Library.Entitle($"ns{n:D5}", null, "2024-05-06T07:08:09.000Z", $"item{n:D5}");
+        }
+
+        return Directory.EnumerateFiles(Path.Combine(rig.Paths.LegendaryConfig, "metadata"), "*.json").Sum(f => new FileInfo(f).Length);
+    }
+
     [Fact]
-    public async Task ColdStart_ServesFiveHundredCachedGames()
+    public async Task ColdStart_ServesFiveHundredCachedGames_WithoutWaitingForLegendarysMetadata()
     {
         using var rig = new Rig();
         var games = SyntheticLibrary(Games);
+        var metadataBytes = WriteRealShapedMetadata(rig, [.. games.Select(g => g.AppName)]); // real-shaped metadata stays on disk: the parse is what H4 was about
         Directory.CreateDirectory(rig.Paths.Cache);
 
         var sw = Stopwatch.StartNew();
         var bytes = JsonSerializer.SerializeToUtf8Bytes(new LibraryCacheFile { Games = games }, EngineJsonContext.Default.LibraryCacheFile);
         var serializeMs = sw.Elapsed.TotalMilliseconds;
         await File.WriteAllBytesAsync(LibraryService.PathFor(rig.Paths), bytes, TestContext.Current.CancellationToken);
-        _ = rig.Service; // writes Legendary's fixture files...
-        Directory.Delete(Path.Combine(rig.Paths.LegendaryConfig, "metadata"), recursive: true); // ...an empty config dir keeps the cached library (no metadata yet)
-        rig.Legendary.VersionGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); // hold the pre-warm: cold path only
+        var gate = rig.Legendary.VersionGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        // Warm the JIT on a throw-away deserialize, like a second run of an R2R image would not need; report both cold and warm.
         sw.Restart();
         await rig.Service.StartAsync();
         var startMs = sw.Elapsed.TotalMilliseconds; // LoadCache + first snapshot + first library publish
         Assert.Equal(Games, rig.Service.LibraryForTests.Games.Count);
 
+        // Pre-warm runs now, in parallel with the UI's first request: `library files` parses every metadata/*.json while library.get is served.
+        gate.SetResult();
         sw.Restart();
         var delta = await rig.Service.GetLibrary();
         var getMs = sw.Elapsed.TotalMilliseconds;
-        Assert.Equal(Games, delta.Upserts.Count);
+        var parseStillRunning = !rig.Service.LibraryForTests.FilesRead;
+        Assert.True(delta.Upserts.Count >= Games); // the 500 cached games (plus Fortnite once the parse has landed)
 
         sw.Restart();
         var json = JsonSerializer.Serialize(delta, GliderJsonContext.Default.LibraryDelta);
@@ -89,41 +125,89 @@ public sealed class StartupBenchmarks
         var wire2 = JsonSerializer.Serialize(again, GliderJsonContext.Default.LibraryDelta);
         var secondMs = sw.Elapsed.TotalMilliseconds;
 
-        Report($"{Games} games: library.json {bytes.Length / 1024} KiB (write-side serialize {serializeMs:0.0} ms); " +
-               $"StartAsync (cache load + first publish) {startMs:0.0} ms; library.get {getMs:0.0} ms; wire JSON {json.Length / 1024} KiB in {wireMs:0.0} ms (first, JIT-cold) / " +
-               $"get+serialize again {secondMs:0.0} ms ({wire2.Length / 1024} KiB); snapshot {snapshot.Length / 1024.0:0.0} KiB: build {snapBuildMs:0.0} ms + serialize {snapshotMs:0.0} ms");
+        // The background parse finishes later and publishes its delta; the UI never waited for it.
+        sw.Restart();
+        await rig.Service.WarmupTask;
+        await rig.Service.LibraryForTests.FlushAsync();
+        var parseWaitMs = sw.Elapsed.TotalMilliseconds;
+        Assert.True(rig.Service.LibraryForTests.FilesRead);
+
+        Report($"{Games} games, {metadataBytes / 1024 / 1024.0:0.0} MiB of metadata on disk, library.json {bytes.Length / 1024} KiB (write-side serialize {serializeMs:0.0} ms); " +
+               $"StartAsync (cache load + first publish) {startMs:0.0} ms; library.get {getMs:0.0} ms (Legendary's files {(parseStillRunning ? "still being parsed" : "already parsed")}); " +
+               $"wire JSON {json.Length / 1024} KiB in {wireMs:0.0} ms (first, JIT-cold) / get+serialize again {secondMs:0.0} ms ({wire2.Length / 1024} KiB); " +
+               $"snapshot {snapshot.Length / 1024.0:0.0} KiB: build {snapBuildMs:0.0} ms + serialize {snapshotMs:0.0} ms; background parse + delta finished {parseWaitMs:0.0} ms later");
+        Assert.True(getMs < LibraryGetBudgetMs, $"library.get took {getMs:0.0} ms (budget {LibraryGetBudgetMs} ms, Legendary's metadata on disk)");
         Assert.True(startMs < 400 * LoadSlack, $"cold start took {startMs} ms");
-        Assert.True(getMs < 100 * LoadSlack, $"library.get took {getMs} ms");
         Assert.True(wireMs < 100 * LoadSlack, $"serializing library.get took {wireMs} ms");
         Assert.True(snapshot.Length < 16 * 1024, "the snapshot must stay a few KB");
-
-        rig.Legendary.VersionGate.SetResult();
     }
 
     [Fact]
     public async Task ARebuildOfFiveHundredGames_StaysFast()
     {
         using var rig = new Rig();
-        for (var i = 0; i < Games; i++)
+        var apps = Enumerable.Range(0, Games).Select(i => $"App{i:D4}").ToList();
+        WriteRealShapedMetadata(rig, apps);
+        await rig.StartWarmAsync();
+        var library = rig.Service.LibraryForTests;
+        Assert.True(library.Games.Count >= Games);
+
+        async Task<double> Timed(Func<Task> change)
         {
-            rig.AddGame($"App{i:D4}", $"Game {i}", latest: "2.0", installedVersion: i % 7 == 0 ? "1.0" : null);
+            await change();
+            var sw = Stopwatch.StartNew();
+            await library.FlushAsync();
+            return sw.Elapsed.TotalMilliseconds;
         }
 
-        await rig.StartWarmAsync();
-        Assert.True(rig.Service.LibraryForTests.Games.Count >= Games);
+        static double Median(List<double> t) => t.Order().ElementAt(t.Count / 2);
+        static string Runs(List<double> t) => string.Join(", ", t.Select(x => x.ToString("0.0")));
 
-        var times = new List<double>();
+        // Nothing changed (a job tick, a settings write, an art notification): the rebuild must find that out cheaply.
+        var unchanged = new List<double>();
         for (var i = 0; i < 5; i++)
         {
-            rig.Service.LibraryForTests.Invalidate();
-            var sw = Stopwatch.StartNew();
-            await rig.Service.LibraryForTests.FlushAsync();
-            times.Add(sw.Elapsed.TotalMilliseconds);
+            unchanged.Add(await Timed(() => { library.Invalidate(); return Task.CompletedTask; }));
         }
 
-        var median = times.Order().ElementAt(2);
-        Report($"rebuild of {rig.Service.LibraryForTests.Games.Count} games without file changes: median {median:0.0} ms (runs {string.Join(", ", times.Select(t => t.ToString("0.0")))})");
-        Assert.True(median < 250 * LoadSlack, $"rebuild took {median} ms");
+        // One game's Glider record changed (a favorite, playtime): one summary is rebuilt, one upsert goes out.
+        var oneGame = new List<double>();
+        for (var i = 0; i < 5; i++)
+        {
+            var before = rig.Sink.Of<LibraryDelta>(RpcEvents.Library).Count;
+            var fav = i % 2 == 0;
+            oneGame.Add(await Timed(() =>
+            {
+                rig.Games.Put("App0003", rig.Games.Get("App0003") with { Favorite = fav, PlaytimeSeconds = 100 + i });
+                return Task.CompletedTask;
+            }));
+            var deltas = rig.Sink.Of<LibraryDelta>(RpcEvents.Library).Skip(before).ToList();
+            Assert.Equal("App0003", Assert.Single(Assert.Single(deltas).Upserts).AppName);
+        }
+
+        // A re-read of Legendary's files when none changed (every sync and job end), then with one metadata file rewritten.
+        var reread = new List<double>();
+        for (var i = 0; i < 5; i++)
+        {
+            var sw = Stopwatch.StartNew();
+            await library.ReloadAsync();
+            reread.Add(sw.Elapsed.TotalMilliseconds);
+        }
+
+        var metadata = Path.Combine(rig.Paths.LegendaryConfig, "metadata", "App0002.json");
+        var rewritten = new List<double>();
+        for (var i = 0; i < 5; i++)
+        {
+            File.AppendAllText(metadata, new string(' ', i + 1));
+            var sw = Stopwatch.StartNew();
+            await library.ReloadAsync();
+            rewritten.Add(sw.Elapsed.TotalMilliseconds);
+        }
+
+        var median = Median(unchanged);
+        Report($"{library.Games.Count} real-shaped games: rebuild without any change median {median:0.0} ms (runs {Runs(unchanged)}); one game's record changed median {Median(oneGame):0.0} ms ({Runs(oneGame)}); " +
+               $"re-read of unchanged files median {Median(reread):0.0} ms ({Runs(reread)}); one metadata file rewritten median {Median(rewritten):0.0} ms ({Runs(rewritten)})");
+        Assert.True(median < 50 * LoadSlack, $"rebuild took {median} ms");
     }
 
     /// <summary>

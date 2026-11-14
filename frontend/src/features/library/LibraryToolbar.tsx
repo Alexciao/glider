@@ -1,4 +1,4 @@
-import type { Ref } from "react";
+import { memo, type Ref } from "react";
 import { ChevronDown, Layers, LayoutGrid, List, Search } from "lucide-react";
 import type { Collection } from "../../ipc/contract.gen";
 import { LIBRARY_FILTERS, LIBRARY_SORTS, type LibraryCounts, type LibraryFilter, type LibrarySort } from "../../state/libraryIndex";
@@ -46,25 +46,34 @@ export interface LibraryToolbarProps {
  * Search, filter, sort, view: one 32 px row. The collections menu appears only once a collection exists (the first one is
  * made from a game's menu), so most people never see a control they don't need.
  */
-export function LibraryToolbar({ searchRef, ...p }: LibraryToolbarProps) {
-  const { Item, CheckItem, Separator } = dropdownKit;
+export function LibraryToolbar({ searchRef, search, onSearch, ...controls }: LibraryToolbarProps) {
   return (
     <div role="search" className="flex flex-wrap items-center gap-2">
       <TextField
         ref={searchRef}
         aria-label="Search your library"
-        placeholder={`Search ${p.total} ${p.total === 1 ? "game" : "games"}`}
+        placeholder={`Search ${controls.total} ${controls.total === 1 ? "game" : "games"}`}
         prefix={<Search size={14} />}
         wrapperClassName="min-w-[200px] flex-1"
-        value={p.search}
-        onChange={(e) => p.onSearch(e.target.value)}
+        value={search}
+        onChange={(e) => onSearch(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Escape") {
-            if (p.search) p.onSearch("");
+            if (search) onSearch("");
             else e.currentTarget.blur();
           }
         }}
       />
+      <ToolbarControls {...controls} />
+    </div>
+  );
+}
+
+/** Everything but the search box. Memoized: a keystroke re-renders the text field, not the selects and menus beside it. */
+const ToolbarControls = memo(function ToolbarControls(p: Omit<LibraryToolbarProps, "search" | "onSearch" | "searchRef">) {
+  const { Item, CheckItem, Separator } = dropdownKit;
+  return (
+    <>
       <Select<LibraryFilter>
         aria-label="Filter"
         minWidth={168}
@@ -112,6 +121,6 @@ export function LibraryToolbar({ searchRef, ...p }: LibraryToolbarProps) {
           { value: "list", ariaLabel: "List view", label: <List size={14} className="mx-auto" /> },
         ]}
       />
-    </div>
+    </>
   );
-}
+});

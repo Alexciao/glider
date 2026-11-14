@@ -45,7 +45,7 @@ here. What is robust under load is the time spent inside Core on the UI's critic
 | | Before | After |
 |---|---|---|
 | `app.getSnapshot` inside Core (first call) | 145 ms | **2–4 ms** |
-| `library.get` inside Core, 500 games, 561 KiB (first call) | 179 ms | **21–25 ms** |
+| `library.get` inside Core, 500 games, 561 KiB (first call), **with no Legendary metadata on disk** | 179 ms | **21–25 ms** (not the real case: see WP4 below for the same call with 500 real-sized metadata files on disk) |
 | `rpc-ready` (Core composed + dispatcher built, ms since process start) | 0.69-1.5 s (6 runs, load 76-100 %) | 1.0-1.5 s (5 runs) + one 3.5 s outlier: **not improved**, load noise dominates |
 | Core composition alone, one loaded run each (migrate / stores / legendary+queue / egl / service / started, cumulative ms) | 57 / 189 / 467 / 468 / 545 / 706 | 40 / 160 / 211 / 229 / 255 / 363 (a single sample each: only shows where the time goes, not a gain) |
 | `revealed` (best / median of 6, **under 76–100 % CPU**) | 1.67 s / 2.4 s | 2.1 s / 3.6 s (heavier load: 100 % in 5 of 6 runs) |
@@ -58,12 +58,11 @@ has to be re-measured; the v0.1-era placeholder-UI figure was 1.15 s (`perf-host
 **Fixes for what blocked the targets**
 - *First-use cost of the JSON contract* (≈ 480 ms of JIT in a cold test process, ~100–150 ms in the R2R host): the UI's first two requests paid it. `GliderService.WarmSerializers` (host only: `GliderServiceOptions.WarmSerializers`) serializes a throw-away snapshot and 64 games on a pool thread right after start, while WebView2 is still starting; it also warms the snapshot's sources (drives, EGL, queue).
 - `RpcDispatcher.MethodNames` (reflection over `IGliderRpc` + metadata for every contract type) is touched on a pool thread at the very start of `HostRuntime`, not after Core is composed.
-- Left as is, measured: building 500 summaries from files (`GameCatalog.Build` + `Diff`) takes median **51 ms** (46–106 ms under load), `library.get` after warm-up serializes 561 KiB in ~6 ms, and the snapshot stays 1.6 KiB (asserted < 16 KiB). A pre-serialized JSON blob would save those 6 ms only; not worth a second code path.
+- Measured at the time (superseded by WP4 below): building 500 summaries from files took median **51 ms** for any change at all; `library.get` after warm-up serializes 561 KiB in ~6 ms, and the snapshot stays 1.6 KiB (asserted < 16 KiB). A pre-serialized JSON blob would save those 6 ms only; not worth a second code path.
 - `cache/library.json` is still read synchronously in `StartAsync` (cold test process: 67–139 ms for 561 KiB; warm ~20 ms): it must be there before the first snapshot, and it overlaps window creation.
 
-**Core benchmark** (`StartupBenchmarks`, test process = JIT-cold, so an upper bound): 500 games, `cache/library.json` 561 KiB; write-side serialize 5–6 ms;
-`StartAsync` (cache load + first snapshot + first library publish) 67–139 ms; `library.get` 4–128 ms (first call, depends on load); wire JSON 561 KiB
-in 63–83 ms cold and **5.7 ms warm**; rebuild of 501 games without file changes: median 51 ms. Asserted floors: start < 400 ms, `library.get` < 100 ms.
+**Core benchmark**: see "Library cold start and incremental rebuild (WP4)" below; the 2026-11-14 numbers in this paragraph were measured with
+Legendary's metadata folder deleted and are no longer the benchmark's configuration.
 
 **Memory at idle** (real UI, 500 games, 5 s after reveal, after the one-off trim; 2 runs, same in the other four):
 
@@ -77,7 +76,7 @@ Host < 100 MB: yes on every metric (private WS 3 MB, commit 81 MB). Total with W
 trim**; commit and plain working set are 3× that, as they are for any WebView2 app. The trim (compacting GC + `EmptyWorkingSet` 3 s after first reveal) already
 existed (`MemoryTrimmer`); with 500 games the 561 KiB of summaries are ordinary heap and don't change the picture. Not measured: memory after scrolling a full grid.
 
-**Search / filter < 16 ms**: not measured here (frontend index, measured by the UI side); cite their number from the frontend perf tests.
+**Search / filter < 16 ms**: the index answers any query in < 4 ms median (frontend perf test); the whole keystroke, to the last DOM mutation of the grid, is measured under WP4 below.
 
 **Art cache** costs nothing at start: no file is touched until an `art.glider` request; a disk hit is `FileInfo` + one open (selftest: 200 + 15 KB JPEG
 answered in 55 ms including the page's first fetch); a miss without catalog or network is a 404 in 0–2 ms (host log). A real download of a 300 px cover
@@ -91,3 +90,71 @@ Copy-Item -Recurse $env:GLIDER_BENCH_SEED $env:TEMP\run1
 publish\Glider.exe --measure-startup=run1.json --measure-delay=5 --data-dir=$env:TEMP\run1
 dotnet test --project tests/Glider.Core.Tests -c Release --filter-class "*StartupBenchmarks" --output detailed   # Core numbers
 ```
+
+## Library cold start and incremental rebuild (WP4, `docs/review-v0.2-architecture.md` H4, M6, L13)
+
+The numbers above were taken with Legendary's `metadata/` folder removed, so the first `library.get` never had a parse to wait for (H4). Since
+WP4 the benchmark keeps real-shaped metadata on disk and the pre-warm running.
+
+**What changed.**
+- `library.get` (and `game.getDetail`) at cold start is the cached library, `cache/library.json`: it never parses Legendary's files and never waits
+  on the pre-warm that does. The file-based rebuild runs in the background and arrives as one `library` delta (the UI already applies deltas in
+  order). Only with no cache at all (first run after an upgrade) does it wait, up to 2 s, for the first read. Once the files were read, a foreground
+  flush waits at most 500 ms for a rebuild that is already running.
+- Rebuilds are incremental. `GameCatalog.Build` keeps a `CatalogMemo`: for every game it remembers the inputs its summary was computed from (catalog
+  item, asset, install, Glider's record, runtime facts, art, DLC count, entitlements) and recomputes only games whose inputs changed. The reader
+  re-parses `assets.json`, `installed.json` and `entitlements.json` only when their size or mtime changed (as it already did for each
+  `metadata/<app>.json`). The entitlement-based "added" date is one index, not a scan per game; art picks run once per item.
+- `cache/library.json` is written off the hot path, only when a summary changed since the last write, at most every 30 s (after the 2 s quiet delay),
+  and once at shutdown. Before, every delta (placeholders every 3 s, playtime every 30 s) rewrote 561 KiB.
+- Frontend: `LibraryIndex` is built on the previous index. Entries of unchanged games are reused (the store keeps their identity); when no sort
+  position moved, only the changed entries are swapped into copies of the sorted arrays. The search box no longer re-renders the toolbar's selects and
+  menus or the grid on every keystroke.
+
+**Method.** `StartupBenchmarks` (Core, JIT-cold test process, Release, 2026-11-14, Windows 11, other agents building on the same machine). 500 games;
+`metadata/*.json` written indented like Legendary (`json.dump(indent=2)`) and sized from the public catalog fixtures in
+`docs/research/fixtures/legendary/catalog-v0.21.1` (75 % a 27 KB AAA item, 20 % a 2 KB one, 5 % a 77 KB one): **12.1 MiB**, plus one entitlement per game;
+`cache/library.json` 561 KiB; the pre-warm is released right before `library.get`. "Before" is commit `d92f80b` with the same benchmark file; "after" is this change.
+Three runs each; ranges are min–max of the three runs' figures (medians of five repetitions where it says median).
+
+| Core, 500 games, 12.1 MiB of real-shaped metadata | Before | After |
+|---|---|---|
+| `library.get`, first call, pre-warm running | **2.8–3.7 s** (it parsed the 500 files itself) | **1.9–6.4 ms** |
+| `StartAsync` (cache load + first snapshot + first publish) | 40–49 ms | 26–34 ms |
+| Rebuild after any invalidation that changed nothing (job tick, settings write) | median 30–37 ms | median **2.0–2.4 ms** |
+| Rebuild after one game's Glider record changed (favorite, playtime), `library.get` delta = 1 upsert | median 30–43 ms | median **1.9–4.0 ms** |
+| Re-read of Legendary's files when none changed (every sync and job end) | median 24–47 ms | median **4.2–6.3 ms** |
+| Re-read with one `metadata/<app>.json` rewritten | median 31–69 ms | median **11.8–13.8 ms** |
+| `cache/library.json` writes after a rebuild that changed nothing | 0 (no delta) | 0 |
+| `cache/library.json` writes while a game plays or art loads (a delta every 3–30 s) | one 561 KiB write per delta | at most one per 30 s |
+
+The 3 s "before" is larger than the 266–678 ms of the review's probe (500 × 27 KB, warm cache): the benchmark writes its 12 MiB of files just before the
+call, so Windows Defender is still scanning them. That is the cold-boot case the review describes (a Start-with-Windows launch with a freshly scanned
+library drive), and the point of H4: this wait sat directly in front of the first paint.
+
+The benchmark **fails above 50 ms for `library.get`** (no slack) and keeps generous guards (`LoadSlack` 3x) on the other Core numbers: `StartAsync`
+< 1.2 s, first wire serialization < 300 ms (JIT-cold), snapshot < 16 KiB.
+
+**Frontend** (600 games + DLC; mock backend `perf600`).
+
+| | Before | After |
+|---|---|---|
+| `LibraryIndex` for a one-game delta (playtime, runState, job: nothing moves), vitest | 4.4 ms | **0.55 ms** |
+| same, when a sort key moves (last played, size, title) | 4.4 ms | 1.8 ms |
+| Library search keystroke: input event → last DOM mutation of the grid, production build, headless Chromium 1280×800, median of 4 runs × 54 keystrokes | 17.3 ms (17.0–17.6) | **11.6 ms** (8.5–12.7) |
+| same, input event → next paint (2 frames) | 13.9–16.1 ms | 12.0–13.5 ms |
+
+The remaining keystroke cost is mounting the visible covers (a result set of all-new tiles); it does not grow with the library. The grid is virtualized
+and the query itself takes < 1 ms. In jsdom the cover is nearly all of a tile's cost (30 `GameCover`s alone: 27 ms, 30 whole tiles: 26 ms).
+
+**Not done / why.** No pre-serialized `library.get` blob: warm serialization of 561 KiB is 3–8 ms and the first-call cost is JIT, which the host's
+`WarmSerializers` already pays on a pool thread. The metadata parse itself (`JsonDocument` per file) is untouched: it now runs in the background and
+only the first start after an upgrade (no cache) waits for it.
+
+To reproduce:
+```powershell
+dotnet test --project tests/Glider.Core.Tests -c Release --filter-class "*StartupBenchmarks" --output detailed   # prints both benchmarks' numbers
+cd frontend; pnpm vitest run src/state/libraryIndex.test.ts                                                       # index tests, incl. the delta timing
+```
+For the keystroke figure: `pnpm exec vite build`, `pnpm exec vite preview`, open `/?scenario=perf600&dev=0&art=none` in headless Chromium, go to the
+Library, set the search box's value and dispatch `input`; watch the grid's `ul` with a `MutationObserver` (a throw-away script, not committed).

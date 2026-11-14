@@ -195,3 +195,123 @@ describe("getLibraryIndex memoization", () => {
     expect(getLibraryIndex(m2)).not.toBe(a);
   });
 });
+
+describe("incremental index (a delta does not rebuild everything)", () => {
+  const list = lib(300, 5);
+  const QUERIES: LibraryQuery[] = [
+    {},
+    { sort: "recent" },
+    { sort: "added" },
+    { sort: "size", filter: "installed" },
+    { filter: "updates" },
+    { filter: "favorites", sort: "recent" },
+    { filter: "hidden" },
+    { search: "or" },
+    { search: "the", includeDlc: true },
+  ];
+  /** The incremental index must answer every query exactly like one built from scratch. */
+  const expectSame = (a: LibraryIndex, b: LibraryIndex) => {
+    expect(a.size).toBe(b.size);
+    expect(a.counts).toEqual(b.counts);
+    for (const q of QUERIES) expect(a.query(q).map((g) => g.appName)).toEqual(b.query(q).map((g) => g.appName));
+    expect(a.updates()).toEqual(b.updates());
+    expect(a.recentlyPlayed()).toEqual(b.recentlyPlayed());
+  };
+  const withGames = (base: readonly GameSummary[], change: (m: Map<string, GameSummary>) => void): GameSummary[] => {
+    const m = new Map(base.map((g) => [g.appName, g]));
+    change(m);
+    return [...m.values()];
+  };
+
+  it("a change that moves nothing (favorite, runState, job) rebuilds one entry and answers like a fresh index", () => {
+    const first = new LibraryIndex(list);
+    const target = base(list)[40]!;
+    const next = withGames(list, (m) => m.set(target.appName, { ...target, favorite: !target.favorite, runState: "running", activeJobId: "j1" }));
+    const idx = new LibraryIndex(next, first);
+    expect(idx.rebuilt).toBe(1);
+    expectSame(idx, new LibraryIndex(next));
+    expect(idx.get(target.appName)).toBe(next.find((g) => g.appName === target.appName));
+    expect(first.get(target.appName)).toBe(target); // the previous index is untouched
+  });
+
+  it("a change that moves a game (title, last played, size), an added and a removed game", () => {
+    const first = new LibraryIndex(list);
+    const [a, b, c, d] = base(list).filter((g) => g.installStatus === "installed").slice(0, 4) as [GameSummary, GameSummary, GameSummary, GameSummary];
+    let state = list;
+    let prev = first;
+    const steps: ((m: Map<string, GameSummary>) => void)[] = [
+      (m) => m.set(a.appName, { ...a, title: "Zzz Renamed Game" }),
+      (m) => m.set(b.appName, { ...b, lastPlayedAt: "2099-01-01T00:00:00Z" }),
+      (m) => m.set(c.appName, { ...c, installedSizeBytes: 9e12 }),
+      (m) => m.delete(d.appName),
+      (m) => m.set("brand-new", { ...a, appName: "brand-new", title: "Brand New Game", dlcCount: 0 }),
+      (m) => m.set(a.appName, { ...a, title: "Zzz Renamed Game", hidden: true }),
+    ];
+    for (const step of steps) {
+      state = withGames(state, step);
+      const idx = new LibraryIndex(state, prev);
+      expectSame(idx, new LibraryIndex(state));
+      prev = idx;
+    }
+  });
+
+  it("random delta sequences keep matching a fresh index", () => {
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    let state = list;
+    let prev = new LibraryIndex(state);
+    for (let step = 0; step < 40; step++) {
+      state = withGames(state, (m) => {
+        const apps = [...m.keys()];
+        for (let k = 0; k < 1 + Math.floor(rnd() * 3); k++) {
+          const g = m.get(apps[Math.floor(rnd() * apps.length)]!)!;
+          const roll = rnd();
+          if (roll < 0.4) m.set(g.appName, { ...g, favorite: !g.favorite });
+          else if (roll < 0.55) m.set(g.appName, { ...g, title: `${g.title} ${step}` });
+          else if (roll < 0.7) m.set(g.appName, { ...g, lastPlayedAt: new Date(NOW - Math.floor(rnd() * 1e9)).toISOString() });
+          else if (roll < 0.8) m.set(g.appName, { ...g, installedSizeBytes: Math.floor(rnd() * 1e10) });
+          else if (roll < 0.9) m.delete(g.appName);
+          else m.set(`new-${step}-${k}`, { ...g, appName: `new-${step}-${k}`, title: `New ${step} ${k}` });
+        }
+      });
+      const idx = new LibraryIndex(state, prev);
+      expectSame(idx, new LibraryIndex(state));
+      prev = idx;
+    }
+  });
+
+  it("getLibraryIndex builds a delta's index on the last one: unchanged games keep their entries", () => {
+    const m1 = new Map(list.map((g) => [g.appName, g]));
+    const first = getLibraryIndex(m1);
+    const g = base(list)[10]!;
+    const m2 = new Map(m1).set(g.appName, { ...g, favorite: !g.favorite });
+    const second = getLibraryIndex(m2);
+    expect(second.rebuilt).toBe(1);
+    expect(second.query()).not.toBe(first.query());
+    expect(getLibraryIndex(m2)).toBe(second);
+  });
+
+  it("applies a one-game delta much faster than building from scratch (600 games)", () => {
+    const big = lib(600, 3);
+    const first = new LibraryIndex(big);
+    const target = base(big)[100]!;
+    const med = (f: () => void) => {
+      const t: number[] = [];
+      for (let i = 0; i < 21; i++) {
+        const s = performance.now();
+        f();
+        t.push(performance.now() - s);
+      }
+      return t.sort((x, y) => x - y)[10]!;
+    };
+    let n = 0;
+    const next = () => withGames(big, (m) => m.set(target.appName, { ...target, playtimeSeconds: ++n }));
+    const states = Array.from({ length: 21 }, next);
+    let i = 0;
+    const incremental = med(() => new LibraryIndex(states[i++]!, first));
+    i = 0;
+    const scratch = med(() => new LibraryIndex(states[i++]!));
+    expect(incremental).toBeLessThan(scratch * 0.6);
+    expect(incremental).toBeLessThan(4);
+  });
+});
