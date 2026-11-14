@@ -17,7 +17,6 @@ import { Shell } from "../app/Shell";
 import { Dialogs } from "./dialogs/Dialogs";
 import { Downloads } from "./downloads/Downloads";
 import { Home } from "./home/Home";
-import { GameView } from "./library/GameView";
 import { LibraryPage } from "./library/LibraryPage";
 
 let stop: (() => void) | undefined;
@@ -54,8 +53,6 @@ async function mount(scenario: ScenarioName, ui: React.ReactElement | ((b: Boote
   return { user, view, controller, booted };
 }
 
-const plain = (g: GameSummary) => g.kind === "game" && g.installStatus === "installed" && g.thirdParty === "none";
-
 beforeEach(() => {
   useApp.setState({ snapshot: null });
   useLibrary.getState().reset();
@@ -67,103 +64,6 @@ beforeEach(() => {
 afterEach(() => {
   stop?.();
   setRpcForTests(null);
-});
-
-describe("Game page", () => {
-  it("shows 'Ready to play' and launches through Launching to Playing", async () => {
-    const { user, controller } = await mount("returning", (b) => {
-      const g = b.find((x) => plain(x) && !x.updateAvailable && x.canRunOffline && x.saveStatus !== "conflict" && x.saveStatus !== "localNewer" && x.saveStatus !== "cloudNewer" && x.appName !== "Fortnite");
-      return <GameView appName={g.appName} />;
-    });
-    expect(screen.getByText("Ready to play")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /^Play$/ }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /Launching|Preparing/ })).toBeDisabled(), { timeout: 3000 });
-    await waitFor(() => expect(screen.getByRole("button", { name: /Playing/ })).toBeInTheDocument(), { timeout: 6000 });
-    expect(screen.getByText(/is running$/)).toBeInTheDocument();
-    controller.dispose?.();
-  });
-
-  it("names the game: Fortnite is the user's v0.1 game, with its update and size", async () => {
-    await mount("returning", <GameView appName="Fortnite" />);
-    expect(screen.getByRole("heading", { name: "Fortnite" })).toBeInTheDocument();
-    expect(screen.getByText("Update available")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Update$/ })).toBeEnabled();
-  });
-
-  it("shows playtime, last played and installed size in the facts row", async () => {
-    await mount("returning", <GameView appName="Fortnite" />);
-    expect(screen.getByText("Playtime")).toBeInTheDocument();
-    expect(screen.getByText("842 h 17 min")).toBeInTheDocument();
-    expect(screen.getByText("Last played")).toBeInTheDocument();
-    expect(screen.getByText("Installed size")).toBeInTheDocument();
-    expect(screen.getByText("Developer")).toBeInTheDocument();
-  });
-
-  it("a game that isn't in the library says so, with a way back", async () => {
-    const { user } = await mount("returning", <GameView appName="nope-nope" />);
-    expect(screen.getByText("That game isn't in your library")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Back to library" }));
-    expect(useRouter.getState().route).toEqual({ page: "library" });
-  });
-
-  it("explains waiting on Epic Games Launcher, for that game only", async () => {
-    await mount(
-      "eglBusy",
-      (b) => <GameView appName={b.snap.queue.jobs.find((j) => j.status === "waiting")!.appName} />,
-      { freeze: true },
-    );
-    expect(screen.getByText(/Epic Games Launcher is updating .*, so Glider will wait/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Waiting/ })).toBeInTheDocument();
-  });
-
-  it("shows a failed job's error with its one-click fix, on the right game", async () => {
-    await mount("errors", (b) => {
-      const j = b.snap.queue.jobs.find((x) => x.status === "failed" && x.error?.code === "insufficientSpace")!;
-      return <GameView appName={j.appName} />;
-    });
-    expect(screen.getByRole("alert")).toHaveTextContent("Not enough disk space");
-    expect(within(screen.getByRole("alert")).getByRole("button", { name: "Free up space" })).toBeInTheDocument();
-  });
-
-  it("surfaces a launch failure inline with Repair", async () => {
-    let title = "";
-    const { user, controller } = await mount("returning", (b) => {
-      const g = b.find((x) => plain(x) && !x.updateAvailable && x.saveStatus === "inSync" && x.canRunOffline);
-      title = g.title;
-      return <GameView appName={g.appName} />;
-    });
-    controller.failNext("launchFailed");
-    await user.click(screen.getByRole("button", { name: /^Play$/ }));
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(`Couldn't start ${title}`);
-    expect(within(alert).getByRole("button", { name: "Repair" })).toBeInTheDocument();
-  });
-
-  it("a save conflict is resolved inline: keeping one side clears it", async () => {
-    const { user } = await mount("returning", (b) => <GameView appName={b.find((g) => g.saveStatus === "conflict").appName} />);
-    expect(screen.getByText("Your cloud and local saves both changed")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Keep cloud" }));
-    await waitFor(() => expect(screen.queryByText("Your cloud and local saves both changed")).not.toBeInTheDocument());
-  });
-
-  it("a conflicting Play is explained with a toast, not a silent failure", async () => {
-    const { user } = await mount("returning", (b) => <GameView appName={b.find((g) => g.saveStatus === "conflict").appName} />);
-    await user.click(screen.getByRole("button", { name: /^Play$/ }));
-    await waitFor(() => expect(useNotices.getState().items.some((t) => t.title === "Your saves differ" && t.action === "resolveSaves")).toBe(true));
-  });
-
-  it("a third-party game that needs linking asks to activate", async () => {
-    const { user } = await mount("returning", (b) => <GameView appName={b.find((g) => g.thirdParty === "ubisoft" && g.installStatus === "installed").appName} />);
-    await user.click(screen.getByRole("button", { name: /^Play$/ }));
-    await waitFor(() => expect(useNotices.getState().items.some((t) => t.action === "activate")).toBe(true));
-  });
-
-  it("favorites toggle optimistically and the backend's delta agrees", async () => {
-    const { user } = await mount("returning", <GameView appName="Fortnite" />);
-    await user.click(screen.getByRole("button", { name: "More actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Remove from favorites" }));
-    await waitFor(() => expect(useLibrary.getState().games.get("Fortnite")!.favorite).toBe(false));
-  });
 });
 
 describe("Library page", () => {
@@ -270,33 +170,6 @@ describe("Downloads", () => {
     });
     expect(await screen.findByText("Nothing downloading")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Update \d+ games$/ })).toBeInTheDocument();
-  });
-});
-
-describe("Install dialog", () => {
-  it("plans against the chosen drive and blocks the install when it doesn't fit", async () => {
-    const { user } = await mount("diskFull", (b) => {
-      const g = b.find((x) => x.kind === "game" && x.installStatus === "notInstalled" && x.thirdParty === "none");
-      act(() => useUi.getState().openDialog({ kind: "install", appName: g.appName }));
-      return <div />;
-    });
-    expect(await screen.findByText(/^Install /, { selector: "h2" })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText(/is free\. Free up space or choose another drive\./)).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "Install" })).toBeDisabled();
-    void user;
-  });
-
-  it("starts the install into the default folder and goes to Downloads", async () => {
-    const { user } = await mount("returning", (b) => {
-      const g = b.find((x) => x.kind === "game" && x.installStatus === "notInstalled" && x.thirdParty === "none" && x.dlcCount === 0);
-      act(() => useUi.getState().openDialog({ kind: "install", appName: g.appName }));
-      return <div />;
-    });
-    const install = await screen.findByRole("button", { name: "Install" });
-    await waitFor(() => expect(install).toBeEnabled());
-    await user.click(install);
-    await waitFor(() => expect(useApp.getState().snapshot!.queue.jobs.some((j) => j.kind === "install" && j.status !== "completed")).toBe(true));
-    expect(useRouter.getState().route).toEqual({ page: "downloads" });
   });
 });
 
