@@ -340,7 +340,11 @@ internal static partial class Program
 
     private static int FakeWorker(int port)
     {
-        using var client = new System.Net.Sockets.TcpClient("127.0.0.1", port);
+        // A small receive window, like a real transfer over a WAN: while this process is suspended only a few KiB can pile up, so
+        // the speed limiter's duty cycle bites. With loopback's default autotuned buffers (MBs) a suspended worker would still
+        // drain a burst the moment it resumes and the limiter could not get below about 15 MB/s.
+        using var client = new System.Net.Sockets.TcpClient { ReceiveBufferSize = 16 * 1024 };
+        client.Connect("127.0.0.1", port);
         using var stream = client.GetStream();
         var request = Encoding.ASCII.GetBytes("GET /chunk HTTP/1.1\r\nHost: x\r\n\r\n");
         var buffer = new byte[64 * 1024];

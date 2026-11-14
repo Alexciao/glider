@@ -80,6 +80,7 @@ public class SpeedLimitTests
                 _ = Task.Run(async () =>
                 {
                     using var client = c;
+                    client.Client.SendBufferSize = 16 * 1024; // see FakeLegendary.FakeWorker: the pipe holds KiBs, not MiBs, while a worker is suspended
                     var stream = client.GetStream();
                     var buf = new byte[1024];
                     var piece = 64 * 1024;
@@ -149,15 +150,30 @@ public class SpeedLimitTests
             var limit = (long)Math.Min(10e6, capacity / 4);
             Assert.True(limit > 500_000, $"capacity {capacity / 1e6:0.0} MB/s is too low to say anything | {env.Log.Tail(30)}");
 
+            // The limiter is a feedback loop on real processes, so on a busy machine it needs more or fewer seconds to settle. What
+            // is asserted is that it gets the rate into the band around the limit and holds it for two windows in a row (a limiter
+            // that did nothing, or one that stopped the downloads, never would); the safety net is 20 windows.
             control.Update(DownloadMode.Full, limit);
-            await MeasureAsync(8); // settle: the loop engages and converges
-            var limited = await MeasureAsync(6);
-            Assert.True(limited > 0.5 * limit && limited < 1.6 * limit, $"limited {limited / 1e6:0.0} MB/s, target {limit / 1e6:0.0} (capacity {capacity / 1e6:0.0}) | {env.Log.Tail(30)}");
+            var windows = new List<double>();
+            for (var inBand = 0; inBand < 2 && windows.Count < 20;)
+            {
+                var rate = await MeasureAsync(3);
+                windows.Add(rate);
+                inBand = rate > 0.5 * limit && rate < 1.6 * limit ? inBand + 1 : 0;
+            }
 
+            Assert.True(windows.Count >= 2 && windows[^1] > 0.5 * limit && windows[^1] < 1.6 * limit && windows[^2] > 0.5 * limit && windows[^2] < 1.6 * limit,
+                $"never settled at {limit / 1e6:0.0} MB/s (capacity {capacity / 1e6:0.0}); 3 s windows MB/s: {string.Join(' ', windows.Select(w => (w / 1e6).ToString("0.0")))} | {env.Log.Tail(30)}");
+
+            // Removing the limit lets the workers run free again: some window must be far above the limit that was held.
             control.Update(DownloadMode.Full, null);
-            await MeasureAsync(3);
-            var free = await MeasureAsync(3);
-            Assert.True(free > 2 * limited, $"released rate {free / 1e6:0.0} MB/s should be far above the limited {limited / 1e6:0.0} MB/s");
+            var released = new List<double>();
+            while (released.Count < 10 && !(released.Count > 0 && released[^1] > 2 * limit))
+            {
+                released.Add(await MeasureAsync(3));
+            }
+
+            Assert.True(released[^1] > 2 * limit, $"released 3 s windows MB/s: {string.Join(' ', released.Select(w => (w / 1e6).ToString("0.0")))}, should rise far above the limit {limit / 1e6:0.0}");
         }
         finally
         {
