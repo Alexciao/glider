@@ -1,0 +1,51 @@
+{
+  "de": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "Deutsch",
+    "tags": [
+      "de-DE"
+    ]
+  },
+  "es-ES": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "espa\u00f1ol (Espa\u00f1a)",
+    "tags": [
+      "es-ES"
+    ]
+  },
+  "es-MX": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "espa\u00f1ol (M\u00e9xico)",
+    "tags": [
+      "es-MX"
+    ]
+  },
+  "fr": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "fran\u00e7ais",
+    "tags": [
+      "fr-FR"
+    ]
+  },
+  "it": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "italiano",
+    "tags": [
+      "it-IT"
+    ]
+  },
+  "ja": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "\u65e5\u672c\u8a9e",
+    "tags": [
+      "ja-JP"
+    ]
+  },
+  "pt-BR": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "portugu\u00eas",
+    "tags": [
+      "pt-BR"
+    ]
+  }
+}

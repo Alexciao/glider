@@ -1,0 +1,21 @@
+usage: legendary.exe list-files [-h] [--force-download]
+                                [--platform <Platform>] [--manifest <uri>]
+                                [--csv] [--tsv] [--json] [--hashlist]
+                                [--install-tag <tag>]
+                                [<App Name>]
+
+positional arguments:
+  <App Name>            Name of the app (optional)
+
+options:
+  -h, --help            show this help message and exit
+  --force-download      Always download instead of using on-disk manifest
+  --platform <Platform>
+                        Platform (default: Mac on macOS, otherwise Windows)
+  --manifest <uri>      Manifest URL or path to use instead of the CDN one
+  --csv                 Output in CSV format
+  --tsv                 Output in TSV format
+  --json                Output in JSON format
+  --hashlist            Output file hash list in hashcheck/sha1sum -c
+                        compatible format
+  --install-tag <tag>   Show only files with specified install tag

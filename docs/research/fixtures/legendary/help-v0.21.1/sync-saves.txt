@@ -1,0 +1,17 @@
+usage: legendary.exe sync-saves [-h] [--skip-upload] [--skip-download]
+                                [--force-upload] [--force-download]
+                                [--save-path <path>] [--disable-filters]
+                                [<App Name>]
+
+positional arguments:
+  <App Name>          Name of the app (optional)
+
+options:
+  -h, --help          show this help message and exit
+  --skip-upload       Only download new saves from cloud, don't upload
+  --skip-download     Only upload new saves from cloud, don't download
+  --force-upload      Force upload even if local saves are older
+  --force-download    Force download even if local saves are newer
+  --save-path <path>  Override savegame path (requires single app name to be
+                      specified)
+  --disable-filters   Disable save game file filtering

@@ -1,0 +1,9 @@
+usage: legendary.exe achievements [-h] [--hidden] [--json] <App Name>
+
+positional arguments:
+  <App Name>  Name of the app
+
+options:
+  -h, --help  show this help message and exit
+  --hidden    Show undiscovered achievements (may contain spoilers)
+  --json      Output information in JSON format

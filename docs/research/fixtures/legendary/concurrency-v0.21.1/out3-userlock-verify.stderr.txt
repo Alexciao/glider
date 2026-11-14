@@ -1,0 +1,2 @@
+[cli] INFO: Loading installed manifest for "FakeA"
+[cli] CRITICAL: Manifest appears to be missing! To repair, run "legendary repair FakeA --repair-and-update", this will however redownload all files that do not match the latest manifest in their entirety.

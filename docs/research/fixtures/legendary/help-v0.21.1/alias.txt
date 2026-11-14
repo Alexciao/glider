@@ -1,0 +1,13 @@
+usage: legendary.exe alias [-h]
+                           <add|rename|remove|list> [<App name/Old alias>]
+                           [<New alias>]
+
+positional arguments:
+  <add|rename|remove|list>
+                        Action: Add, rename, remove, or list alias(es)
+  <App name/Old alias>  App name when using "add" or "list" action, existing
+                        alias when using "rename" or "remove" action
+  <New alias>           New alias when using "add" action
+
+options:
+  -h, --help            show this help message and exit

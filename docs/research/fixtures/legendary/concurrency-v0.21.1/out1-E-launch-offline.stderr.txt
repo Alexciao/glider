@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "cli.py", line 3262, in <module>
+  File "cli.py", line 3175, in main
+  File "cli.py", line 651, in launch_game
+  File "legendary\core.py", line 882, in get_launch_parameters
+AttributeError: 'NoneType' object has no attribute 'additional_command_line'
+[PYI-31444:ERROR] Failed to execute script 'cli' due to unhandled exception!

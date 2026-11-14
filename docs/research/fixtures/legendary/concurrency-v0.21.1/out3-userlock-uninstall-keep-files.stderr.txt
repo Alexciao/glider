@@ -1,0 +1,3 @@
+[Core] WARNING: Metadata for FakeB is missing!
+[cli] INFO: Removing "FakeB Title" from "<LK>\games\FakeB"...
+[cli] INFO: Game has been uninstalled.

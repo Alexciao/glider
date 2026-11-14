@@ -1,0 +1,8 @@
+usage: legendary.exe activate [-h] (-U | -O)
+
+options:
+  -h, --help    show this help message and exit
+  -U, --uplay   Activate Uplay/Ubisoft Connect titles on your Ubisoft account
+                (Uplay install not required)
+  -O, --origin  Activate Origin/EA App managed titles on your EA account
+                (requires Origin to be installed)

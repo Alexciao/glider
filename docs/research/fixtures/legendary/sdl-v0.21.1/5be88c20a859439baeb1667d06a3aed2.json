@@ -1,0 +1,51 @@
+{
+  "de": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Additional Languages) Deutsch",
+    "tags": [
+      "german"
+    ]
+  },
+  "es": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Additional Languages) Espa\u00f1ol",
+    "tags": [
+      "spanish"
+    ]
+  },
+  "fr": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Additional Languages) Fran\u00e7ais",
+    "tags": [
+      "french"
+    ]
+  },
+  "it": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Additional Languages) Italiano",
+    "tags": [
+      "italian"
+    ]
+  },
+  "ja": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Additional Languages) \u65e5\u672c\u8a9e",
+    "tags": [
+      "japanese"
+    ]
+  },
+  "ko": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Additional Languages) \ud55c\uad6d\uc5b4",
+    "tags": [
+      "korean"
+    ]
+  },
+  "zh-CN": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "(Additional Languages) \u4e2d\u6587\uff08\u4e2d\u56fd\uff09",
+    "tags": [
+      "chinese"
+    ]
+  }
+}

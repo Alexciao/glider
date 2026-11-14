@@ -1,0 +1,20 @@
+usage: legendary.exe crossover [-h] [--reset] [--download] [--ignore-version]
+                               [--crossover-app <path to .app>]
+                               [--crossover-bottle <bottle name>]
+                               [<App Name>]
+
+positional arguments:
+  <App Name>            App name to configure, will configure defaults if
+                        ommited
+
+options:
+  -h, --help            show this help message and exit
+  --reset               Reset default/app-specific crossover configuration
+  --download            Automatically download and set up a preconfigured
+                        bottle (experimental)
+  --ignore-version      Disable version check for available bottles when using
+                        --download
+  --crossover-app <path to .app>
+                        Specify app to skip interactive selection
+  --crossover-bottle <bottle name>
+                        Specify bottle to skip interactive selection

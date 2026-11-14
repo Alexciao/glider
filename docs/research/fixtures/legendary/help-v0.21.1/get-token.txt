@@ -1,0 +1,6 @@
+usage: legendary.exe get-token [-h] [--json] [--bearer]
+
+options:
+  -h, --help  show this help message and exit
+  --json      Output information in JSON format
+  --bearer    Return fresh bearer token rather than an exchange code

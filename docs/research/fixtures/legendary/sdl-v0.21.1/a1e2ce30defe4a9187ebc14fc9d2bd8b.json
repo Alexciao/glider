@@ -1,0 +1,66 @@
+{
+  "__required": {
+    "description": "Common files required to play Kerbal Space Program.",
+    "name": "Kerbal Space Program",
+    "tags": [
+      "",
+      "English"
+    ]
+  },
+  "cn": {
+    "description": "Additional language build, requires launch EXE to be changed!",
+    "name": "\u4e2d\u6587\uff08\u4e2d\u56fd\uff09",
+    "tags": [
+      "Simplified_Chinese"
+    ]
+  },
+  "de": {
+    "description": "Additional language build, requires launch EXE to be changed!",
+    "name": "Deutsch",
+    "tags": [
+      "Deutsch"
+    ]
+  },
+  "es": {
+    "description": "Additional language build, requires launch EXE to be changed!",
+    "name": "Espa\u00f1ol (Espa\u00f1a)",
+    "tags": [
+      "Spanish"
+    ]
+  },
+  "fr": {
+    "description": "Additional language build, requires launch EXE to be changed!",
+    "name": "Fran\u00e7ais",
+    "tags": [
+      "French"
+    ]
+  },
+  "it": {
+    "description": "Additional language build, requires launch EXE to be changed!",
+    "name": "Italiano",
+    "tags": [
+      "Italian"
+    ]
+  },
+  "ja": {
+    "description": "Additional language build, requires launch EXE to be changed!",
+    "name": "\u65e5\u672c\u8a9e",
+    "tags": [
+      "Japanese"
+    ]
+  },
+  "pt": {
+    "description": "Additional language build, requires launch EXE to be changed!",
+    "name": "Portugu\u00eas",
+    "tags": [
+      "Portuguese"
+    ]
+  },
+  "ru": {
+    "description": "Additional language build, requires launch EXE to be changed!",
+    "name": "\u0440\u0443\u0441\u0441\u043a\u0438\u0439",
+    "tags": [
+      "Russian"
+    ]
+  }
+}

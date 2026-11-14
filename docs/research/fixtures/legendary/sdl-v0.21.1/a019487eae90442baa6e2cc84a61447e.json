@@ -1,0 +1,86 @@
+{
+  "cr": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "\u010de\u0161tina",
+    "tags": [
+      "language_czech"
+    ]
+  },
+  "de": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "Deutsch",
+    "tags": [
+      "language_german"
+    ]
+  },
+  "es-ES": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "espa\u00f1ol (Espa\u00f1a)",
+    "tags": [
+      "language_spanish"
+    ]
+  },
+  "fr": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "fran\u00e7ais",
+    "tags": [
+      "language_french"
+    ]
+  },
+  "it": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "italiano",
+    "tags": [
+      "language_italian"
+    ]
+  },
+  "ko": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "\ud55c\uad6d\uc5b4",
+    "tags": [
+      "language_korean"
+    ]
+  },
+  "pl": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "polski",
+    "tags": [
+      "language_polish"
+    ]
+  },
+  "pt-BR": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "portugu\u00eas",
+    "tags": [
+      "language_brazilian"
+    ]
+  },
+  "ru": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "\u0440\u0443\u0441\u0441\u043a\u0438\u0439",
+    "tags": [
+      "language_russian"
+    ]
+  },
+  "tr": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "T\u00fcrk\u00e7e",
+    "tags": [
+      "language_turkish"
+    ]
+  },
+  "zh-Hans": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "\u4e2d\u6587 (\u7b80\u4f53\u4e2d\u6587\uff09",
+    "tags": [
+      "language_chinese_simplified"
+    ]
+  },
+  "zh-Hant": {
+    "description": "Includes the additional voice over languages available.",
+    "name": "\u4e2d\u6587\uff08\u7e41\u9ad4\u5b57\uff09",
+    "tags": [
+      "language_chinese_traditional"
+    ]
+  }
+}

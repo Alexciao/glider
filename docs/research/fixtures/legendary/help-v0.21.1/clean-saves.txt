@@ -1,0 +1,8 @@
+usage: legendary.exe clean-saves [-h] [--delete-incomplete] [<App Name>]
+
+positional arguments:
+  <App Name>           Name of the app (optional)
+
+options:
+  -h, --help           show this help message and exit
+  --delete-incomplete  Delete incomplete save files

@@ -1,0 +1,18 @@
+usage: legendary.exe auth [-h] [--import] [--code <authorization code>]
+                          [--token <exchange token>] [--sid <session id>]
+                          [--delete] [--disable-webview]
+
+options:
+  -h, --help            show this help message and exit
+  --import              Import Epic Games Launcher authentication data (logs
+                        out of EGL)
+  --code <authorization code>
+                        Use specified authorization code instead of
+                        interactive authentication
+  --token <exchange token>
+                        Use specified exchange token instead of interactive
+                        authentication
+  --sid <session id>    Use specified session id instead of interactive
+                        authentication
+  --delete              Remove existing authentication (log out)
+  --disable-webview     Do not use embedded browser for login
