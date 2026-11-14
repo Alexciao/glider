@@ -76,6 +76,15 @@ public sealed class GliderServiceOptions
     /// <summary>Per-mode process priorities for writer-lane runs (Phase 2 fills in the per-mode plumbing).</summary>
     public Jobs.IResourcePolicy ResourcePolicy { get; init; } = Jobs.DefaultResourcePolicy.Instance;
 
+    /// <summary>Null = download art over HTTP (tests inject a fake).</summary>
+    public Art.IArtFetcher? ArtFetcher { get; init; }
+
+    /// <summary>Null = the defaults (6 parallel downloads, 384 MB).</summary>
+    public Art.ArtCacheOptions? ArtCache { get; init; }
+
+    /// <summary>The host's image decoder (cover colours, shrinking); null = none.</summary>
+    public Art.IImageProcessor? ImageProcessor { get; init; }
+
     /// <summary>"User idle" threshold for AutoUpdateOnlyWhenIdle when an <see cref="IIdleSignal"/> is present.</summary>
     public TimeSpan IdleThreshold { get; init; } = TimeSpan.FromMinutes(10);
 

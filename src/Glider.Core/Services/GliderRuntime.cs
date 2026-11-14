@@ -110,6 +110,8 @@ public sealed class GliderRuntime : IAsyncDisposable
                 OnboardingStore = onboarding,
                 Collections = collections,
                 WriterActivity = activity,
+                ImageProcessor = options.ImageProcessor,
+                ArtFetcher = options.ArtFetcher,
             });
             hooks.Target = service.Hooks;
             policy.Target = service.QueuePolicy;
@@ -155,6 +157,8 @@ public sealed class GliderRuntimeOptions
     public TimeSpan? LockRetryDelay { get; init; }
     public TimeSpan? LibraryCoalesceInterval { get; init; }
     public TimeSpan? LibraryCacheDelay { get; init; }
+    public Art.IImageProcessor? ImageProcessor { get; init; }
+    public Art.IArtFetcher? ArtFetcher { get; init; }
 }
 
 /// <summary>Bridges construction cycles: the queue needs the policy, the policy comes from GliderService (which needs the queue).</summary>

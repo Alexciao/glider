@@ -53,6 +53,20 @@ internal sealed class HostRuntime
 
     public IGliderRpc? Rpc => RpcTask.IsCompletedSuccessfully ? RpcTask.Result : null;
 
+    /// <summary>Core's art cache once the runtime is up (art requests can arrive before it is); null if startup failed.</summary>
+    public async Task<Glider.Core.Art.ArtCache?> GetArtCacheAsync()
+    {
+        try
+        {
+            await RpcTask.ConfigureAwait(false);
+            return Composition.Runtime?.Service.Art;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     private static Task<CoreWebView2Environment> StartEnvironment(AppPaths paths)
     {
         try

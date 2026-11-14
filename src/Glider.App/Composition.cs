@@ -15,7 +15,7 @@ internal static class Composition
 
     public static async Task<IGliderRpc> BuildAsync(AppPaths paths, IHostPlatform host, IEventSink events)
     {
-        Runtime = await GliderRuntime.StartAsync(paths, host, events, idleSignal: new WindowsIdleSignal()).ConfigureAwait(false);
+        Runtime = await GliderRuntime.StartAsync(paths, host, events, idleSignal: new WindowsIdleSignal(), options: new GliderRuntimeOptions { ImageProcessor = new WpfImageProcessor() }).ConfigureAwait(false);
         return Runtime.Rpc;
     }
 

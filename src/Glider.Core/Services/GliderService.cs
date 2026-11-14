@@ -1,3 +1,4 @@
+using Glider.Core.Art;
 using Glider.Core.Auth;
 using Glider.Core.Contracts;
 using Glider.Core.Game;
@@ -36,6 +37,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
     private readonly ShortcutService _shortcuts = new();
     private readonly ActivationService _activation = new();
     private readonly PrerequisiteService _prereqs = new();
+    private readonly HttpArtFetcher? _ownedFetcher;
     private Task _periodic = Task.CompletedTask;
     private int _started;
 
@@ -74,6 +76,11 @@ public sealed class GliderService : IGliderRpc, IDisposable
         };
         _collections = options.Collections ?? CollectionsStore.Empty(paths, log);
         _c.Library = new LibraryService(_c);
+        _ownedFetcher = options.ArtFetcher is null ? new HttpArtFetcher() : null;
+        _c.Art = new ArtCache(
+            paths.Cache, _c.Library, options.ArtFetcher ?? _ownedFetcher!, log, time,
+            (options.ArtCache ?? new ArtCacheOptions()) with { IsOffline = () => hub.State.Connectivity == Connectivity.Offline },
+            options.ImageProcessor);
         _c.Sizes = new InstalledSizeMeter(_c);
         _policy = new QueuePolicy(_c);
         _auth = new AuthService(_c);
@@ -112,6 +119,9 @@ public sealed class GliderService : IGliderRpc, IDisposable
 
     /// <summary>Completes when background pre-warm has finished (AppInfo.Warm).</summary>
     public Task WarmupTask { get; private set; } = Task.CompletedTask;
+
+    /// <summary>The lazy art cache the host serves https://art.glider/ from.</summary>
+    public ArtCache Art => _c.Art;
 
     internal LaunchService LaunchServiceForTests => _launch;
 
@@ -160,6 +170,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _c.SettingsStore.Changed += _ => _c.Library.Invalidate();
         _collections.Changed += _c.Hub.Invalidate;
         _c.Library.UpdatesChanged += _updates.Evaluate;
+        _c.Art.PlaceholdersChanged += () => _c.Library.Invalidate();
         _c.Hub.Mutate(s => s with { Loaded = true });
         _c.Hub.PublishNow();
 
@@ -205,6 +216,8 @@ public sealed class GliderService : IGliderRpc, IDisposable
         }
 
         _c.Library.Dispose();
+        _c.Art.Dispose();
+        _ownedFetcher?.Dispose();
         _c.Sizes.Dispose();
         _c.Hub.Dispose();
         _c.Metadata.Dispose();

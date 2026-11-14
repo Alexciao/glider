@@ -47,6 +47,7 @@ public sealed class Rig : IDisposable
     public FakeDisk Disk { get; } = new();
     public FakePublisherCheck Publisher { get; } = new();
     public FakeOnboarding Onboarding { get; } = new();
+    internal Art.FakeFetcher ArtFetcher { get; } = new();
     public IIdleSignal? Idle { get; }
 
     /// <summary>Legendary's library on disk (metadata/assets/entitlements); saved before the service starts.</summary>
@@ -77,6 +78,7 @@ public sealed class Rig : IDisposable
                         DiskInfo = Disk,
                         PublisherCheck = Publisher,
                         OnboardingStore = Onboarding,
+                        ArtFetcher = ArtFetcher,
                         IdleSignal = Idle,
                         MeasureDirectory = Measure,
                         SizeMeasureMinInterval = SizeMinInterval,
