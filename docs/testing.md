@@ -17,6 +17,8 @@ Nothing in the automated suites signs in to Epic, reads `%LocalAppData%\Glider`,
 | **Playwright** (screenshots of every state, break-ui worst-case data, a11y, focus order, hero legibility, host surfaces) against the mock backend | `frontend/e2e/` | `pnpm screenshots`, `pnpm a11y` | no (local; they write `docs/screenshots`) |
 | **Download benchmark** (real Legendary pipeline against a local chunk server; opt-in via `GLIDER_BENCH_*`) | `Benchmarks/`, `tools/bench/` | [download-perf.md](download-perf.md) | no |
 
+Timing-sensitive tests (`CdnProbeTests`, `CdnProbeWarmTimeoutTests`, `SpeedLimitTests`, `InstalledSizeTests`, a few job-queue waits) use 2 s stall timeouts and real child processes. On a machine that is also busy with other builds or test hosts (or antivirus scanning each fresh PyInstaller extraction) they can fail while passing in isolation: rerun the failing class alone (`--filter-class`) before treating it as a regression. The real-Legendary collection itself takes about 3 minutes on an idle machine.
+
 The release gate is `dotnet build Glider.slnx -c Release -warnaserror` plus the two `dotnet test` runs (with and without the real exe).
 
 ## 2. The real-Legendary suite
