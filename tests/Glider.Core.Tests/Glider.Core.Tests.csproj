@@ -28,6 +28,8 @@
     <Compile Include="..\..\src\Glider.App\WindowsShellLinks.cs" Link="Host\WindowsShellLinks.cs" />
     <!-- Pure host plumbing (shutdown, bridge queue, startup failure): no WPF/WebView2 types. -->
     <Compile Include="..\..\src\Glider.App\ShutdownRunner.cs" Link="Host\ShutdownRunner.cs" />
+    <Compile Include="..\..\src\Glider.App\BridgeQueue.cs" Link="Host\BridgeQueue.cs" />
+    <Compile Include="..\..\src\Glider.App\StartupFailure.cs" Link="Host\StartupFailure.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />

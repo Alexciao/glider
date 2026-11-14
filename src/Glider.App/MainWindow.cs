@@ -391,7 +391,12 @@ internal sealed partial class MainWindow : Window
             case CoreWebView2ProcessFailedKind.RenderProcessExited:
             case CoreWebView2ProcessFailedKind.RenderProcessUnresponsive:
             case CoreWebView2ProcessFailedKind.FrameRenderProcessExited:
-                Dispatcher.BeginInvoke(() => _web?.Reload());
+                Dispatcher.BeginInvoke(() =>
+                {
+                    // Whatever is queued for the dead page is dropped; the reloaded page loads its state fresh (and numbers its own requests).
+                    _rt.Bridge.BeginNewPage();
+                    _web?.Reload();
+                });
                 break;
             case CoreWebView2ProcessFailedKind.BrowserProcessExited:
                 if (DateTime.UtcNow - _lastRecreate > TimeSpan.FromSeconds(10))
@@ -407,6 +412,7 @@ internal sealed partial class MainWindow : Window
     private void RecreateWebView()
     {
         _rt.Bridge.Detach();
+        _rt.Bridge.BeginNewPage();
         _ = _rt.Platform.StoreIfCreated?.DestroyAsync(); // it belonged to the dead environment
         try
         {
