@@ -137,6 +137,8 @@ function resolveOptions(o: MockOptions, prev?: Resolved): Resolved {
   };
 }
 
+const isoTime = (v: string | null): number => (v ? Date.parse(v) : 0);
+
 const isRequest = (m: unknown): m is { type: "request"; id: number; method: string; params: unknown } =>
   typeof m === "object" && m !== null && (m as { type?: unknown }).type === "request" && typeof (m as { id?: unknown }).id === "number";
 
@@ -347,6 +349,7 @@ export class MockBackend {
       if (!this.cfg.freeze) this.scheduleAutoExit(s.appName);
     }
     for (const seed of w.jobs) this.hydrate(seed, now);
+    this.finished.sort((x, y) => isoTime(y.finishedAt) - isoTime(x.finishedAt));
     this.dirty.clear();
     this.reconcile(false);
     for (const e of this.queue) this.refreshActive(e.info.appName);

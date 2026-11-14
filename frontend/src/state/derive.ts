@@ -1,7 +1,7 @@
-import type { AppSnapshot, EglState, InstallCandidate, JobInfo, JobKind, JobPhase } from "../ipc/contract.gen";
+import type { AppSnapshot, EglInstall, GameSummary, JobInfo, JobKind, JobPhase } from "../ipc/contract.gen";
 import type { BadgeTone } from "../ui";
-import { currentJob } from "./store";
 import { formatBytes, prettyVersion } from "./format";
+import { jobForGame } from "./store";
 
 export const JOB_VERB: Record<JobKind, string> = {
   install: "Installing",
@@ -11,6 +11,8 @@ export const JOB_VERB: Record<JobKind, string> = {
   move: "Moving",
   uninstall: "Removing",
   import: "Importing",
+  modify: "Changing",
+  overlay: "Installing overlay",
 };
 
 /** Imperative, for things that haven't finished ("Update Fortnite"). */
@@ -21,7 +23,9 @@ export const JOB_ACTION: Record<JobKind, string> = {
   verify: "Verify",
   move: "Move",
   uninstall: "Uninstall",
-  import: "Link existing install of",
+  import: "Import",
+  modify: "Change components of",
+  overlay: "Install",
 };
 
 /** Past tense, for finished history entries ("Updated Fortnite"). */
@@ -32,7 +36,9 @@ export const JOB_PAST: Record<JobKind, string> = {
   verify: "Verified",
   move: "Moved",
   uninstall: "Uninstalled",
-  import: "Linked existing install of",
+  import: "Imported",
+  modify: "Changed components of",
+  overlay: "Installed",
 };
 
 export const JOB_NOUN: Record<JobKind, string> = {
@@ -43,15 +49,20 @@ export const JOB_NOUN: Record<JobKind, string> = {
   move: "Move",
   uninstall: "Uninstall",
   import: "Import",
+  modify: "Change",
+  overlay: "Overlay install",
 };
 
 export const PHASE_LABEL: Record<JobPhase, string> = {
   preparing: "Preparing",
-  downloading: "Downloading",
   verifying: "Verifying files",
+  repairing: "Repairing files",
+  downloading: "Downloading",
+  installing: "Installing",
   finalizing: "Finalizing",
   moving: "Moving files",
   removing: "Removing files",
+  importing: "Importing",
 };
 
 export type HeroKind =
@@ -69,7 +80,8 @@ export type HeroKind =
   | "preparing"
   | "launching"
   | "playing"
-  | "closing";
+  | "closing"
+  | "unavailable";
 
 export type HeroTarget = "signIn" | "install" | "update" | "launch" | "repair" | "resume" | "downloads" | "none";
 
@@ -86,9 +98,9 @@ export interface HeroModel {
   status: { tone: BadgeTone; text: string; sub?: string; spinner?: boolean };
 }
 
-/** Anything that blocks a new write operation. */
-export function isBusy(s: AppSnapshot): boolean {
-  return currentJob(s.jobs) !== undefined || s.game.runState !== "idle";
+/** Anything that blocks a new write operation on this game. */
+export function isBusy(s: AppSnapshot, appName: string): boolean {
+  return jobForGame(s.queue.jobs, appName) !== undefined || s.sessions.some((x) => x.appName === appName);
 }
 
 /** Slow-changing progress facts only (whole percent, phase), so the hero re-renders ~1×/s, not at 10 Hz. */
@@ -97,9 +109,9 @@ export interface HeroContext {
   percent?: number;
 }
 
-export function deriveHero(s: AppSnapshot, ctx: HeroContext = {}): HeroModel {
-  const { game, auth } = s;
-  const job = currentJob(s.jobs);
+export function deriveHero(s: AppSnapshot, game: GameSummary, ctx: HeroContext = {}): HeroModel {
+  const { auth } = s;
+  const job = jobForGame(s.queue.jobs, game.appName);
   const quiet = (kind: HeroKind, label: string, status: HeroModel["status"], extra: Partial<HeroModel> = {}): HeroModel => ({
     kind,
     label,
@@ -114,15 +126,17 @@ export function deriveHero(s: AppSnapshot, ctx: HeroContext = {}): HeroModel {
   switch (game.runState) {
     case "preparing":
       // Same face as "launching": a 300 ms "Preparing…" in between would just flicker.
-      return quiet("launching", "Launching…", { tone: "accent", text: "Starting Fortnite", spinner: true });
+      return quiet("launching", "Launching…", { tone: "accent", text: `Starting ${game.title}`, spinner: true });
+    case "syncingSaves":
+      return quiet("launching", "Launching…", { tone: "accent", text: "Syncing cloud saves", sub: game.title, spinner: true });
     case "installingPrerequisites":
-      return quiet("preparing", "Setting up…", { tone: "accent", text: "Setting up anti-cheat", sub: "Windows may ask for permission", spinner: true });
+      return quiet("preparing", "Setting up…", { tone: "accent", text: "Setting up the game", sub: "Windows may ask for permission", spinner: true });
     case "launching":
-      return quiet("launching", "Launching…", { tone: "accent", text: "Starting Fortnite", spinner: true });
+      return quiet("launching", "Launching…", { tone: "accent", text: `Starting ${game.title}`, spinner: true });
     case "running":
-      return quiet("playing", "Playing", { tone: "success", text: "Fortnite is running" });
+      return quiet("playing", "Playing", { tone: "success", text: `${game.title} is running` });
     case "closing":
-      return quiet("closing", "Closing…", { tone: "neutral", text: "Fortnite is closing", spinner: true });
+      return quiet("closing", "Closing…", { tone: "neutral", text: `${game.title} is closing`, spinner: true });
     case "idle":
       break;
   }
@@ -130,7 +144,7 @@ export function deriveHero(s: AppSnapshot, ctx: HeroContext = {}): HeroModel {
   // 2. A job is in flight (or parked).
   if (job) {
     const percent = ctx.percent ?? job.progress?.percent ?? 0;
-    const phase = ctx.phase ?? job.progress?.phase;
+    const phase = ctx.phase ?? job.progress?.phase ?? job.phase ?? undefined;
     switch (job.status) {
       case "waiting": {
         const reason = (job.blockedReason ?? "Another task is using the game files").replace(/[.\s]+$/, "");
@@ -179,7 +193,12 @@ export function deriveHero(s: AppSnapshot, ctx: HeroContext = {}): HeroModel {
     }
   }
 
-  // 3. Account gates everything that talks to Epic.
+  // 3. Entitlement-only content has nothing to do.
+  if (game.installStatus === "notInstallable" && game.thirdParty === "none") {
+    return quiet("unavailable", "Included", { tone: "neutral", text: "Included with your purchase", sub: game.kind === "dlc" ? "Nothing to install" : "Managed outside Epic" });
+  }
+
+  // 4. Account gates everything that talks to Epic.
   if (auth.status === "unknown" || auth.status === "signingIn") {
     return quiet(
       auth.status === "signingIn" ? "signingIn" : "loading",
@@ -208,10 +227,15 @@ export function deriveHero(s: AppSnapshot, ctx: HeroContext = {}): HeroModel {
     };
   }
 
-  // 4. Install state.
+  const offline = s.connectivity === "offline";
+
+  // 5. Install state.
   switch (game.installStatus) {
     case "installed": {
-      if (game.updateAvailable) {
+      if (offline && !game.canRunOffline) {
+        return quiet("unavailable", "Play", { tone: "warning", text: "Needs an internet connection", sub: `${game.title} can't run offline` });
+      }
+      if (game.updateAvailable && !offline) {
         return {
           kind: "update",
           label: "Update",
@@ -227,9 +251,9 @@ export function deriveHero(s: AppSnapshot, ctx: HeroContext = {}): HeroModel {
         emphasis: "primary",
         disabled: false,
         target: "launch",
-        status: game.checkingForUpdates
-          ? { tone: "neutral", text: "Checking for updates", spinner: true }
-          : { tone: "success", text: "Ready to play", sub: s.game.installed ? `Version ${prettyVersion(s.game.installed.version)}` : undefined },
+        status: offline
+          ? { tone: "warning", text: "Offline", sub: "Playing without Epic's services" }
+          : { tone: "success", text: "Ready to play", sub: game.installedVersion ? `Version ${prettyVersion(game.installedVersion)}` : undefined },
       };
     }
     case "broken":
@@ -241,9 +265,18 @@ export function deriveHero(s: AppSnapshot, ctx: HeroContext = {}): HeroModel {
         target: "repair",
         status: { tone: "danger", text: "Game files need repair", sub: "Only damaged files are downloaded again" },
       };
-    case "installing":
-      return quiet("working", "Installing…", { tone: "accent", text: "Installing", spinner: true });
+    case "notInstallable":
+      // Third-party titles: Play hands over to their own launcher.
+      return {
+        kind: "play",
+        label: "Play",
+        emphasis: "primary",
+        disabled: false,
+        target: "launch",
+        status: { tone: "neutral", text: `Starts in ${game.thirdPartyName ?? "its launcher"}` },
+      };
     default:
+      if (offline) return quiet("unavailable", "Install", { tone: "warning", text: "You're offline", sub: "Connect to install" });
       return {
         kind: "install",
         label: "Install",
@@ -255,22 +288,25 @@ export function deriveHero(s: AppSnapshot, ctx: HeroContext = {}): HeroModel {
   }
 }
 
-// ----- EGL candidates -----
+// ----- EGL installs -----
 
-/** An EGL candidate we can adopt as-is. */
-export const isUsableCandidate = (c: InstallCandidate): boolean => !c.isStale && c.folderExists && c.executableFound;
+/** An EGL install that Glider can take over without downloading anything. */
+export const isImportable = (i: EglInstall): boolean => i.status === "importable";
 
-export function candidateIssue(c: InstallCandidate): string | null {
-  if (isUsableCandidate(c)) return null;
-  if (!c.folderExists) return "This folder no longer exists";
-  if (!c.executableFound) return "Game files are missing from this folder";
-  return "Epic Games Launcher points to a folder that no longer holds the game";
-}
+export const importableInstalls = (installs: readonly EglInstall[]): EglInstall[] => installs.filter(isImportable);
 
-export const usableCandidates = (egl: EglState): InstallCandidate[] => egl.candidates.filter(isUsableCandidate);
-
-export function candidateStatus(c: InstallCandidate, latest: string | null): { tone: BadgeTone; text: string } {
-  if (!isUsableCandidate(c)) return { tone: "danger", text: "Unavailable" };
-  if (c.version && latest && c.version !== latest) return { tone: "warning", text: "Update needed" };
-  return { tone: "success", text: "Up to date" };
+/** Badge for an install row. The backend's `reason` explains anything that is not importable. */
+export function eglInstallStatus(i: EglInstall): { tone: BadgeTone; text: string } {
+  switch (i.status) {
+    case "importable":
+      return i.drift === "eglNewer" ? { tone: "warning", text: "Older version" } : { tone: "success", text: "Ready to import" };
+    case "imported":
+      return { tone: "neutral", text: "Already in Glider" };
+    case "stale":
+      return { tone: "danger", text: "Folder missing" };
+    case "busy":
+      return { tone: "warning", text: "Epic is busy with it" };
+    case "notOwned":
+      return { tone: "neutral", text: "Not in your library" };
+  }
 }

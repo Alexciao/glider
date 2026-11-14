@@ -12,6 +12,8 @@ export interface Toast {
   actionLabel?: string;
   onAction?: () => void;
   duration?: number;
+  /** The game the toast is about (for fix actions that need one). */
+  appName?: string | null;
 }
 
 interface NoticeStore {
