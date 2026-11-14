@@ -1,9 +1,10 @@
+import { useState } from "react";
 import { Play } from "lucide-react";
 import type { GameSummary } from "../../ipc/contract.gen";
 import { JOB_VERB } from "../../state/derive";
 import { formatRelativeTime } from "../../state/format";
 import { goGame } from "../../state/router";
-import { Badge, Button, GameCover, navigateWithCover } from "../../ui";
+import { Badge, Button, GameCover } from "../../ui";
 import { quickAction, runQuick } from "../library/status";
 
 /** One short line: when you last played (or what the game is doing right now). */
@@ -17,16 +18,27 @@ function meta(g: GameSummary): string {
 export function ContinueCard({ game }: { game: GameSummary }) {
   const quick = quickAction(game);
   const running = game.runState !== "idle";
+  // Armed while hovered or focused: only then does the cover carry the shared-element id (it morphs into the game page hero).
+  const [armed, setArmed] = useState(false);
   return (
-    <li className="relative min-w-0">
+    <li className="relative min-w-0" onPointerEnter={() => setArmed(true)} onPointerLeave={() => setArmed(false)} onFocus={() => setArmed(true)} onBlur={() => setArmed(false)}>
       <button
         type="button"
         aria-label={game.title}
-        onClick={(e) => navigateWithCover(() => goGame(game.appName), e.currentTarget.querySelector<HTMLElement>("[data-cover]"))}
+        onClick={() => goGame(game.appName)}
         className="group/card block w-full rounded-xl text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-focus"
       >
         <span className="block rounded-xl transition-[transform,box-shadow] duration-150 ease-out group-hover/card:-translate-y-[3px] group-hover/card:shadow-[0_14px_28px_-12px_oklch(0_0_0/0.5)]">
-          <GameCover art={game.art} title={game.title} shape="wide" priority className="rounded-xl shadow-[inset_0_0_0_1px_var(--g-border-strong)]" />
+          <GameCover
+            art={game.art}
+            title={game.title}
+            shape="wide"
+            priority
+            shareable
+            layoutId={armed ? `cover-${game.appName}` : undefined}
+            className="rounded-xl shadow-[inset_0_0_0_1px_var(--g-border-strong)]"
+            style={{ borderRadius: 16 }}
+          />
         </span>
         <span className="mt-3 block pr-20">
           <span className="block truncate text-base font-medium text-fg">{game.title}</span>

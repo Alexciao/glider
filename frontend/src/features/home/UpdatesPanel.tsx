@@ -4,7 +4,7 @@ import { showInLibrary } from "../../state/libraryPrefs";
 import { goGame } from "../../state/router";
 import { useSnap } from "../../state/store";
 import { usePending } from "../../state/ui";
-import { Button, GameCover } from "../../ui";
+import { ArtThumb, Button } from "../../ui";
 import { runUpdate } from "../library/status";
 import { HomeSection } from "./HomeParts";
 
@@ -33,7 +33,7 @@ export function UpdatesPanel({ updates }: { updates: readonly GameSummary[] }) {
               onClick={() => goGame(g.appName)}
               className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-focus"
             >
-              <GameCover art={g.art} title={g.title} size="thumb" className="h-10 w-[30px] shrink-0 rounded-sm" />
+              <ArtThumb src={g.art.tallThumb ?? g.art.tall} placeholder={g.art.placeholder} title={g.title} size="sm" />
               <span className="truncate text-sm font-medium text-fg">{g.title}</span>
             </button>
             <Button size="sm" variant="ghost" aria-label={`Update ${g.title}`} disabled={offline || g.activeJobId !== null} onClick={() => void runUpdate(g.appName)}>

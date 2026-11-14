@@ -5,7 +5,7 @@ import { useGame } from "../../state/library";
 import { useJobProgress } from "../../state/progress";
 import { activeJobs, useSnap } from "../../state/store";
 import { useUi } from "../../state/ui";
-import { GameCover, ProgressBar } from "../../ui";
+import { ArtThumb, ProgressBar } from "../../ui";
 import { HomeSection } from "./HomeParts";
 
 const SHOWN = 2;
@@ -27,7 +27,7 @@ function DownloadRow({ job }: { job: JobInfo }) {
         aria-label={`${job.title}: ${status}. Open downloads`}
         className="flex w-full items-center gap-3 rounded-md py-1.5 text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-focus"
       >
-        {game ? <GameCover art={game.art} title={game.title} size="thumb" className="h-10 w-[30px] shrink-0 rounded-sm" /> : <span className="h-10 w-[30px] shrink-0 rounded-sm bg-surface-3" />}
+        <ArtThumb src={game?.art.tallThumb ?? game?.art.tall} placeholder={game?.art.placeholder} title={job.title} size="sm" />
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline justify-between gap-4">
             <span className="truncate text-sm font-medium text-fg">{job.title}</span>

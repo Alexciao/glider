@@ -1,8 +1,8 @@
-import { memo, useState, type MouseEvent } from "react";
+import { memo, useState } from "react";
 import { Download, Play, Star, Wrench } from "lucide-react";
 import type { GameSummary } from "../../ipc/contract.gen";
 import { formatBytes, formatRelativeTime } from "../../state/format";
-import { Button, GameCover, ProgressRing, cx } from "../../ui";
+import { ArtThumb, Button, ProgressRing, cx } from "../../ui";
 import { useJobState } from "./CoverProgress";
 import { MoreButton } from "./GameMenu";
 import { LIST_ROW, type ListColumns } from "./gridLayout";
@@ -42,7 +42,7 @@ export interface GameListRowProps {
   y: number;
   cols: ListColumns;
   tabbable: boolean;
-  onOpen: (game: GameSummary, cover: HTMLElement | null) => void;
+  onOpen: (game: GameSummary) => void;
 }
 
 /** A list row: thumbnail, title and developer, then status, size, last played and playtime as the window allows. */
@@ -50,7 +50,7 @@ export const GameListRow = memo(function GameListRow({ game, index, count, y, co
   const quick = quickAction(game);
   const [hot, setHot] = useState(false);
   const size = game.installStatus === "installed" || game.installStatus === "broken" ? (game.installedSizeBytes ?? game.installSizeBytes) : game.installSizeBytes;
-  const open = (e: MouseEvent<HTMLButtonElement>) => onOpen(game, e.currentTarget.querySelector<HTMLElement>("[data-cover]"));
+  const open = () => onOpen(game);
   return (
     <li
       data-index={index}
@@ -71,7 +71,7 @@ export const GameListRow = memo(function GameListRow({ game, index, count, y, co
             onClick={open}
             className="flex h-full w-full items-center gap-4 rounded-lg px-2 pr-28 text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus"
           >
-            <GameCover art={game.art} title={game.title} size="thumb" className="h-[52px] w-[39px] shrink-0 rounded-md" />
+            <ArtThumb src={game.art.tallThumb ?? game.art.tall} placeholder={game.art.placeholder} title={game.title} size="md" />
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-1.5 text-sm font-medium text-fg">
                 <span className="truncate" title={game.title}>{game.title}</span>

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import type { GameSummary } from "../../ipc/contract.gen";
 import type { LibraryView } from "../../state/libraryPrefs";
 import { goGame } from "../../state/router";
-import { computeRange, cx, navigateWithCover, useScrollViewport } from "../../ui";
+import { computeRange, cx, useScrollViewport } from "../../ui";
 import { LibraryContextMenu } from "./GameMenu";
 import { GameListRow, LIST_COL } from "./GameListRow";
 import { GameTile } from "./GameTile";
@@ -98,9 +98,7 @@ export function LibraryGrid({ games, view, resetKey, onScrolled }: LibraryGridPr
   const current = Math.min(active, lastIndex);
   const tabStop = current >= firstRendered && current <= lastRendered ? current : Math.min(lastIndex, win.visibleFirst * cols);
 
-  const open = useCallback((game: GameSummary, cover: HTMLElement | null) => {
-    navigateWithCover(() => goGame(game.appName), cover);
-  }, []);
+  const open = useCallback((game: GameSummary) => goGame(game.appName), []);
 
   const focusTile = useCallback(
     (i: number) => {

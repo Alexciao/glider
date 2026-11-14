@@ -1,4 +1,4 @@
-import { memo, useState, type MouseEvent, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 import { ArrowDownToLine, Check, Download, Play, TriangleAlert, Wrench } from "lucide-react";
 import type { GameSummary } from "../../ipc/contract.gen";
 import { Button, GameCover, cx } from "../../ui";
@@ -38,7 +38,7 @@ export interface GameTileProps {
   /** The one tile that is a tab stop (roving tabindex). */
   tabbable: boolean;
   priority?: boolean;
-  onOpen: (game: GameSummary, cover: HTMLElement | null) => void;
+  onOpen: (game: GameSummary) => void;
 }
 
 /**
@@ -50,7 +50,8 @@ export const GameTile = memo(function GameTile({ game, index, count, x, y, width
   const badge = badgeFor(game);
   // The hover extras (quick action, "…") exist only for the tile under the pointer: 30 tiles never pay for 60 buttons.
   const [hot, setHot] = useState(false);
-  const open = (e: MouseEvent<HTMLButtonElement>) => onOpen(game, e.currentTarget.querySelector<HTMLElement>("[data-cover]"));
+  const [focused, setFocused] = useState(false);
+  const open = () => onOpen(game);
   return (
     <li
       data-index={index}
@@ -69,6 +70,8 @@ export const GameTile = memo(function GameTile({ game, index, count, x, y, width
             data-tile-index={index}
             tabIndex={tabbable ? 0 : -1}
             onClick={open}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
             className="block w-full rounded-lg text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-focus"
           >
             <span className="relative block">
@@ -76,7 +79,15 @@ export const GameTile = memo(function GameTile({ game, index, count, x, y, width
                 aria-hidden
                 className="pointer-events-none absolute inset-0 rounded-lg opacity-0 shadow-[0_14px_28px_-10px_oklch(0_0_0/0.55)] transition-opacity duration-150 group-hover/tile:opacity-100"
               />
-              <GameCover art={game.art} title={game.title} priority={priority} className="rounded-lg" style={{ height: coverH }}>
+              <GameCover
+                art={game.art}
+                title={game.title}
+                priority={priority}
+                shareable
+                layoutId={hot || focused ? `cover-${game.appName}` : undefined}
+                className="rounded-lg"
+                style={{ height: coverH, borderRadius: 12 }}
+              >
                 <span aria-hidden className="pointer-events-none absolute inset-0 rounded-[inherit] shadow-[inset_0_0_0_1px_var(--g-border-strong)]" />
                 {game.activeJobId && <CoverProgress jobId={game.activeJobId} />}
               </GameCover>

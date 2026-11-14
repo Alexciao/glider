@@ -6,7 +6,7 @@ import { useLibraryCounts, useLibraryIndex, useRecentlyPlayed } from "../../stat
 import { goGame } from "../../state/router";
 import { useSnap } from "../../state/store";
 import { usePending } from "../../state/ui";
-import { Button, EmptyState, GameCover, Skeleton, navigateWithCover } from "../../ui";
+import { Button, EmptyState, GameCover, Skeleton } from "../../ui";
 import { PageScroll } from "../common/Page";
 import { ContinueCard } from "./ContinuePlaying";
 import { DownloadsStrip } from "./DownloadsStrip";
@@ -44,7 +44,7 @@ function FirstGame() {
           <li key={g.appName} className="min-w-0">
             <button
               type="button"
-              onClick={(e) => navigateWithCover(() => goGame(g.appName), e.currentTarget.querySelector<HTMLElement>("[data-cover]"))}
+              onClick={() => goGame(g.appName)}
               className="group/pick block w-full rounded-lg text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-focus"
             >
               <span className="block rounded-lg transition-transform duration-150 ease-out group-hover/pick:-translate-y-[3px]">

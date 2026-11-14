@@ -37,7 +37,6 @@ export { GliderMark, GliderWordmark } from "./Logo";
 export { GameCover, coverSources, type CoverShape, type GameCoverProps } from "./GameCover";
 export { ProgressRing, type ProgressRingProps } from "./ProgressRing";
 export { ContextMenu, ContextMenuTrigger, contextKit, dropdownKit, type MenuKit, type MenuItemProps } from "./Menu";
-export { COVER_TRANSITION_NAME, coverTransitionStyle, navigateWithCover } from "./viewTransition";
 export { useScrollViewport, computeRange, type RowWindow, type ScrollViewport } from "./useRowWindow";
 export { Checkbox, type CheckedState } from "./Checkbox";
 export { ChoiceGroup, type ChoiceOption } from "./ChoiceGroup";
