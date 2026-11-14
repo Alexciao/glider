@@ -83,6 +83,43 @@ public static class Errors
     public static GliderError ThirdPartyRequired(string store, string? title = null, string? appName = null) => new(ErrorCode.ThirdPartyRequired,
         $"Install through {store}", $"{Name(title)} is installed and launched by {store}, not by Epic.", null, null, appName);
 
+    /// <summary>The other store's launcher isn't on this PC, so a game that only it can start (or needs it to run) can't be opened.</summary>
+    public static GliderError ThirdPartyLauncherMissing(string store, string? title = null, string? appName = null) => new(ErrorCode.ThirdPartyRequired,
+        $"{store} isn't installed",
+        $"{Name(title)} is started by {store}, which isn't installed on this PC. Install {store} (and sign in with the account that owns the game), then press Play again.",
+        null, null, appName);
+
+    /// <summary>The game is linked to another store's account, and that link hasn't been made (or confirmed) through Glider yet.</summary>
+    public static GliderError ActivationRequired(string store, string? title = null, string? appName = null) => new(ErrorCode.ActivationRequired,
+        $"Link your {store} account",
+        $"{Name(title)} needs your Epic account linked with {store} before it can start. Activate it once; Glider asks Epic to unlock the game on {store}.",
+        FixAction.Activate, null, appName);
+
+    /// <summary>Epic reports no linked account for the store: the activation page was opened in the browser.</summary>
+    public static GliderError AccountNotLinked(string store, string? title = null, string? appName = null) => new(ErrorCode.ActivationRequired,
+        $"No {store} account is linked",
+        $"Epic doesn't know your {store} account yet. Link it in the page that just opened in your browser, then activate again.",
+        FixAction.Activate, null, appName);
+
+    public static GliderError ActivationFailed(string store, string? detail = null, string? title = null, string? appName = null) => new(ErrorCode.ActivationRequired,
+        $"Couldn't activate on {store}",
+        $"Epic didn't unlock {NameLower(title)} on {store}. Try again in a moment.",
+        FixAction.Activate, detail, appName);
+
+    /// <summary>A prerequisite (redistributable) installer failed or was declined; the game may still run, so the user can go on.</summary>
+    public static GliderError PrerequisiteFailed(string what, string? detail = null, string? title = null, string? appName = null) => new(ErrorCode.PrerequisiteFailed,
+        "Game components didn't install",
+        $"{Name(title)} needs {what}, but its installer didn't finish. Retry and accept the Windows prompt, or play anyway if the game starts without it.",
+        FixAction.Retry, detail, appName);
+
+    public static GliderError OverlayNotInstalled() => new(ErrorCode.OverlayFailed,
+        "No overlay to switch on", "Install the Epic overlay first, then turn it on.", null, null);
+
+    public static GliderError OverlayFailed(string? detail = null) => new(ErrorCode.OverlayFailed,
+        "Epic overlay didn't install",
+        "The overlay download or setup stopped. Retry; nothing else is affected.",
+        FixAction.Retry, detail);
+
     /// <summary>A contract method whose feature lands in a later phase.</summary>
     public static GliderError NotAvailableYet(string? detail = null) => new(ErrorCode.Unknown,
         "Not available yet", "Not available yet", null, detail);

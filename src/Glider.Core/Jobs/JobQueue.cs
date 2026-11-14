@@ -919,6 +919,10 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
                 var imported = await WithPreDownloadAsync(tracker, () => _legendary.ImportAsync(app, request.TargetPath!, ct));
                 tracker.SetPhase(JobPhase.Finalizing);
                 return imported.Error;
+            case JobKind.Overlay:
+                // Anonymous session, no installed.json lock, no metadata refresh: no pre-download phase for the metadata lane.
+                tracker.SetPhase(JobPhase.Preparing);
+                return (await _legendary.InstallOverlayAsync(request.TargetPath, tracker, ct)).Error;
             default:
                 return Errors.NotAvailableYet($"{request.Kind} jobs");
         }

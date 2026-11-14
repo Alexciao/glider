@@ -37,6 +37,7 @@ import type {
   SaveSyncStatus,
   Settings,
   StoreState,
+  ThirdPartyStatus,
   VerifyMode,
 } from "../contract.gen";
 import { wideArt } from "./art";
@@ -933,7 +934,7 @@ export class MockBackend {
         }
         break;
       case "overlay":
-        this.overlay = { ...this.overlay, installed: true, enabled: true, version: OVERLAY_LATEST, updateAvailable: false, installPath: "C:\\ProgramData\\Glider\\EOSOverlay" };
+        this.overlay = { ...this.overlay, installed: true, enabled: true, version: OVERLAY_LATEST, updateAvailable: false, installPath: "C:\\ProgramData\\Glider\\EOSOverlay", managed: true };
         break;
     }
     this.emitState();
@@ -1226,6 +1227,20 @@ export class MockBackend {
 
   // ───────────────────────────── handlers ─────────────────────────────
 
+  private thirdPartyInfo(g: MockGame): ThirdPartyStatus | null {
+    const s = g.summary;
+    if (s.thirdParty === "none") return null;
+    const activated = !g.needsActivation || this.activated.has(s.appName);
+    return {
+      store: s.thirdParty,
+      name: s.thirdPartyName ?? "its store",
+      launcherInstalled: true,
+      activated,
+      needsActivation: s.thirdParty === "ubisoft" && !activated,
+      managedExternally: s.installStatus === "notInstallable",
+    };
+  }
+
   private detail(appName: string): GameDetail {
     const g = this.rec(appName);
     return {
@@ -1245,6 +1260,7 @@ export class MockBackend {
       executable: g.executable,
       installedAt: g.installedAt,
       eglManifestPath: g.eglManifestPath,
+      thirdPartyInfo: this.thirdPartyInfo(g),
     };
   }
 
@@ -1569,6 +1585,9 @@ export class MockBackend {
       g.needsActivation = false;
       this.notice({ level: "success", title: `${g.summary.title} is linked`, message: `Linked with ${g.summary.thirdPartyName ?? "its store"}.`, action: null, appName: r.appName, jobId: null });
     },
+    "game.skipPrerequisites": async (r) => {
+      this.rec(r.appName);
+    },
     "game.installPrerequisites": async (r) => {
       const g = this.rec(r.appName);
       if (g.summary.runState === "idle") {
@@ -1807,7 +1826,7 @@ export class MockBackend {
       return clone(this.overlayState());
     },
     "overlay.remove": async () => {
-      this.overlay = { installed: false, enabled: false, version: null, latestVersion: OVERLAY_LATEST, updateAvailable: false, installPath: null, busy: false };
+      this.overlay = { installed: false, enabled: false, version: null, latestVersion: OVERLAY_LATEST, updateAvailable: false, installPath: null, busy: false, managed: false, externalPath: null, note: null };
       this.emitState();
       return clone(this.overlayState());
     },

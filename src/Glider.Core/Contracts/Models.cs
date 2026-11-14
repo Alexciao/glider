@@ -227,7 +227,24 @@ public sealed record GameDetail(
     string? Executable,
     DateTimeOffset? InstalledAt,
     /// <summary>The EGL manifest kept in sync for this install, when there is one.</summary>
-    string? EglManifestPath);
+    string? EglManifestPath,
+    /// <summary>Third-party store state (launcher present, account linked) for Ubisoft Connect / EA app games; null for ordinary Epic games.</summary>
+    ThirdPartyStatus? ThirdPartyInfo = null);
+
+/// <summary>
+/// What a game that runs through another store's launcher needs. <see cref="ManagedExternally"/> games have no Epic files
+/// (the other launcher installs, updates and starts them); the others install from Epic and only need the account linked.
+/// </summary>
+public sealed record ThirdPartyStatus(
+    ThirdPartyStore Store,
+    string Name,
+    /// <summary>Ubisoft Connect / EA app is installed on this PC (its URL handler is registered).</summary>
+    bool LauncherInstalled,
+    /// <summary>Glider linked/activated this Epic account with the store (Ubisoft), or the store was opened for the game (EA).</summary>
+    bool Activated,
+    /// <summary>Play will ask for activation first (<see cref="LaunchOutcome.NeedsActivation"/>).</summary>
+    bool NeedsActivation,
+    bool ManagedExternally);
 
 [JsonConverter(typeof(CamelEnumConverter<AntiCheat>))]
 public enum AntiCheat { None, EasyAntiCheat, BattlEye }
@@ -690,7 +707,13 @@ public sealed record OverlayState(
     bool UpdateAvailable,
     string? InstallPath,
     /// <summary>An overlay job is queued or running.</summary>
-    bool Busy);
+    bool Busy,
+    /// <summary>Glider downloaded this overlay itself, so update and remove apply. False when only an overlay installed by Epic's own software exists.</summary>
+    bool Managed = false,
+    /// <summary>An overlay installed by Epic's launcher / EOS service that can be switched on without downloading anything.</summary>
+    string? ExternalPath = null,
+    /// <summary>One calm sentence worth showing under the switch (what Glider left alone), else null.</summary>
+    string? Note = null);
 
 // ===================================== Store / free games =====================================
 
@@ -833,6 +856,7 @@ public enum ErrorCode
     LegendaryFailed,
     LegendaryLocked,
     EacSetupFailed,
+    /// <summary>A prerequisite installer failed or was declined. The UI offers Retry (launch again) and "Play anyway" (<c>game.skipPrerequisites</c>, then launch).</summary>
     PrerequisiteFailed,
     LaunchFailed,
     ThirdPartyRequired,

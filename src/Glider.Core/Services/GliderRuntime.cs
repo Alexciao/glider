@@ -111,6 +111,9 @@ public sealed class GliderRuntime : IAsyncDisposable
                 Shell = options.Shell,
                 Collections = collections,
                 WriterActivity = activity,
+                OverlayRegistry = options.OverlayRegistry ?? defaults.OverlayRegistry,
+                OverlayEnvironment = options.OverlayEnvironment ?? defaults.OverlayEnvironment,
+                ThirdPartyLaunchers = options.ThirdPartyLaunchers ?? defaults.ThirdPartyLaunchers,
             });
             hooks.Target = service.Hooks;
             policy.Target = service.QueuePolicy;
@@ -157,6 +160,9 @@ public sealed class GliderRuntimeOptions
     public TimeSpan? LockRetryDelay { get; init; }
     public TimeSpan? LibraryCoalesceInterval { get; init; }
     public TimeSpan? LibraryCacheDelay { get; init; }
+    public Overlay.IOverlayRegistry? OverlayRegistry { get; init; }
+    public Overlay.OverlayEnvironment? OverlayEnvironment { get; init; }
+    public Game.IThirdPartyLaunchers? ThirdPartyLaunchers { get; init; }
 }
 
 /// <summary>Bridges construction cycles: the queue needs the policy, the policy comes from GliderService (which needs the queue).</summary>

@@ -71,6 +71,26 @@ internal sealed class WindowsHostPlatform : IHostPlatform
 
     public void OpenUrl(string url) => WebViewSetup.OpenExternalSafe(url);
 
+    /// <summary>Only the two launcher schemes Legendary's third-party launch produces; the link holds a live exchange code, so it is never logged.</summary>
+    public void OpenThirdPartyUri(string uri)
+    {
+        if (!Uri.TryCreate(uri, UriKind.Absolute, out var u) || !(u.Scheme is "uplay" or "link2ea"))
+        {
+            HostLog.Warn("Blocked third-party launcher link with an unsupported scheme");
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(u.AbsoluteUri) { UseShellExecute = true })?.Dispose();
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        {
+            HostLog.Warn("Opening the third-party launcher failed", ex);
+            throw new InvalidOperationException("The launcher link could not be opened.", ex);
+        }
+    }
+
     /// <summary>Full path: with UseShellExecute=false a bare "explorer.exe" is looked up in the app and current directories first.</summary>
     private static string ExplorerExe => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
 

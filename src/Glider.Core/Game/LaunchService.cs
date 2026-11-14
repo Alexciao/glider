@@ -52,6 +52,12 @@ internal sealed class LaunchService
     /// <summary>Cloud saves: synced before the game starts and after it closes (set by GliderService).</summary>
     internal Saves.SaveService? Saves { get; set; }
 
+    /// <summary>Third-party store games (set by GliderService). Null = the v0.2 hand-off is unavailable.</summary>
+    internal ThirdPartyService? ThirdParty { get; set; }
+
+    /// <summary>Runs a game's pending prerequisites before its first start (set by GliderService).</summary>
+    internal PrerequisiteService? Prerequisites { get; set; }
+
     /// <summary>Completes when the current prepare fetch ends (tests).</summary>
     internal Task Preparing
     {
@@ -230,9 +236,12 @@ internal sealed class LaunchService
             throw new GliderException(Errors.InvalidRequest($"{summary.Title} is DLC; launch its base game instead."));
         }
 
-        if (summary.ThirdParty is ThirdPartyStore.Ea or ThirdPartyStore.Other && summary.InstallStatus == InstallStatus.NotInstallable)
+        if (ThirdPartyService.IsManaged(summary))
         {
-            throw new GliderException(Errors.ThirdPartyRequired(summary.ThirdPartyName ?? "its own launcher", summary.Title, app)); // Phase 2: hand-off
+            // Another store installs and starts it: hand over to that launcher (Untracked) instead of spawning anything.
+            return ThirdParty is { } thirdParty
+                ? await thirdParty.LaunchManagedAsync(summary, request, ct)
+                : throw new GliderException(Errors.ThirdPartyRequired(summary.ThirdPartyName ?? "its own launcher", summary.Title, app));
         }
 
         if (DetectExisting(app))
@@ -257,6 +266,11 @@ internal sealed class LaunchService
         if (!offline)
         {
             await _c.RequireSignedInAsync(ct);
+        }
+
+        if (ThirdParty is { } linked && await linked.ActivationGateAsync(summary, offline, ct) is { } needsActivation)
+        {
+            return needsActivation; // Ubisoft must know the Epic account owns the game first
         }
 
         lock (_gate)
@@ -285,6 +299,11 @@ internal sealed class LaunchService
                 SetRun(app, summary.Title, RunState.Preparing, null, offline);
             }
 
+            if (Prerequisites is { } prerequisites)
+            {
+                await prerequisites.EnsureAsync(app, () => SetRun(app, summary.Title, RunState.InstallingPrerequisites, null, offline), ct);
+            }
+
             var ranEac = await _eac.EnsureInstalledAsync(app, installPath, () => SetRun(app, summary.Title, RunState.InstallingPrerequisites, null, offline), ct);
 
             SetRun(app, summary.Title, RunState.Launching, null, offline);
@@ -305,7 +324,7 @@ internal sealed class LaunchService
             Sessions.Spawned(app, process);
             _c.Log.Info("launch", $"{app}: started {Path.GetFileName(cmd.Executable)} (pid {process.Id}) {_c.Time.GetElapsedTime(clicked).TotalMilliseconds:0} ms after Play (prepared={prepared}, offline={offline}, eacInstalledNow={ranEac})");
             StartWatching();
-            return new LaunchResult(LaunchOutcome.Started, null, offline, null);
+            return new LaunchResult(LaunchOutcome.Started, null, offline, ThirdParty?.LauncherNote(summary));
         }
         catch (Exception e)
         {

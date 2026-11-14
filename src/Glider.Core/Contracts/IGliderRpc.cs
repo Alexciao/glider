@@ -89,6 +89,8 @@ public interface IGliderRpc
     [RpcMethod("game.activate")] Task ActivateGame(AppRef request);
     /// <summary>Install the game's declared prerequisites (one UAC prompt) and remember them.</summary>
     [RpcMethod("game.installPrerequisites")] Task InstallPrerequisites(AppRef request);
+    /// <summary>"Play anyway" after <see cref="ErrorCode.PrerequisiteFailed"/>: stop asking for this game's prerequisites until the user installs them on purpose. Launch again afterwards.</summary>
+    [RpcMethod("game.skipPrerequisites")] Task SkipPrerequisites(AppRef request);
     [RpcMethod("game.setShortcut")] Task<ShortcutState> SetShortcut(ShortcutRequest request);
 
     // ---- cloud saves ----

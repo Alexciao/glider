@@ -74,6 +74,9 @@ internal sealed class EndToEndHarness : IAsyncDisposable
             LibraryCoalesceInterval = TimeSpan.Zero,
             LibraryCacheDelay = TimeSpan.Zero,
             LockRetryDelay = TimeSpan.FromMilliseconds(50),
+            OverlayRegistry = new Glider.Core.Tests.Services.FakeOverlayRegistry(),
+            OverlayEnvironment = new Glider.Core.Overlay.OverlayEnvironment(null),
+            ThirdPartyLaunchers = new Glider.Core.Tests.Services.FakeLaunchers(),
         });
         await Runtime.Service.WarmupTask;
         await Runtime.Service.PrewarmForTests.LibrarySync;

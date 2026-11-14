@@ -331,7 +331,7 @@ export function buildWorld(name: ScenarioName, cfg: WorldConfig): World {
     settings,
     drives: defaultDrives(name === "diskFull"),
     egl,
-    overlay: { installed: true, enabled: true, version: OVERLAY_VERSION, latestVersion: OVERLAY_LATEST, updateAvailable: true, installPath: "C:\\ProgramData\\Glider\\EOSOverlay", busy: false },
+    overlay: { installed: true, enabled: true, version: OVERLAY_VERSION, latestVersion: OVERLAY_LATEST, updateAvailable: true, installPath: "C:\\ProgramData\\Glider\\EOSOverlay", busy: false, managed: true, externalPath: null, note: null },
     collections: firstRun ? [] : buildCollections(games, cfg.seed),
     onboarding: { completed: true, step: "done", skipped: [] },
     freeze: false,
@@ -356,7 +356,7 @@ export function buildWorld(name: ScenarioName, cfg: WorldConfig): World {
       world.auth = { status: "signedOut", account: null };
       world.onboarding = { completed: false, step: "welcome", skipped: [] };
       world.settings = { ...DEFAULT_SETTINGS, libraryFolders: [], defaultInstallBase: null };
-      world.overlay = { installed: false, enabled: false, version: null, latestVersion: OVERLAY_LATEST, updateAvailable: false, installPath: null, busy: false };
+      world.overlay = { installed: false, enabled: false, version: null, latestVersion: OVERLAY_LATEST, updateAvailable: false, installPath: null, busy: false, managed: false, externalPath: null, note: null };
       break;
     case "firstRunSignedIn":
       world.onboarding = { completed: false, step: "scan", skipped: [] };

@@ -142,13 +142,19 @@ internal static partial class Program
             if (args[i].StartsWith("--", StringComparison.Ordinal))
             {
                 var hasValue = i + 1 < args.Length && !args[i + 1].StartsWith("--", StringComparison.Ordinal) &&
-                               args[i] is "--base-path" or "--max-workers" or "--max-shared-memory" or "--preferred-cdn" or "--code";
+                               args[i] is "--base-path" or "--max-workers" or "--max-shared-memory" or "--preferred-cdn" or "--code" or "--path";
                 _options[args[i]] = hasValue ? args[++i] : "true";
             }
             else if (args[i] != "-y")
             {
                 _positional.Add(args[i]);
             }
+        }
+
+        // `eos-overlay <install|update|remove|...>`: one script per action (fake/eos-overlay-install.script).
+        if (_command == "eos-overlay" && _positional.Count > 0)
+        {
+            _command = "eos-overlay-" + _positional[0];
         }
     }
 

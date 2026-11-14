@@ -14,6 +14,20 @@ public sealed class AuthenticodePublisherCheck : IPublisherCheck
 {
     private static readonly string[] TrustedPublishers = ["Epic Games", "Easy Anti-Cheat"];
 
+    private readonly bool _anyPublisher;
+
+    public AuthenticodePublisherCheck()
+    {
+    }
+
+    private AuthenticodePublisherCheck(bool anyPublisher) => _anyPublisher = anyPublisher;
+
+    /// <summary>
+    /// A valid, intact Authenticode signature from any publisher (redistributables are Microsoft's, middleware vendors' or the game's own).
+    /// Still refuses unsigned and tampered files, which is what a swapped file in the user-writable game folder would be.
+    /// </summary>
+    public static AuthenticodePublisherCheck AnyValidSignature() => new(anyPublisher: true);
+
     public string? WhyUntrusted(string path)
     {
         if (!OperatingSystem.IsWindows())
@@ -21,16 +35,21 @@ public sealed class AuthenticodePublisherCheck : IPublisherCheck
             return "signatures can only be checked on Windows";
         }
 
-        return Check(path);
+        return Check(path, _anyPublisher);
     }
 
     [SupportedOSPlatform("windows")]
-    private static string? Check(string path)
+    private static string? Check(string path, bool anyPublisher)
     {
         var status = WinTrust.Verify(path);
         if (status != 0)
         {
             return $"it has no valid digital signature (WinVerifyTrust 0x{status:X8})";
+        }
+
+        if (anyPublisher)
+        {
+            return null;
         }
 
         string subject;

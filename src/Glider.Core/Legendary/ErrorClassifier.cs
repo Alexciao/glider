@@ -21,6 +21,9 @@ internal enum LegendaryCommandKind
     ListInstalled,
     SaveList,
     SaveSync,
+    EosOverlay,
+    Activate,
+    ThirdPartyLaunch,
 }
 
 /// <summary>
@@ -178,6 +181,45 @@ internal static class ErrorClassifier
                 if (f.VersionPrinted)
                 {
                     return null;
+                }
+
+                break;
+
+            case LegendaryCommandKind.EosOverlay:
+                if (f.OverlayUpToDate || f.OverlayDownloaded)
+                {
+                    return null;
+                }
+
+                if (f.OverlayNotInstalled)
+                {
+                    return Errors.OverlayFailed("Legendary has no managed overlay to update.");
+                }
+
+                break;
+
+            case LegendaryCommandKind.Activate:
+                if (f.NoLinkedAccount)
+                {
+                    return Errors.AccountNotLinked("Ubisoft Connect");
+                }
+
+                if (f.ActivationFailed)
+                {
+                    return Errors.ActivationFailed("Ubisoft Connect", f.Detail);
+                }
+
+                if (f.ActivationDone)
+                {
+                    return null;
+                }
+
+                break;
+
+            case LegendaryCommandKind.ThirdPartyLaunch:
+                if (f.ThirdPartyUnknown)
+                {
+                    return Errors.LaunchFailed("Legendary doesn't have this game's data yet; refresh the library and try again.");
                 }
 
                 break;

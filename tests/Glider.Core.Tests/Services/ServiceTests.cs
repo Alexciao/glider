@@ -195,10 +195,7 @@ public class LibraryRpcTests
 
         foreach (var call in new Func<Task>[]
                  {
-                     () => rig.Service.InstallOverlay(),
                      () => rig.Service.SetShortcut(new ShortcutRequest(FortniteLayout.AppName, ShortcutLocation.Desktop, true)),
-                     () => rig.Service.ActivateGame(new AppRef(FortniteLayout.AppName)),
-                     () => rig.Service.InstallPrerequisites(new AppRef(FortniteLayout.AppName)),
                  })
         {
             var e = await Assert.ThrowsAsync<GliderException>(call);

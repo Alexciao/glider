@@ -107,7 +107,19 @@ internal static class LegendaryFiles
             NullIfEmpty(Str(g, "title")),
             !(g.TryGetProperty("can_run_offline", out var off) && off.ValueKind == JsonValueKind.False),
             Bool(g, "requires_ot"),
-            NullIfEmpty(Str(g, "platform")));
+            NullIfEmpty(Str(g, "platform")),
+            ParsePrerequisites(g));
+    }
+
+    /// <summary>installed.json <c>prereq_info</c> (core.py:1667-1670): ids, name, path (relative to the install), args (one string).</summary>
+    private static PrerequisiteInfo? ParsePrerequisites(JsonElement game)
+    {
+        if (Obj(game, "prereq_info") is not { } p || NullIfEmpty(Str(p, "path")) is not { } path)
+        {
+            return null;
+        }
+
+        return new PrerequisiteInfo(NullIfEmpty(Str(p, "name")), path, Str(p, "args"), Strings(p, "ids"));
     }
 
     /// <summary>

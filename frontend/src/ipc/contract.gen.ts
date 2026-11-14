@@ -218,6 +218,7 @@ export interface GameDetail {
   executable: string | null;
   installedAt: string | null;
   eglManifestPath: string | null;
+  thirdPartyInfo: ThirdPartyStatus | null;
 }
 
 export interface GameFlagRequest {
@@ -536,6 +537,9 @@ export interface OverlayState {
   updateAvailable: boolean;
   installPath: string | null;
   busy: boolean;
+  managed: boolean;
+  externalPath: string | null;
+  note: string | null;
 }
 
 export interface PathRequest {
@@ -717,6 +721,15 @@ export type SyncDirection = "auto" | "upload" | "download";
 
 export type ThemePreference = "system" | "dark" | "light";
 
+export interface ThirdPartyStatus {
+  store: ThirdPartyStore;
+  name: string;
+  launcherInstalled: boolean;
+  activated: boolean;
+  needsActivation: boolean;
+  managedExternally: boolean;
+}
+
 export type ThirdPartyStore = "none" | "ubisoft" | "ea" | "other";
 
 export type UninstallMode = "gliderOnly" | "deleteFiles";
@@ -802,6 +815,7 @@ export interface RpcMethods {
   "game.planInstall": { params: InstallPlanRequest; result: InstallPlan };
   "game.prepareLaunch": { params: AppRef; result: void };
   "game.setShortcut": { params: ShortcutRequest; result: ShortcutState };
+  "game.skipPrerequisites": { params: AppRef; result: void };
   "game.uninstall": { params: UninstallRequest; result: JobInfo };
   "game.update": { params: AppRef; result: JobInfo };
   "game.updateSettings": { params: GameSettingsRequest; result: GameSettings };
@@ -896,6 +910,7 @@ export const RPC_METHODS = [
   "game.planInstall",
   "game.prepareLaunch",
   "game.setShortcut",
+  "game.skipPrerequisites",
   "game.uninstall",
   "game.update",
   "game.updateSettings",

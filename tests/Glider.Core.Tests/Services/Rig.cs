@@ -46,6 +46,12 @@ public sealed class Rig : IDisposable
     public FakeServices Services { get; } = new();
     public FakeDisk Disk { get; } = new();
     public FakePublisherCheck Publisher { get; } = new();
+    public FakePublisherCheck PrerequisiteCheck { get; } = new();
+    public FakeOverlayRegistry OverlayRegistry { get; } = new();
+    public FakeLaunchers Launchers { get; } = new();
+
+    /// <summary>Stands in for Program Files (x86): Epic's own overlay folders live under it.</summary>
+    public string ProgramFilesX86 => Path.Combine(Root, "pf86");
     public FakeOnboarding Onboarding { get; } = new();
     public IIdleSignal? Idle { get; }
 
@@ -84,6 +90,11 @@ public sealed class Rig : IDisposable
                         ServiceQuery = Services,
                         DiskInfo = Disk,
                         PublisherCheck = Publisher,
+                        PrerequisiteCheck = PrerequisiteCheck,
+                        OverlayRegistry = OverlayRegistry,
+                        OverlayEnvironment = new Glider.Core.Overlay.OverlayEnvironment(ProgramFilesX86),
+                        ThirdPartyLaunchers = Launchers,
+                        ThirdPartyHandoffDisplay = TimeSpan.FromSeconds(8),
                         OnboardingStore = Onboarding,
                         IdleSignal = Idle,
                         Shell = Shell,
