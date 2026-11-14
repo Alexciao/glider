@@ -3,6 +3,9 @@ import {
   buildOf,
   driveOf,
   formatBytes,
+  formatBytesPrecise,
+  formatCount,
+  formatSpeedCompact,
   formatClock,
   formatDuration,
   formatEta,
@@ -114,5 +117,22 @@ describe("formatPlaytime", () => {
     expect(formatPlaytime(17 * 60)).toBe("17 min");
     expect(formatPlaytime(30)).toBe("< 1 min");
     expect(formatPlaytime(-5)).toBe("< 1 min");
+  });
+});
+
+describe("download formatters", () => {
+  it("formatBytesPrecise keeps two decimals from GB up", () => {
+    expect(formatBytesPrecise(2.41 * 1024 ** 3)).toBe("2.41 GB");
+    expect(formatBytesPrecise(5.12 * 1024 ** 3)).toBe("5.12 GB");
+    expect(formatBytesPrecise(340 * 1024 ** 2)).toBe("340 MB");
+    expect(formatBytesPrecise(512)).toBe("512 B");
+  });
+  it("formatSpeedCompact is whole from 10 up", () => {
+    expect(formatSpeedCompact(60 * 1024 ** 2)).toBe("60 MB/s");
+    expect(formatSpeedCompact(1.5 * 1024 ** 2)).toBe("1.5 MB/s");
+    expect(formatSpeedCompact(1.8 * 1024 ** 3)).toBe("1.8 GB/s");
+  });
+  it("formatCount groups digits", () => {
+    expect(formatCount(31204)).toBe((31204).toLocaleString());
   });
 });
