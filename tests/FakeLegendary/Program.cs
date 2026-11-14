@@ -19,7 +19,8 @@ namespace FakeLegendary;
 ///   sleep MS | hang | exit CODE | child | readstdin
 ///   download chunks=N files=F mib=M interval=MS [app=A] [stallat=PCT] [spam] [writefail=K [diskfull|locked]]
 ///   verify files=N interval=MS [app=A] [corrupt=K] [missing=K] [locked=K]
-///   installed version=V path=P [app=A] [tags=a,b] [needsverify]   |   uninstalled [app=A]
+///   installed version=V path=P [app=A] [exe=REL] [tags=a,b] [needsverify]   |   uninstalled [app=A]
+///   refuseifinstalled [app=A]    "Game is already installed!" and exit 0 when installed.json has the app (real `import`)
 ///   cloudsaves list | cloudsaves sync [fault=dropupload|failafterdelete|killafterdelete]   a fake Epic cloud under fake/cloud/<app>/<manifest>/
 ///   writefile RELPATH TEXT | deletefile RELPATH
 /// </summary>
@@ -105,6 +106,15 @@ internal static partial class Program
                 case "installed": Installed(KeyValues(rest)); break;
                 case "uninstalled": Uninstalled(KeyValues(rest)); break;
                 case "cloudsaves": CloudSaves(KeyValues(rest)); break;
+                case "refuseifinstalled":
+                    // real Legendary: `import` of a game it already has logs this and exits 0 (cli.py:1357)
+                    if (IsInstalled(App(KeyValues(rest))))
+                    {
+                        Err("[cli] ERROR: Game is already installed!");
+                        return 0;
+                    }
+
+                    break;
                 case "writefile":
                 {
                     var s2 = rest.IndexOf(' ');
@@ -343,6 +353,12 @@ internal static partial class Program
         return 1;
     }
 
+    private static bool IsInstalled(string app)
+    {
+        var file = Path.Combine(_config, "installed.json");
+        return File.Exists(file) && JsonNode.Parse(File.ReadAllText(file))!.AsObject().ContainsKey(app);
+    }
+
     private static string App(Dictionary<string, string> kv) => kv.GetValueOrDefault("app", "Fortnite");
 
     /// <summary>Renders DLManager output with the verbatim format strings of downloader/mp/manager.py:766-775.</summary>
@@ -504,7 +520,7 @@ internal static partial class Program
             ["base_urls"] = new JsonArray("https://epicgames-download1.akamaized.net/Builds/Fortnite/CloudDir/ChunksV4"),
             ["can_run_offline"] = false,
             ["egl_guid"] = kv.GetValueOrDefault("eglguid", ""),
-            ["executable"] = "FortniteGame/Binaries/Win64/FortniteLauncher.exe",
+            ["executable"] = kv.GetValueOrDefault("exe", app == "Fortnite" ? "FortniteGame/Binaries/Win64/FortniteLauncher.exe" : "Game.exe"),
             ["install_path"] = kv["path"],
             ["install_size"] = long.Parse(kv.GetValueOrDefault("size", "53687091200"), CultureInfo.InvariantCulture),
             ["install_tags"] = tags,

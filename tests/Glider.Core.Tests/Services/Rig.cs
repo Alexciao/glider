@@ -72,6 +72,9 @@ public sealed class Rig : IDisposable
 
     internal Glider.Core.Saves.SaveOptions? SaveOptions { get; set; }
 
+    /// <summary>Whether EGL's own overlay "is installed" (readiness); false unless a test says so.</summary>
+    public bool EglOverlayInstalled { get; set; }
+
     /// <summary>Library delta coalescing window (zero = rebuild at once; with a value, deltas wait for <see cref="Time"/>).</summary>
     public TimeSpan LibraryCoalesce { get; set; } = TimeSpan.Zero;
 
@@ -100,6 +103,7 @@ public sealed class Rig : IDisposable
                         ArtFetcher = ArtFetcher,
                         IdleSignal = Idle,
                         Shell = Shell,
+                        EglOverlayProbe = () => EglOverlayInstalled,
                         MeasureDirectory = Measure,
                         SizeMeasureMinInterval = SizeMinInterval,
                         LibraryCoalesceInterval = LibraryCoalesce,

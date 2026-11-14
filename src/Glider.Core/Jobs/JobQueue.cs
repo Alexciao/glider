@@ -966,6 +966,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             if (first.Success)
             {
                 SetVerifyReport(job, new VerifyReport(checkedFiles, 0, 0, true, 0));
+                await ClearVerificationFlagAsync(job, tracker, ct);
                 return null;
             }
 
@@ -1009,6 +1010,34 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         return second.Error?.Code == ErrorCode.Corrupted
             ? Errors.Corrupted($"{remaining} file(s) still damaged or missing after the repair.")
             : second.Error;
+    }
+
+    /// <summary>
+    /// Legendary only clears <c>needs_verification</c> in installed.json from a <c>repair</c> that finds nothing to download (cli.py:1013-1022,
+    /// "Download size is 0"); a clean <c>verify</c> leaves it set. Left set, the next update starts in repair mode and applies nothing
+    /// (cli.py:854-856) — the state an adopted install is in right after its first, successful verify. This run reads the .repair file the
+    /// verify just wrote and exits at once. Best effort: a failure only means the flag stays.
+    /// </summary>
+    private async Task ClearVerificationFlagAsync(PersistedJob job, JobProgressTracker tracker, CancellationToken ct)
+    {
+        try
+        {
+            if (await _legendary.GetInstalledAsync(job.Request.AppName, ct) is not { NeedsVerification: true })
+            {
+                return;
+            }
+
+            tracker.SetPhase(JobPhase.Finalizing);
+            var cleared = await WithPreDownloadAsync(tracker, () => _legendary.InstallAsync(Args(InstallMode.Repair, job), tracker, ct));
+            if (!cleared.Success)
+            {
+                _log.Warn("jobs", $"Verify of {job.Request.AppName} passed, but clearing Legendary's needs-verification flag failed: {cleared.Error?.Code}");
+            }
+        }
+        catch (Exception e) when (e is not OperationCanceledException and not GliderException)
+        {
+            _log.Warn("jobs", $"Clearing the needs-verification flag of {job.Request.AppName} failed", e);
+        }
     }
 
     private void SetVerifyReport(PersistedJob job, VerifyReport report)

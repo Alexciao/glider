@@ -128,6 +128,14 @@ export interface EglImportRequest {
 
 export interface EglImportResult {
   jobs: JobInfo[];
+  skipped: EglImportSkip[] | null;
+}
+
+export interface EglImportSkip {
+  id: string;
+  appName: string | null;
+  title: string | null;
+  reason: string;
 }
 
 export interface EglInstall {
@@ -173,6 +181,7 @@ export interface FolderValidation {
   gamePath: string | null;
   version: string | null;
   reason: string | null;
+  sizeBytes: number | null;
 }
 
 export interface FreeGame {
@@ -568,11 +577,14 @@ export interface QueueState {
   modeReason: string | null;
 }
 
+export type ReadinessFix = "none" | "import" | "waitForEgl" | "turnOnEpicLinks" | "syncSaves" | "installOverlay" | "launch" | "openSettings";
+
 export interface ReadinessItem {
   appName: string | null;
   title: string;
   severity: ReadinessSeverity;
   message: string;
+  fix: ReadinessFix;
 }
 
 export type ReadinessSeverity = "ok" | "warning" | "blocker";

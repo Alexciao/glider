@@ -797,6 +797,11 @@ public sealed class GliderService : IGliderRpc, IDisposable
             _c.Jobs.Reevaluate();
         }
 
+        if (!prev.EglSync && saved.EglSync)
+        {
+            _ = Task.Run(() => _egl.WriteBackAllAsync(_c.Shutdown), _c.Shutdown);
+        }
+
         if (prev.AutoUpdate != AutoUpdatePolicy.Always && saved.AutoUpdate == AutoUpdatePolicy.Always)
         {
             _updates.Evaluate();
