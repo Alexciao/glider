@@ -1,8 +1,6 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { GameArt } from "../ipc/contract.gen";
-import { m } from "motion/react";
 import { hueOf, initialsOf } from "./Avatar";
-import { spring } from "./motion";
 import { cx } from "./cx";
 
 /** Initials for the no-art fallback. Plain ASCII titles (nearly all) skip the grapheme segmenter, which is slow per tile. */
@@ -28,13 +26,6 @@ export interface GameCoverProps {
   priority?: boolean;
   className?: string;
   style?: CSSProperties;
-  /**
-   * Makes the cover a Motion element so it can take part in the shared-element transition to the game page's hero
-   * (which carries `layoutId="cover-<appName>"`). Fixed for the life of the cover (switching it would remount the images).
-   */
-  shareable?: boolean;
-  /** The shared-element id, set only while this cover is about to be opened (hovered or focused): every id'd cover joins the layout tree. */
-  layoutId?: string;
   /** Overlays (badges, progress) rendered above the art. */
   children?: ReactNode;
 }
@@ -58,7 +49,7 @@ export function coverSources(art: GameArt, shape: CoverShape, size: "full" | "th
  * fades over it. An image that is already decoded (a recycled virtual tile, a cached cover) appears instantly with
  * no fade. With no art at all (or a broken URL) the cover is a quiet gradient with the title's initials.
  */
-export function GameCover({ art, title, shape = "tall", size = "full", priority, shareable, layoutId, className, style, children }: GameCoverProps) {
+export function GameCover({ art, title, shape = "tall", size = "full", priority, className, style, children }: GameCoverProps) {
   const { src, blur } = coverSources(art, shape, size);
   const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
@@ -81,14 +72,13 @@ export function GameCover({ art, title, shape = "tall", size = "full", priority,
 
   const hue = hueOf(title);
   const base = art.placeholder ?? `oklch(0.3 0.045 ${hue})`;
-  const rootProps = {
-    "data-cover": "",
-    "data-loaded": loaded || undefined,
-    className: cx("relative isolate overflow-hidden bg-surface-3", shape === "tall" ? "aspect-[3/4]" : "aspect-video", className),
-    style: { backgroundColor: base, ...style },
-  };
-  const body = (
-    <>
+  return (
+    <div
+      data-cover=""
+      data-loaded={loaded || undefined}
+      className={cx("relative isolate overflow-hidden bg-surface-3", shape === "tall" ? "aspect-[3/4]" : "aspect-video", className)}
+      style={{ backgroundColor: base, ...style }}
+    >
       {failed ? (
         <div
           aria-hidden
@@ -125,13 +115,6 @@ export function GameCover({ art, title, shape = "tall", size = "full", priority,
         </>
       )}
       {children}
-    </>
-  );
-  return shareable ? (
-    <m.div layoutId={layoutId} transition={spring.smooth} {...rootProps}>
-      {body}
-    </m.div>
-  ) : (
-    <div {...rootProps}>{body}</div>
+    </div>
   );
 }

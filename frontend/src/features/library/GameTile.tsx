@@ -2,6 +2,7 @@ import { memo, useState, type ReactNode } from "react";
 import { ArrowDownToLine, Check, Download, Play, TriangleAlert, Wrench } from "lucide-react";
 import type { GameSummary } from "../../ipc/contract.gen";
 import { Button, GameCover, cx } from "../../ui";
+import { SharedCover } from "./SharedCover";
 import { CoverProgress } from "./CoverProgress";
 import { MoreButton } from "./GameMenu";
 import { describeState, quickAction, runQuick } from "./status";
@@ -79,18 +80,11 @@ export const GameTile = memo(function GameTile({ game, index, count, x, y, width
                 aria-hidden
                 className="pointer-events-none absolute inset-0 rounded-lg opacity-0 shadow-[0_14px_28px_-10px_oklch(0_0_0/0.55)] transition-opacity duration-150 group-hover/tile:opacity-100"
               />
-              <GameCover
-                art={game.art}
-                title={game.title}
-                priority={priority}
-                shareable
-                layoutId={hot || focused ? `cover-${game.appName}` : undefined}
-                className="rounded-lg"
-                style={{ height: coverH, borderRadius: 12 }}
-              >
+              <GameCover art={game.art} title={game.title} priority={priority} className="rounded-lg" style={{ height: coverH }}>
                 <span aria-hidden className="pointer-events-none absolute inset-0 rounded-[inherit] shadow-[inset_0_0_0_1px_var(--g-border-strong)]" />
                 {game.activeJobId && <CoverProgress jobId={game.activeJobId} />}
               </GameCover>
+              {(hot || focused) && <SharedCover id={game.appName} radius={12} />}
               {badge && (
                 <span aria-hidden title={badge.label} className="absolute left-2 top-2 z-[2]">
                   {badge.node}

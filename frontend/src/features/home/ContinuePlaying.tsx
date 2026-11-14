@@ -5,6 +5,7 @@ import { JOB_VERB } from "../../state/derive";
 import { formatRelativeTime } from "../../state/format";
 import { goGame } from "../../state/router";
 import { Badge, Button, GameCover } from "../../ui";
+import { SharedCover } from "../library/SharedCover";
 import { quickAction, runQuick } from "../library/status";
 
 /** One short line: when you last played (or what the game is doing right now). */
@@ -29,16 +30,10 @@ export function ContinueCard({ game }: { game: GameSummary }) {
         className="group/card block w-full rounded-xl text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-focus"
       >
         <span className="block rounded-xl transition-[transform,box-shadow] duration-150 ease-out group-hover/card:-translate-y-[3px] group-hover/card:shadow-[0_14px_28px_-12px_oklch(0_0_0/0.5)]">
-          <GameCover
-            art={game.art}
-            title={game.title}
-            shape="wide"
-            priority
-            shareable
-            layoutId={armed ? `cover-${game.appName}` : undefined}
-            className="rounded-xl shadow-[inset_0_0_0_1px_var(--g-border-strong)]"
-            style={{ borderRadius: 16 }}
-          />
+          <span className="relative block">
+            <GameCover art={game.art} title={game.title} shape="wide" priority className="rounded-xl shadow-[inset_0_0_0_1px_var(--g-border-strong)]" />
+            {armed && <SharedCover id={game.appName} radius={16} />}
+          </span>
         </span>
         <span className="mt-3 block pr-20">
           <span className="block truncate text-base font-medium text-fg">{game.title}</span>
