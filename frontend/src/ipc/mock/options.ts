@@ -39,7 +39,8 @@ export interface ScenarioInfo {
   description: string;
 }
 
-export const MOCK_ART = ["default", "none"] as const;
+/** `none` strips all art; `busy` / `bright` / `white` replace it with the worst key art for text legibility. */
+export const MOCK_ART = ["default", "none", "busy", "bright", "white"] as const;
 export type MockArt = (typeof MOCK_ART)[number];
 
 export interface MockOptions {
@@ -53,7 +54,7 @@ export interface MockOptions {
   freeze?: boolean;
   /** The next mutating call fails with this error. */
   fail?: ErrorCode;
-  /** `none` strips all art (the no-art fallback). */
+  /** `none` strips all art (the no-art fallback); `busy` / `bright` / `white` are worst-case key art. */
   art?: MockArt;
   backdrop?: "mica" | "solid";
   /** Multiplier on simulated latencies (default 1; tests use 0). */

@@ -58,7 +58,7 @@ import { dirname, driveLetter, joinPath, samePath, trimSlashes, type MockDrive }
 import { Errors, errorForCode, fail, toGliderError } from "./errors";
 import { LICENSES } from "./licenses";
 import { generateLogs, logFileName } from "./logs";
-import type { MockController, MockOptions, ScenarioName } from "./options";
+import type { MockArt, MockController, MockOptions, ScenarioName } from "./options";
 import { mulberry32 } from "./rng";
 import { SCENARIOS, buildWorld, type SeedJob, type World } from "./scenarios";
 import { JobSim, TICK_MS, TICK_S, buildJobSim, type JobEnv, type JobSimInit } from "./sim";
@@ -93,7 +93,7 @@ interface Resolved {
   timeScale: number;
   timeScaleExplicit: boolean;
   freeze: boolean;
-  art: "default" | "none";
+  art: MockArt;
   backdrop: "mica" | "solid";
   latency: number;
   seed: number;
@@ -310,6 +310,7 @@ export class MockBackend {
       now,
       games: this.cfg.games,
       art: this.cfg.art !== "none",
+      artVariant: this.cfg.art === "busy" || this.cfg.art === "bright" || this.cfg.art === "white" ? this.cfg.art : undefined,
       eacInstalled: this.cfg.eacInstalled,
     });
     const w = this.world;

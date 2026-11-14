@@ -91,7 +91,6 @@ const RAW_STATES: ShotState[] = [
       await wait(800);
     },
   },
-  { name: "onboarding-3-scanning", query: "scenario=firstRunSignedIn&latency=40", settle: 300 },
   { name: "onboarding-3-scan", query: "scenario=firstRunSignedIn", settle: 1100 },
   {
     name: "onboarding-3-scan-rest",
@@ -258,22 +257,6 @@ const RAW_STATES: ShotState[] = [
       await p.getByRole("menuitem", { name: "Sign out" }).click();
       await wait(900);
     },
-  },
-  {
-    name: "library-existing-install-hint",
-    query: "scenario=firstRunSignedIn",
-    setup: async (p) => {
-      await finishOnboarding(p);
-    },
-    settle: 900,
-  },
-  {
-    name: "library-not-installed",
-    query: "scenario=firstRunSignedIn",
-    setup: async (p) => {
-      await finishOnboarding(p);
-    },
-    settle: 900,
   },
   {
     name: "library-ready-moment",
@@ -802,10 +785,9 @@ const RAW_STATES: ShotState[] = [
 const NEEDS_GAME_PAGE = /^(library-|focus-library|focus-rail|toasts|dialog-(uninstall|move|error))/;
 
 /**
- * Screenshot states. NOTE (Phase 1): the setups below were written for the v0.1 single-game screens. Scenario names and
- * RPC shapes are updated and game-page states open Fortnite's page, but states that click v0.1 onboarding/install
- * widgets (onboarding-*, dialog-install*, library-existing-install-hint, library-not-installed) and the art-variant
- * options are stale until the UI phases rebuild those screens and re-shoot them.
+ * Every state the specs share (screenshots, a11y, copy dump, break-UI). The legacy `library-*` names open Fortnite's game
+ * page (v2 has one page per game); the `game-*`, `lib-*`, `home-*`, `store-*` and `downloads-*` states cover the v0.2
+ * screens. States that pick a game do it by predicate (`goPicked`), never by title, so a reseeded mock keeps working.
  */
 export const STATES: ShotState[] = RAW_STATES.map((st) => {
   if (!NEEDS_GAME_PAGE.test(st.name)) return st;
