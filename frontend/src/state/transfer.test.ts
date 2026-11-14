@@ -58,7 +58,7 @@ describe("figuresOf", () => {
     expect(f.chart).toBe("network+disk");
     expect(rows(f)).toEqual({
       progress: ["Files"],
-      speed: ["Now", "Average", "Peak", "Server"],
+      speed: ["Now", "Server"],
       time: ["Elapsed"],
       disk: ["Write speed", "Written", "Final size"],
     });
@@ -70,6 +70,9 @@ describe("figuresOf", () => {
     const labels = f.groups.flatMap((g) => g.rows.map((r) => r.label));
     expect(labels).not.toContain("Mode");
     expect(labels).not.toContain("Left");
+    // Average and peak belong to the chart annotations; the list does not repeat them.
+    expect(labels).not.toContain("Average");
+    expect(labels).not.toContain("Peak");
     expect(f.groups.find((g) => g.id === "disk")!.rows.find((r) => r.key === "written")!.value).toBe("3.00 GB");
   });
 
@@ -105,7 +108,7 @@ describe("figuresOf", () => {
     const tail = progress({ phase: "installing", network: null, limiter: "disk" });
     const f = figuresOf(job({ phase: "installing" }), tail);
     expect(f.chart).toBe("disk");
-    expect(rows(f).speed).toEqual(["Now", "Average", "Peak"]);
+    expect(rows(f).speed).toEqual(["Now"]);
     expect(f.groups.flatMap((g) => g.rows.map((r) => r.label))).not.toContain("Server");
     const mv = figuresOf(job({ kind: "move", phase: "moving" }), progress({ phase: "moving", network: null }));
     expect(mv.chart).toBeNull();

@@ -127,6 +127,9 @@ export function ActiveJobCard({ job, variant = "full", className }: ActiveJobCar
   const tone = state.tone === "accent" ? "accent" : state.tone;
   // A job that has not started (waiting, queued) has no steps, percent or bar to show: just why it is not running.
   const started = p !== null;
+  // While the stepper is on screen its lit step already names what the job is doing: the state label would say it twice.
+  const steps = started && job.phases.length > 1;
+  const showState = !(running && steps);
   const reason = (job.blockedReason ?? "Another task is using the game files").replace(/[.\s]+$/, "");
   const blocked = /continue/i.test(reason) ? `${reason}.` : `${reason}. Glider continues automatically.`;
 
@@ -180,11 +183,17 @@ export function ActiveJobCard({ job, variant = "full", className }: ActiveJobCar
           <h2 className="truncate text-md font-semibold tracking-tight text-fg" title={job.title}>
             {job.title}
           </h2>
-          <p className="mt-1.5 flex min-w-0 items-center gap-2 text-sm text-fg-muted">
-            <StatusDot tone={tone} />
-            <span className="shrink-0 font-medium text-fg">{state.label}</span>
-            {meta && <span className="truncate">{meta}</span>}
-          </p>
+          {(showState || meta) && (
+            <p className="mt-1.5 flex min-w-0 items-center gap-2 text-sm text-fg-muted">
+              {showState && (
+                <>
+                  <StatusDot tone={tone} />
+                  <span className="shrink-0 font-medium text-fg">{state.label}</span>
+                </>
+              )}
+              {meta && <span className="truncate">{meta}</span>}
+            </p>
+          )}
           {job.kind === "move" && job.targetPath && (
             <p className="mt-1 flex min-w-0 gap-1 text-sm text-fg-muted">
               to <PathText path={job.targetPath} className="text-fg" />
@@ -202,7 +211,7 @@ export function ActiveJobCard({ job, variant = "full", className }: ActiveJobCar
         </div>
       </header>
 
-      {started && (
+      {steps && (
         <div className="px-5 pt-5">
           <PhaseStepper steps={job.phases.map((id) => ({ id, label: PHASE_STATE[id] }))} current={phase} paused={paused} />
         </div>

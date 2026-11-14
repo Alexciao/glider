@@ -1,8 +1,10 @@
 import { AnimatePresence, m } from "motion/react";
 import { Clock, Pause } from "lucide-react";
 import type { JobInfo } from "../ipc/contract.gen";
-import { PHASE_LABEL, jobVerb } from "../state/derive";
+import { jobVerb } from "../state/derive";
 import { formatPercent, formatSpeed } from "../state/format";
+import { useRoute } from "../state/router";
+import { PHASE_STATE } from "../state/transfer";
 import { useJobProgress } from "../state/progress";
 import { activeJobs, currentJob, useSnap } from "../state/store";
 import { useUi } from "../state/ui";
@@ -23,12 +25,14 @@ function PillBody({ job, more }: { job: JobInfo; more: number }) {
   } else if (job.status === "waiting") {
     icon = <Clock size={13} className="text-warning-text" />;
     text = "Waiting";
-    detail = job.blockedReason ?? "Waiting";
+    detail = job.blockedReason;
   } else if (job.status === "queued") {
     icon = <Clock size={13} className="text-fg-subtle" />;
     text = "Queued";
   } else if (progress) {
-    detail = progress.network ? `${formatPercent(percent)}  ·  ${formatSpeed(progress.network.bytesPerSecond)}` : `${PHASE_LABEL[progress.phase]}  ·  ${formatPercent(percent)}`;
+    // The verb already names the phase ("Verifying Fortnite"); the phase is only added when it says something new ("Finalizing").
+    const phase = PHASE_STATE[progress.phase];
+    detail = progress.network ? `${formatPercent(percent)}  ·  ${formatSpeed(progress.network.bytesPerSecond)}` : text.startsWith(phase) ? formatPercent(percent) : `${phase}  ·  ${formatPercent(percent)}`;
   }
 
   return (
@@ -52,10 +56,13 @@ export function ActivityPill() {
   const job = useSnap((s) => currentJob(s.queue.jobs));
   const more = useSnap((s) => Math.max(0, activeJobs(s.queue.jobs).length - 1));
   const go = useUi((s) => s.go);
+  const route = useRoute();
+  // Home's Downloads strip, the Downloads card and the game's own hero already show this job: the pill would say it twice.
+  const shown = job && !(route.page === "downloads" || route.page === "home" || (route.page === "game" && route.appName === job.appName));
   const label = job ? `${jobVerb(job.kind, job.phase)} ${job.title}, ${job.status}${more > 0 ? `, and ${more} more` : ""}. Open downloads` : "";
   return (
     <AnimatePresence initial={false}>
-      {job && (
+      {job && shown && (
         <m.button
           key="pill"
           type="button"
