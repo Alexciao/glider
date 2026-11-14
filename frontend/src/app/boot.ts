@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { connectRpc, postHostTheme, rpc } from "../ipc/rpc";
-import { isHosted } from "../ipc/client";
+import { isHosted, RpcError } from "../ipc/client";
+import type { GliderError } from "../ipc/contract.gen";
 import { startBridge } from "../state/bridge";
 import { installRouter } from "../state/router";
 import { useApp } from "../state/store";
@@ -17,20 +18,25 @@ export function boot(): Promise<void> {
 
 export type BootState = "connecting" | "ready" | "failed";
 
-export function useBoot(): { state: BootState; retry: () => void } {
+/** The backend's own explanation when boot failed with one (e.g. Core could not start); null for anything else. */
+export function bootErrorDetail(e: unknown): GliderError | null {
+  return e instanceof RpcError ? e.error : null;
+}
+
+export function useBoot(): { state: BootState; error: GliderError | null; retry: () => void } {
   const hasSnapshot = useApp((s) => s.snapshot !== null);
   const [attempt, setAttempt] = useState(0);
-  const [failedAttempt, setFailedAttempt] = useState<number | null>(null);
+  const [failure, setFailure] = useState<{ attempt: number; error: GliderError | null } | null>(null);
 
   useEffect(() => {
-    boot().catch(() => {
+    boot().catch((e: unknown) => {
       booting = null;
-      setFailedAttempt(attempt);
+      setFailure({ attempt, error: bootErrorDetail(e) });
     });
   }, [attempt]);
 
-  const failed = failedAttempt === attempt;
-  return { state: hasSnapshot ? "ready" : failed ? "failed" : "connecting", retry: () => setAttempt((n) => n + 1) };
+  const failed = failure?.attempt === attempt;
+  return { state: hasSnapshot ? "ready" : failed ? "failed" : "connecting", error: failed ? failure.error : null, retry: () => setAttempt((n) => n + 1) };
 }
 
 /** Tells the host to reveal the window after the first real paint (double rAF), never before. */

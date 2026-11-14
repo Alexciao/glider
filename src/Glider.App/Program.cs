@@ -194,6 +194,9 @@ internal static class HostApp
             AppUpdater.Start(rt.Sink);
         }
 
+        // From here on the dispatcher no longer runs anything: a relaunch must not be signalled into this dying process.
+        // (It waits for the mutex instead, which is released only after Core is disposed.)
+        app.Dispatcher.ShutdownStarted += (_, _) => single?.StopListening();
         single?.Listen(link =>
         {
             if (link is null)
@@ -236,9 +239,12 @@ internal static class HostApp
 
         app.Run();
 
+        var quitStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+        single?.StopListening();
         trayHost.Dispose();
         tray.Dispose();
         DisposeRpc(rt);
+        HostLog.Info($"quit: host torn down in {System.Diagnostics.Stopwatch.GetElapsedTime(quitStarted).TotalMilliseconds:0} ms");
         return 0;
     }
 

@@ -43,8 +43,16 @@ interface Pending {
 const NO_TIMEOUT = new Set<RpcMethodName>(["auth.signIn", "app.pickFolder", "game.launch", "game.activate", "game.installPrerequisites", "saves.resolve", "saves.sync", "egl.quickScan"]);
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+/**
+ * The host answers by id, and a reloaded page (renderer crash, devtools reload) must never receive the previous page's late
+ * response as its own: request 7 of the old page, `game.launch` (no timeout), would otherwise resolve request 7 of the new one.
+ * So every page load numbers its requests from its own random base. The host reads ids with `GetInt32`: the base stays below 2^30,
+ * leaving over a billion ids of headroom before 2^31.
+ */
+const ID_BASE_RANGE = 2 ** 30;
+
 export class RpcClient {
-  private nextId = 1;
+  private nextId = 1 + Math.floor(Math.random() * ID_BASE_RANGE);
   private readonly pending = new Map<number, Pending>();
   private readonly listeners = new Map<string, Set<(data: unknown) => void>>();
   private readonly transport: Transport;

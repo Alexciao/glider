@@ -19,17 +19,21 @@ internal static class Composition
         return Runtime.Rpc;
     }
 
+    /// <summary>Disposes Core on a context-free pool thread (see <see cref="ShutdownRunner"/>); logs how long it took.</summary>
     public static void Dispose()
     {
-        try
+        if (Runtime is not { } runtime)
         {
-            Runtime?.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(3));
+            return;
         }
-        catch (Exception ex)
-        {
-            HostLog.Warn("Disposing the Core runtime failed", ex);
-        }
+
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var finished = ShutdownRunner.DisposeBlocking(runtime.DisposeAsync, DisposeTimeout, ex => HostLog.Warn("Disposing the Core runtime failed", ex));
+        var ms = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        HostLog.Info(finished ? $"Core runtime disposed in {ms:0} ms" : $"Core runtime disposal gave up after {ms:0} ms");
     }
+
+    private static readonly TimeSpan DisposeTimeout = TimeSpan.FromSeconds(5);
 }
 
 /// <summary>Time since the last keyboard/mouse input (for "auto-update only when idle").</summary>

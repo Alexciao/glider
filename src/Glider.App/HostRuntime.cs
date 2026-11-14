@@ -25,16 +25,33 @@ internal sealed class HostRuntime
 
         // 2) Core's service layer is built on the thread pool, in parallel with window construction.
         RpcTask = Task.Run(() => Composition.BuildAsync(paths, Platform, Sink, shellIntegration ? new WindowsShellIntegration() : null));
-        Bridge.Dispatcher = RpcTask.ContinueWith(
+        // If composition fails the UI must still get an answer to every request (a reason, the log path, working "copy logs"), not a 30 s timeout.
+        Bridge.Dispatcher = RpcTask.ContinueWith<Func<string, Task>>(
             t =>
             {
-                var dispatcher = new RpcDispatcher(t.Result, Bridge, (method, ex) => HostLog.Error($"RPC {method} failed", ex), OnRpcHandled);
-                Sink.Attach(dispatcher);
-                StartupTimeline.Mark("rpc-ready");
-                return dispatcher;
+                if (t.IsCompletedSuccessfully)
+                {
+                    var dispatcher = new RpcDispatcher(t.Result, Bridge, (method, ex) => HostLog.Error($"RPC {method} failed", ex), OnRpcHandled);
+                    Sink.Attach(dispatcher);
+                    StartupTimeline.Mark("rpc-ready");
+                    return dispatcher.HandleAsync;
+                }
+
+                return new StartupFailedResponder(
+                    Bridge,
+                    t.Exception?.GetBaseException() ?? new OperationCanceledException("Core startup was cancelled"),
+                    paths.Logs,
+                    Platform.SetClipboardText,
+                    new Dictionary<string, Action>
+                    {
+                        ["app.quit"] = Platform.Quit,
+                        ["window.close"] = Platform.Quit,
+                        ["window.minimize"] = Platform.MinimizeWindow,
+                        ["window.toggleMaximize"] = Platform.ToggleMaximizeWindow,
+                    }).HandleAsync;
             },
             CancellationToken.None,
-            TaskContinuationOptions.OnlyOnRanToCompletion,
+            TaskContinuationOptions.None,
             TaskScheduler.Default);
     }
 

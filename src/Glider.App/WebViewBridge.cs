@@ -6,22 +6,18 @@ namespace Glider.App;
 
 /// <summary>
 /// The host end of the IPC bridge. Outbound: <see cref="Send"/> may be called from any thread; messages are queued,
-/// coalesced (only the latest <c>state</c>/<c>progress</c>/<c>window</c> event survives a burst) and posted from the UI thread in
-/// time-boxed batches so a flood never blocks rendering. Inbound: <see cref="HandleIncoming"/> routes UI → host messages.
+/// folded by <see cref="BridgeQueue"/> (latest-wins per event kind; while the page is suspended also library deltas, capped notices) and
+/// posted from the UI thread in time-boxed batches so a flood never blocks rendering. Inbound: <see cref="HandleIncoming"/> routes UI → host messages.
 /// </summary>
 internal sealed class WebViewBridge : IRpcTransport
 {
-    private const string EventPrefix = "{\"type\":\"event\",\"event\":\"";
     private static readonly TimeSpan BatchBudget = TimeSpan.FromMilliseconds(6);
 
     private readonly Dispatcher _ui;
     private readonly object _gate = new();
-    private readonly List<Item> _queue = [];
+    private readonly BridgeQueue _queue = new();
     private bool _scheduled;
     private CoreWebView2? _web;
-    private bool _held;
-
-    private readonly record struct Item(string Json, string? Key);
 
     public WebViewBridge(Dispatcher ui) => _ui = ui;
 
@@ -31,8 +27,8 @@ internal sealed class WebViewBridge : IRpcTransport
     /// <summary>Raised on the UI thread for {"type":"host",...} messages (host-only chrome/theme control).</summary>
     public event Action<System.Text.Json.JsonElement>? HostMessageReceived;
 
-    /// <summary>Set once the RPC dispatcher exists; requests arriving earlier wait for it.</summary>
-    public Task<RpcDispatcher>? Dispatcher { get; set; }
+    /// <summary>Set once the RPC dispatcher (or, when Core failed to start, its stand-in) exists; requests arriving earlier wait for it.</summary>
+    public Task<Func<string, Task>>? Dispatcher { get; set; }
 
     public void Attach(CoreWebView2 web)
     {
@@ -52,12 +48,24 @@ internal sealed class WebViewBridge : IRpcTransport
         }
     }
 
-    /// <summary>While held (WebView2 suspended / not yet navigated) messages accumulate (coalesced) instead of being posted.</summary>
+    /// <summary>
+    /// A new page document is about to replace the current one (renderer crash/reload, new controller): whatever is still queued was
+    /// meant for the old page, and the new one loads its state fresh, so it is dropped.
+    /// </summary>
+    public void BeginNewPage()
+    {
+        lock (_gate)
+        {
+            _queue.Clear();
+        }
+    }
+
+    /// <summary>While held (WebView2 suspended / not yet navigated) messages accumulate (folded, see <see cref="BridgeQueue"/>) instead of being posted.</summary>
     public void Hold(bool hold)
     {
         lock (_gate)
         {
-            _held = hold;
+            _queue.Held = hold;
         }
 
         if (!hold)
@@ -68,44 +76,19 @@ internal sealed class WebViewBridge : IRpcTransport
 
     public void Send(string json)
     {
-        var key = CoalesceKey(json);
         lock (_gate)
         {
-            if (key is not null)
-            {
-                _queue.RemoveAll(i => i.Key == key);
-            }
-
-            _queue.Add(new Item(json, key));
+            _queue.Enqueue(json);
         }
 
         Schedule();
-    }
-
-    private static string? CoalesceKey(string json)
-    {
-        if (!json.StartsWith(EventPrefix, StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        var end = json.IndexOf('"', EventPrefix.Length);
-        if (end < 0)
-        {
-            return null;
-        }
-
-        var name = json.AsSpan(EventPrefix.Length, end - EventPrefix.Length);
-        return name.SequenceEqual(RpcEvents.State) || name.SequenceEqual(RpcEvents.Progress) || name.SequenceEqual(RpcEvents.Window)
-            ? name.ToString()
-            : null;
     }
 
     private void Schedule()
     {
         lock (_gate)
         {
-            if (_scheduled || _queue.Count == 0 || _web is null || _held)
+            if (_scheduled || _queue.Count == 0 || _web is null || _queue.Held)
             {
                 return;
             }
@@ -121,24 +104,21 @@ internal sealed class WebViewBridge : IRpcTransport
         var started = System.Diagnostics.Stopwatch.GetTimestamp();
         while (true)
         {
-            Item item;
+            string json;
             CoreWebView2? web;
             lock (_gate)
             {
                 web = _web;
-                if (web is null || _held || _queue.Count == 0)
+                if (web is null || _queue.Held || !_queue.TryDequeue(out json!))
                 {
                     _scheduled = false;
                     return;
                 }
-
-                item = _queue[0];
-                _queue.RemoveAt(0);
             }
 
             try
             {
-                web.PostWebMessageAsJson(item.Json);
+                web.PostWebMessageAsJson(json);
             }
             catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException or ObjectDisposedException)
             {
@@ -197,8 +177,8 @@ internal sealed class WebViewBridge : IRpcTransport
                     return;
                 }
 
-                var dispatcher = await pending.ConfigureAwait(false);
-                await dispatcher.HandleAsync(json).ConfigureAwait(false);
+                var handle = await pending.ConfigureAwait(false);
+                await handle(json).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

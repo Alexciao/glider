@@ -3,7 +3,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <OutputType>Exe</OutputType>
-    <NoWarn>$(NoWarn);CA1707;CA1822;CA2000;CA1861;CA1307;CA1310;CA1305;CA1304;CA1311</NoWarn>
+    <!-- Host sources linked below (Win32.cs) use LibraryImport. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CA1707;CA1822;CA2000;CA1861;CA1307;CA1310;CA1305;CA1304;CA1311;CA1416</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="xunit.v3" Version="4.0.3" />
@@ -26,6 +28,14 @@
     <!-- Windows shell/registry adapters (self-contained): tested against real .lnk files in a temp folder and a throwaway HKCU key. -->
     <Compile Include="..\..\src\Glider.App\WindowsRegistry.cs" Link="Host\WindowsRegistry.cs" />
     <Compile Include="..\..\src\Glider.App\WindowsShellLinks.cs" Link="Host\WindowsShellLinks.cs" />
+    <!-- Pure host plumbing (shutdown, bridge queue, startup failure): no WPF/WebView2 types. -->
+    <Compile Include="..\..\src\Glider.App\ShutdownRunner.cs" Link="Host\ShutdownRunner.cs" />
+    <Compile Include="..\..\src\Glider.App\BridgeQueue.cs" Link="Host\BridgeQueue.cs" />
+    <Compile Include="..\..\src\Glider.App\StartupFailure.cs" Link="Host\StartupFailure.cs" />
+    <Compile Include="..\..\src\Glider.App\SingleInstance.cs" Link="Host\SingleInstance.cs" />
+    <Compile Include="..\..\src\Glider.App\HostConstants.cs" Link="Host\HostConstants.cs" />
+    <Compile Include="..\..\src\Glider.App\HostLog.cs" Link="Host\HostLog.cs" />
+    <Compile Include="..\..\src\Glider.App\Native\Win32.cs" Link="Host\Win32.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
