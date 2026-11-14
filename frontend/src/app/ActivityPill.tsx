@@ -4,11 +4,11 @@ import type { JobInfo } from "../ipc/contract.gen";
 import { PHASE_LABEL, jobVerb } from "../state/derive";
 import { formatPercent, formatSpeed } from "../state/format";
 import { useJobProgress } from "../state/progress";
-import { currentJob, useSnap } from "../state/store";
+import { activeJobs, currentJob, useSnap } from "../state/store";
 import { useUi } from "../state/ui";
 import { Spinner, cx, spring } from "../ui";
 
-function PillBody({ job }: { job: JobInfo }) {
+function PillBody({ job, more }: { job: JobInfo; more: number }) {
   const progress = useJobProgress(job.id, job.progress);
   const percent = progress?.percent ?? 0;
   const running = job.status === "running";
@@ -36,6 +36,7 @@ function PillBody({ job }: { job: JobInfo }) {
       {icon}
       <span className="font-medium text-fg">{text}</span>
       {detail && <span className="whitespace-pre text-fg-muted tabular-nums">{detail}</span>}
+      {more > 0 && <span className="rounded-full bg-surface-3 px-1.5 text-2xs font-medium leading-4 text-fg-muted tabular-nums">+{more}</span>}
       <span aria-hidden className="absolute inset-x-3 bottom-0 h-px overflow-hidden rounded-full">
         <span
           className={cx("block h-full origin-left bg-accent transition-transform duration-[120ms] ease-linear", !running && "opacity-40")}
@@ -49,8 +50,9 @@ function PillBody({ job }: { job: JobInfo }) {
 /** Slim, persistent status for the active job; lives in the title bar so it never costs layout. */
 export function ActivityPill() {
   const job = useSnap((s) => currentJob(s.queue.jobs));
+  const more = useSnap((s) => Math.max(0, activeJobs(s.queue.jobs).length - 1));
   const go = useUi((s) => s.go);
-  const label = job ? `${jobVerb(job.kind, job.phase)} ${job.title}, ${job.status}. Open downloads` : "";
+  const label = job ? `${jobVerb(job.kind, job.phase)} ${job.title}, ${job.status}${more > 0 ? `, and ${more} more` : ""}. Open downloads` : "";
   return (
     <AnimatePresence initial={false}>
       {job && (
@@ -65,7 +67,7 @@ export function ActivityPill() {
           transition={spring.snappy}
           className="app-no-drag pointer-events-auto relative flex h-7 items-center gap-2 overflow-hidden rounded-full border border-border-strong bg-surface-2 px-3.5 text-xs transition-colors duration-150 hover:bg-surface-3 active:scale-[0.98]"
         >
-          <PillBody job={job} />
+          <PillBody job={job} more={more} />
         </m.button>
       )}
     </AnimatePresence>
