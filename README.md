@@ -72,7 +72,7 @@ pwsh build/build.ps1 -Version 0.1.0          # add -Pack to produce the Velopack
 
 # Inner loop
 dotnet build Glider.slnx
-dotnet test --project tests/Glider.Core.Tests
+dotnet test --project tests/Glider.Core.Tests          # real-exe tests are skipped unless GLIDER_REAL_LEGENDARY is set, see docs/testing.md
 cd frontend; pnpm install; pnpm dev          # UI in a browser against the mock backend (?scenario=eglDetected, downloading, …)
 pnpm lint; pnpm typecheck; pnpm test; pnpm screenshots
 ```
