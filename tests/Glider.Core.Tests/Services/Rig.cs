@@ -49,6 +49,8 @@ public sealed class Rig : IDisposable
     public FakePublisherCheck PrerequisiteCheck { get; } = new();
     public FakeOverlayRegistry OverlayRegistry { get; } = new();
     public FakeLaunchers Launchers { get; } = new();
+    public FakeConnectivityProbe Probe { get; } = new();
+    public FakeNetworkSignal NetworkSignal { get; } = new();
 
     /// <summary>Stands in for Program Files (x86): Epic's own overlay folders live under it.</summary>
     public string ProgramFilesX86 => Path.Combine(Root, "pf86");
@@ -109,6 +111,8 @@ public sealed class Rig : IDisposable
                         LibraryCoalesceInterval = LibraryCoalesce,
                         SavesLegendary = SavesLegendary,
                         SaveOptions = SaveOptions,
+                        ConnectivityProbe = Probe,
+                        NetworkChangeSignal = NetworkSignal,
                         LibraryCacheDelay = TimeSpan.Zero,
                         LibraryRetryDelay = TimeSpan.FromMilliseconds(5),
                         AppVersion = "0.2.0-test",

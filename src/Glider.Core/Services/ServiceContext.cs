@@ -36,6 +36,9 @@ internal sealed class ServiceContext
     /// <summary>Background measurement of install folders (GameSummary.InstalledSizeBytes). Set by GliderService.</summary>
     public InstalledSizeMeter Sizes { get; set; } = null!;
 
+    /// <summary>Re-checks "offline" and reports real Epic calls that worked or failed (set by GliderService).</summary>
+    public ConnectivityMonitor? Network { get; set; }
+
     /// <summary>Live cloud-save status per app (set by the save service; the catalog reads it into GameSummary.SaveStatus).</summary>
     public System.Collections.Immutable.ImmutableDictionary<string, SaveSyncStatus> SaveStatuses { get; set; } = System.Collections.Immutable.ImmutableDictionary<string, SaveSyncStatus>.Empty;
 

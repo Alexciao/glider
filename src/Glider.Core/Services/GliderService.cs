@@ -24,6 +24,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
     private readonly ServiceContext _c;
     private readonly AuthService _auth;
     private readonly UpdateService _updates;
+    private readonly ConnectivityMonitor _network;
     private readonly InstallService _install;
     private readonly LaunchService _launch;
     private readonly EglCoordinator _egl;
@@ -88,6 +89,8 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _policy = new QueuePolicy(_c);
         _auth = new AuthService(_c);
         _updates = new UpdateService(_c);
+        _network = new ConnectivityMonitor(_c, options.ConnectivityProbe, options.NetworkChangeSignal);
+        _c.Network = _network;
         _install = new InstallService(_c);
         _launch = new LaunchService(_c, new EacService(_c), OnSessionEnded);
         _egl = new EglCoordinator(_c);
@@ -96,6 +99,11 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _saves.Launcher = (r, ct) => _launch.LaunchAsync(r, ct);
         _launch.Saves = _saves;
         _c.WhenSavesIdle = _saves.WhenIdleAsync;
+        _network.CameOnline += () =>
+        {
+            _updates.OnCameOnline();
+            _saves.ReplayPending();
+        };
         _freeGames = new Store.FreeGamesService(paths, log, time, () => _c.Library.Games.Values.ToList(), events, options.FreeGames);
         _store = new Store.StoreService(_c, events, (r, ct) => _launch.LaunchAsync(r, ct));
         _prewarm = new Prewarm(_c, _auth, _egl, _updates, _install, _launch);
@@ -156,6 +164,8 @@ public sealed class GliderService : IGliderRpc, IDisposable
 
     internal UpdateService UpdatesForTests => _updates;
 
+    internal ConnectivityMonitor NetworkForTests => _network;
+
     internal Saves.SaveService SavesForTests => _saves;
 
     /// <summary>
@@ -206,6 +216,8 @@ public sealed class GliderService : IGliderRpc, IDisposable
             _ = Task.Run(WarmSerializers, ct);
         }
 
+        _c.Jobs.ProgressChanged += _network.NoteProgress;
+        _network.Start();
         WarmupTask = Task.Run(() => _prewarm.RunAsync(ct), ct);
         _shortcuts.Attach();
         _ = Task.Run(() => ReconcileShellAsync(ct), ct);
@@ -313,6 +325,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
         {
         }
 
+        _network.Dispose();
         _store.Dispose();
         _freeGames.Dispose();
         _shortcuts.Dispose();

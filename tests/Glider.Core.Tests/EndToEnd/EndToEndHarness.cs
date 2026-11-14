@@ -71,6 +71,7 @@ internal sealed class EndToEndHarness : IAsyncDisposable
             ProcessStarter = GameProcesses,
             DiskInfo = Disk,
             FreeGamesBackground = false, // never touch Epic from tests
+            ConnectivityBackground = false,
             ServiceQuery = EacInstalled,
             LibraryCoalesceInterval = TimeSpan.Zero,
             LibraryCacheDelay = TimeSpan.Zero,
