@@ -20,7 +20,7 @@ and it drives the bundled **Legendary** CLI (v0.21.1) as the Epic protocol engin
 │  Game/      GameProfiles (quirks), SessionTracker (process tree), launch, install, EAC     │
 │  Egl/       scan every .item, busy, drift, write-back with backups                         │
 │  Infrastructure/ stores (settings, games, collections, onboarding), Migrations, atomic IO  │
-│  Saves/ Overlay/ Store/  Phase 2 stubs                                                     │
+│  Saves/ Overlay/ Store/  Store: links, URLs, nav policy, free games, StoreService          │
 └──────────────────────────────────────────┬─────────────────────────────────────────────────┘
                                            │ child processes, env LEGENDARY_CONFIG_PATH=%LocalAppData%\Glider\legendary
                                     legendary.exe (bundled, SHA-256 pinned)
@@ -70,6 +70,10 @@ and it drives the bundled **Legendary** CLI (v0.21.1) as the Epic protocol engin
   `progress` (`JobProgress`, ≤10 Hz), `notice`, `window`, `caption`, `navigate`, `store`.
 - The UI calls `library.get` once (reset), applies deltas in order, and calls it again on a revision gap.
 - **Change the contract only in C#**, then run `dotnet run --project tools/Glider.ContractGen`.
+
+## Store tab (embedded Epic Store)
+
+`Glider.App/StoreView` owns a second `CoreWebView2Controller` on the main HWND (same environment + `GliderEpic` profile as sign-in, default UA, no bridge), placed over the Store page's HTML placeholder (`store.setBounds`, CSS px × host DPI). It is created lazily, hidden + low-memory when the tab is left, suspended after 60 s and closed after ~20 min idle. Core (`Store/`) decides everything that matters: `StoreUrls` (typed target → URL), `StoreNavigationPolicy` (allowlist), `EpicLauncherUri` (strict deep-link parser, `Links/`), `StoreIntentRouter` (link → game page / launch), `CheckoutRefresher` (library refresh after a checkout), `FreeGamesService` (public promotions feed, disk cache). The host talks to Core through `IStoreHost` only. Design and live-test checklist: `docs/research/store-webview.md` (§9).
 
 ## Lanes (who may run what, L§1.8)
 
