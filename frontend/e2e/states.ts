@@ -21,7 +21,7 @@ interface G {
   app: { getState(): { snapshot: { settings: Record<string, unknown> } | null } };
   router: { getState(): { go(route: string): void } };
   rpc(method: string, params?: unknown): Promise<unknown>;
-  mock: { failNext(code: string): void; failActiveJob(code: string): void; emitNotice(n: object): void };
+  mock: { failNext(code: string): void; failActiveJob(code: string): void; emitNotice(n: object): void; setConnectivity(c: "online" | "offline"): void };
 }
 const g = <T>(page: Page, fn: (g: G) => T | Promise<T>): Promise<T> =>
   page.evaluate(`(${fn.toString()})(window.__glider)`) as Promise<T>;
@@ -151,7 +151,7 @@ const RAW_STATES: ShotState[] = [
       await wait(700);
       await go(p, "downloads");
       await wait(400);
-      await btn(p, "Pause").click();
+      await p.getByRole("button", { name: "Pause", exact: true }).click();
       await wait(500);
       await goGame(p);
     },
@@ -318,7 +318,7 @@ const RAW_STATES: ShotState[] = [
     setup: async (p) => {
       await go(p, "downloads");
       await wait(500);
-      await btn(p, "Pause").click();
+      await p.getByRole("button", { name: "Pause", exact: true }).click();
     },
     settle: 700,
   },
@@ -352,6 +352,33 @@ const RAW_STATES: ShotState[] = [
       await g(p, (h) => h.rpc("game.verify", { appName: "Fortnite" }));
       await wait(1800);
     },
+  },
+  // One state per job phase (frozen mock scenarios), the busy queue, an offline queue, and a game running.
+  ...(["Preparing", "Verifying", "Repairing", "Installing", "Finalizing", "Moving", "Removing", "Importing"] as const).map<ShotState>((phase) => ({
+    name: `downloads-phase-${phase.toLowerCase()}`,
+    query: `scenario=frozen${phase}`,
+    setup: async (p) => go(p, "downloads"),
+    settle: 900,
+  })),
+  { name: "downloads-queue", query: "scenario=queue&freeze=1&seek=0.42&timescale=1", setup: async (p) => go(p, "downloads"), settle: 1200 },
+  {
+    name: "downloads-offline",
+    query: "scenario=queue&freeze=1&seek=0.42&timescale=1",
+    setup: async (p) => {
+      await go(p, "downloads");
+      await wait(400);
+      await p.evaluate(() => (window as unknown as { __glider: G }).__glider.mock.setConnectivity("offline"));
+    },
+    settle: 900,
+  },
+  {
+    name: "downloads-game-running",
+    query: "scenario=playing",
+    setup: async (p) => {
+      await go(p, "downloads");
+      await g(p, (h) => h.rpc("library.updateAll"));
+    },
+    settle: 900,
   },
 
   // -------------------------------------------------------------- settings
