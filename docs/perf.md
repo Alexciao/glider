@@ -22,4 +22,4 @@ No wasteful polling was found, so nothing was changed. Not measured: CPU wakeups
 
 ## Not covered
 
-CDN throughput benchmark and Windows 10 numbers need real hardware and accounts; they are not part of v0.1.2.
+Windows 10 numbers need real hardware; they are not part of v0.1.2. Download throughput (CDN ceiling, Legendary's pipeline, disk, priorities) is measured in `docs/download-perf.md` (v0.2).

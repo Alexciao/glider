@@ -1,0 +1,1 @@
+{"kind": "disk_write", "label": "C NVMe fsync", "priority": "normal", "part_kib": 1024, "total_gb": 4.0, "fsync_mb": 256, "mbps": 1221.9, "seconds": 3.5, "min_1s": 1198.4, "max_1s": 1229.1, "max_close_s": 0.0, "per_second": [1229.1, 1198.4, 1205.5]}
