@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Glider.Core.Contracts;
 using Glider.Core.Infrastructure;
@@ -116,6 +117,14 @@ public sealed class LibraryIncrementalTests : IDisposable
 
         await rig.StartWarmAsync();
         var library = rig.Service.LibraryForTests;
+        // Background work of the start-up (the rebuild, the installed-size walk of G00/G04/...) settles first, so r0 is taken after it.
+        var settle = Stopwatch.StartNew();
+        while (library.Games.Values.Any(g => g.InstalledVersion is not null && g.InstalledSizeBytes is null) && settle.Elapsed < TimeSpan.FromSeconds(60))
+        {
+            await Task.Delay(20, TestContext.Current.CancellationToken);
+        }
+
+        await library.FlushAsync();
         var total = library.Games.Count;
         var r0 = library.Revision;
 
