@@ -82,6 +82,16 @@ pnpm lint; pnpm typecheck; pnpm test; pnpm screenshots
 After changing the IPC contract in `src/Glider.Core/Contracts`, regenerate the TypeScript types:
 `dotnet run --project tools/Glider.ContractGen`. See [build/README.md](build/README.md) for releases.
 
+### Tests
+
+`dotnet test --project tests/Glider.Core.Tests` runs the whole Core suite (xUnit v3 on Microsoft.Testing.Platform, in parallel)
+against `tests/FakeLegendary`, a scriptable stand-in for `legendary.exe`; no network, no Epic account, no GUI. The suite must
+pass on a busy machine, so tests never race real time: stall, timeout and probe logic runs on a manual `TimeProvider`, the fake
+exe is synchronised through files (`waitfile`) or parks itself at a scripted point (`hangat=K`), and wall-clock limits are 60 s
+safety nets that a passing run never reaches. The performance benchmarks (`Benchmarks/`) use budgets ten times the measured
+figures, so they catch a catastrophe, not a regression; set `GLIDER_BENCH_PY` (and friends) to run the real-Legendary download
+benchmark. The UI has its own suite (`cd frontend; pnpm test`).
+
 ## Architecture
 
 A thin WPF host (`src/Glider.App`) renders a React UI in WebView2 from local files (`https://app.glider/`) and
