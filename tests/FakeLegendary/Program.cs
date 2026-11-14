@@ -37,7 +37,10 @@ internal static partial class Program
     {
         if (args.Length == 2 && args[0] == "--fake-child")
         {
-            File.WriteAllText(args[1], Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
+            // Atomic: the file exists only once it is complete, so a test that polls for it can never open it mid-write (a sharing
+            // violation) and the parent's wait for it can never see an empty file.
+            File.WriteAllText(args[1] + ".tmp", Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
+            File.Move(args[1] + ".tmp", args[1], overwrite: true);
             Thread.Sleep(Timeout.Infinite);
             return 0;
         }
