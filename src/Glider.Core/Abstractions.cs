@@ -138,11 +138,24 @@ public readonly record struct LegendaryProgress(
 [System.Text.Json.Serialization.JsonConverter(typeof(CamelEnumConverter<InstallMode>))]
 public enum InstallMode { Install, Update, Repair }
 
-/// <summary>Process priorities for one Legendary run of a writer-lane job (see <see cref="Jobs.IResourcePolicy"/>).</summary>
+/// <summary>
+/// How one Legendary run of a writer-lane job is spawned and kept (see <see cref="Jobs.IResourcePolicy"/>). Without a
+/// <see cref="Control"/> it is the v0.1 behaviour: <see cref="LowPriority"/> pins the whole tree below normal CPU priority. With one,
+/// the runner applies the download mode per process (CPU, I/O and memory priority, EcoQoS) and re-applies whenever the control changes.
+/// </summary>
 public sealed record ResourceProfile(bool LowPriority)
 {
     /// <summary>v0.1 behaviour: the whole tree below normal CPU priority.</summary>
     public static ResourceProfile Default { get; } = new(LowPriority: true);
+
+    /// <summary>The live knobs of this run (mode, speed limit); null = static, nothing to re-apply.</summary>
+    public Jobs.RunControl? Control { get; init; }
+
+    /// <summary>Upper bound for <c>--max-workers</c> at spawn (Background); null = as configured.</summary>
+    public int? WorkerCap { get; init; }
+
+    /// <summary>Single-process commands (verify): the mode applies to the whole tree from the start, not just to the file writer.</summary>
+    public bool WholeTree { get; init; }
 }
 
 public sealed record InstallArgs(
@@ -154,7 +167,9 @@ public sealed record InstallArgs(
     string? PreferredCdn,
     /// <summary>Explicit install tags (components); null = Legendary's defaults via <c>--skip-sdl</c>.</summary>
     IReadOnlyList<string>? InstallTags = null,
-    ResourceProfile? Resources = null);
+    ResourceProfile? Resources = null,
+    /// <summary>Overrides Epic's CDN list entirely (a probed extra host that isn't in it). Prefer <see cref="PreferredCdn"/>.</summary>
+    string? BaseUrl = null);
 
 /// <summary>Sizes from Legendary's install/update analysis: compressed bytes to download, and the resulting install size.</summary>
 public sealed record LegendarySizes(long DownloadBytes, long InstallBytes);
@@ -199,6 +214,10 @@ public interface ILegendary
     Task<LegendaryOutcome> InstallAsync(InstallArgs args, IProgress<LegendaryProgress> progress, CancellationToken ct);
 
     Task<LegendaryOutcome> VerifyAsync(string appName, IProgress<LegendaryProgress> progress, CancellationToken ct);
+
+    /// <summary>Verify with the run's resource profile (download mode priorities). Implementations that don't tune processes ignore it.</summary>
+    Task<LegendaryOutcome> VerifyAsync(string appName, IProgress<LegendaryProgress> progress, ResourceProfile? resources, CancellationToken ct) =>
+        VerifyAsync(appName, progress, ct);
 
     /// <summary>`import`: registers an existing folder without downloading.</summary>
     Task<LegendaryOutcome> ImportAsync(string appName, string gamePath, CancellationToken ct);

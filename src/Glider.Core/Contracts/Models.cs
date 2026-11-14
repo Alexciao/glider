@@ -490,7 +490,9 @@ public sealed record JobProgress(
     int? FilesTotal,
     DownloadMode Mode,
     /// <summary>What is limiting speed right now.</summary>
-    Limiter Limiter);
+    Limiter Limiter,
+    /// <summary>One plain-language sentence explaining <see cref="Limiter"/> ("Limited by drive D: (≈8 MB/s). Your connection can do ≈40 MB/s."); null when there is nothing to say.</summary>
+    string? LimiterReason = null);
 
 public sealed record NetworkStats(
     long DownloadedBytes,

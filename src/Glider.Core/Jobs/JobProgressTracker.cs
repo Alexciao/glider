@@ -11,6 +11,18 @@ namespace Glider.Core.Jobs;
 /// filled honestly by phase: verifying = local reads only (Verify), downloading/repairing = Network + Disk, installing and
 /// moving = Disk. Speeds/ETA are smoothed, averages and peaks kept, ≈1 Hz graph samples recorded, output throttled.
 /// </summary>
+/// <summary>What the tracker asks the rest of the app for when it explains the limiter.</summary>
+internal sealed class LimiterContext
+{
+    public Func<long?> SpeedLimit { get; init; } = () => null;
+
+    /// <summary>Why the effective mode differs from the setting ("Background mode while Fortnite is running").</summary>
+    public Func<string?> ModeReason { get; init; } = () => null;
+
+    /// <summary>Install drive, e.g. "D:".</summary>
+    public Func<string?> Drive { get; init; } = () => null;
+}
+
 internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
 {
     private readonly string _jobId;
@@ -34,6 +46,12 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
     private double _runBase;
     private JobProgress? _last;
     private Action? _onFirstProgress;
+    private readonly LimiterContext _limiterContext;
+    private RunInfo _runInfo;
+    private bool _diskBound;
+    private bool _cdnSlow;
+    private double _lastWriteRate;
+    private double _lastRawRate;
 
     public JobProgressTracker(
         string jobId,
@@ -47,8 +65,10 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
         Func<DownloadMode>? mode = null,
         JobSamples? samples = null,
         Func<(int Bad, int Fixed)>? verifyCounts = null,
-        long? installSizeBytes = null)
+        long? installSizeBytes = null,
+        LimiterContext? limiterContext = null)
     {
+        _limiterContext = limiterContext ?? new LimiterContext();
         _jobId = jobId;
         _appName = appName;
         _segment = segment;
@@ -175,6 +195,25 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
     /// <summary>Legendary's phase names, adjusted for the step: a download inside a repair step is "Repairing".</summary>
     private JobPhase Display(JobPhase raw) => raw == JobPhase.Downloading && _segment.Repairing ? JobPhase.Repairing : raw;
 
+    public void OnRunInfo(RunInfo info)
+    {
+        lock (_lock)
+        {
+            _runInfo = info;
+            _diskBound = false;
+            _cdnSlow = false;
+        }
+    }
+
+    public void OnHealth(bool diskBound, bool cdnSlow)
+    {
+        lock (_lock)
+        {
+            _diskBound = diskBound;
+            _cdnSlow = cdnSlow;
+        }
+    }
+
     public void OnSizes(LegendaryRunSizes sizes)
     {
         lock (_lock)
@@ -293,7 +332,7 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
                 Math.Round(percent, 2),
                 Math.Round(elapsed),
                 _smoother.EtaSeconds is { } eta ? Math.Round(eta) : null,
-                new NetworkStats(downloaded, totalDownload, net, downloaded / stepElapsed, _baseline.PeakNetworkBytesPerSecond, null, null),
+                new NetworkStats(downloaded, totalDownload, net, downloaded / stepElapsed, _baseline.PeakNetworkBytesPerSecond, p.Cdn ?? _runInfo.Cdn, _runInfo.Connections),
                 new DiskStats(written, totalWrite, disk, written / stepElapsed, _baseline.PeakDiskBytesPerSecond, _installSize),
                 new VerifyStats((int)Math.Min(p.ProcessedChunks, int.MaxValue), (int)Math.Min(p.TotalChunks, int.MaxValue),
                     (long)(verifyTotalBytes * percent / 100), verifyTotalBytes, disk, counts.Bad, counts.Fixed),
@@ -301,6 +340,8 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
                 measuring == JobPhase.Verifying ? (int)Math.Min(p.TotalChunks, int.MaxValue) : null,
                 _mode(),
                 Limiter.Unknown);
+            _lastRawRate = rawDownload;
+            _lastWriteRate = rawDisk;
             progress = Groups(full, phase);
             _last = full;
             _samples.Add(new JobSample(Math.Round(elapsed, 1),
@@ -318,21 +359,38 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
     }
 
     /// <summary>Only the groups that apply to the phase are sent (verifying never shows network figures).</summary>
-    private static JobProgress Groups(JobProgress p, JobPhase phase) => phase switch
+    private JobProgress Groups(JobProgress p, JobPhase phase)
     {
-        JobPhase.Verifying => p with { Network = null, Disk = null, Limiter = Limiter.Disk },
-        JobPhase.Downloading or JobPhase.Repairing => p with { Verify = null, FilesDone = null, FilesTotal = null, Limiter = p.Mode == DownloadMode.Background ? Limiter.Mode : Limiter.Unknown },
-        JobPhase.Installing or JobPhase.Moving => p with
+        var shaped = phase switch
         {
-            Network = null,
-            Verify = null,
-            FilesDone = null,
-            FilesTotal = null,
-            EtaSeconds = phase == JobPhase.Installing ? null : p.EtaSeconds,
-            Limiter = Limiter.Disk,
-        },
-        _ => p with { Network = null, Disk = null, Verify = null, FilesDone = null, FilesTotal = null, EtaSeconds = null },
-    };
+            JobPhase.Verifying => p with { Network = null, Disk = null },
+            JobPhase.Downloading or JobPhase.Repairing => p with { Verify = null, FilesDone = null, FilesTotal = null },
+            JobPhase.Installing or JobPhase.Moving => p with
+            {
+                Network = null,
+                Verify = null,
+                FilesDone = null,
+                FilesTotal = null,
+                EtaSeconds = phase == JobPhase.Installing ? null : p.EtaSeconds,
+            },
+            _ => p with { Network = null, Disk = null, Verify = null, FilesDone = null, FilesTotal = null, EtaSeconds = null },
+        };
+        var (limiter, reason) = LimiterDecision.Decide(new LimiterInput(
+            phase,
+            p.Mode,
+            _limiterContext.ModeReason(),
+            _diskBound,
+            _cdnSlow,
+            _limiterContext.SpeedLimit(),
+            _lastRawRate,
+            _lastWriteRate,
+            _baseline.PeakNetworkBytesPerSecond,
+            _runInfo.ProbeMegabytesPerSecond,
+            _limiterContext.Drive(),
+            p.Network?.Cdn ?? _runInfo.Cdn,
+            _time.GetElapsedTime(_stepStarted).TotalSeconds));
+        return shaped with { Limiter = limiter, LimiterReason = reason };
+    }
 
     public void Flush() => _throttle.Flush();
 
