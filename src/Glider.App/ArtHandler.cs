@@ -12,7 +12,9 @@ namespace Glider.App;
 /// </summary>
 internal static class ArtHandler
 {
-    private const string NotFoundHeaders = "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff";
+    // The page lives on app.glider, art on art.glider: allow it to read the pictures (fetch / canvas with crossorigin) and nothing else.
+    private const string Cors = "Access-Control-Allow-Origin: https://app.glider";
+    private const string NotFoundHeaders = "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n" + Cors;
 
     public static void Attach(CoreWebView2 web, Func<Task<ArtCache?>> getCache)
     {
@@ -73,7 +75,7 @@ internal static class ArtHandler
             var stream = new FileStream(file.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 16 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
             return web.Environment.CreateWebResourceResponse(
                 stream, 200, "OK",
-                $"Content-Type: {file.ContentType}\r\nCache-Control: {r.CacheControl}\r\nX-Content-Type-Options: nosniff\r\nContent-Length: {file.Length}");
+                $"Content-Type: {file.ContentType}\r\nCache-Control: {r.CacheControl}\r\nX-Content-Type-Options: nosniff\r\nContent-Length: {file.Length}\r\n{Cors}");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
