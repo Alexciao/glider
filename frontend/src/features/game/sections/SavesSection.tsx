@@ -56,7 +56,8 @@ export function SavesSection({ game, detail, onSettings }: { game: GameSummary; 
   const globalOn = useSnap((s) => s.settings.cloudSaves);
   const openDialog = useUi((s) => s.openDialog);
   const syncing = usePending(pendingKey("sync", game.appName));
-  if (!saves || !saves.supported) return null;
+  // Nothing to sync before the game is on this PC.
+  if (!saves || !saves.supported || (game.installStatus !== "installed" && game.installStatus !== "broken")) return null;
 
   const status: SaveSyncStatus = syncing ? "syncing" : saves.status;
   const enabled = saves.enabled && globalOn;
