@@ -8,14 +8,22 @@ export function driveLetter(path: string): string | null {
 export const trimSlashes = (p: string): string => p.replace(/[\\/]+$/, "");
 export const joinPath = (base: string, name: string): string => `${trimSlashes(base)}\\${name}`;
 export const samePath = (a: string, b: string): boolean => trimSlashes(a).toLowerCase() === trimSlashes(b).toLowerCase();
+export const dirname = (p: string): string => p.replace(/[\\/][^\\/]*$/, "");
 
-/** Free space by drive letter. The `diskFull` scenario squeezes C: and D:. */
-export function freeBytes(path: string, diskFull: boolean): number {
-  switch (driveLetter(path)) {
-    case "C": return Math.round((diskFull ? 3 : 95) * GiB);
-    case "D": return Math.round((diskFull ? 12.6 : 640) * GiB);
-    case "E": return Math.round(18.4 * GiB);
-    case "F": return Math.round(1.2 * TiB);
-    default: return Math.round(200 * GiB);
-  }
+export interface MockDrive {
+  letter: string;
+  label: string | null;
+  totalBytes: number;
+  freeBytes: number;
+  isSsd: boolean;
+}
+
+/** The mock PC: a small system SSD, a fast games SSD, a big HDD and a nearly full external drive. */
+export function defaultDrives(diskFull = false): MockDrive[] {
+  return [
+    { letter: "C", label: "Windows", totalBytes: Math.round(0.93 * TiB), freeBytes: Math.round((diskFull ? 3 : 212) * GiB), isSsd: true },
+    { letter: "D", label: "Games", totalBytes: Math.round(1.82 * TiB), freeBytes: Math.round((diskFull ? 12.6 : 640) * GiB), isSsd: true },
+    { letter: "E", label: "Archive", totalBytes: Math.round(3.64 * TiB), freeBytes: Math.round((diskFull ? 18.4 : 1.9 * 1024) * GiB), isSsd: false },
+    { letter: "F", label: "Backup", totalBytes: Math.round(0.93 * TiB), freeBytes: Math.round(18.4 * GiB), isSsd: false },
+  ];
 }

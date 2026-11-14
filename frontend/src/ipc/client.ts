@@ -39,8 +39,8 @@ interface Pending {
   timer: ReturnType<typeof setTimeout> | undefined;
 }
 
-/** Methods that legitimately wait on the user (login window, folder dialog) get no timeout. */
-const NO_TIMEOUT = new Set<RpcMethodName>(["auth.signIn", "app.pickFolder", "game.launch", "game.adopt"]);
+/** Methods that legitimately wait on the user (login window, folder dialog, a game starting or a third-party launcher) get no timeout. */
+const NO_TIMEOUT = new Set<RpcMethodName>(["auth.signIn", "app.pickFolder", "game.launch", "game.activate", "game.installPrerequisites", "saves.resolve", "saves.sync", "egl.quickScan"]);
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 export class RpcClient {
@@ -69,6 +69,7 @@ export class RpcClient {
                 message: "Glider's backend didn't respond in time. Try again.",
                 fix: "retry",
                 detail: method,
+                appName: null,
               }),
             );
           }, DEFAULT_TIMEOUT_MS);

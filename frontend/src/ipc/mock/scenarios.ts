@@ -1,341 +1,434 @@
 import type {
-  AppSnapshot,
-  GameState,
-  InstallCandidate,
-  JobInfo,
+  AuthState,
+  Collection,
+  Connectivity,
+  EglInstall,
+  ErrorCode,
+  GliderError,
   JobKind,
-  JobProgress,
-  UninstallMode,
-  VerifyMode,
+  JobOutcome,
+  JobPhase,
+  JobStatus,
+  OnboardingState,
+  OverlayState,
+  RunningGame,
+  Settings,
 } from "../contract.gen";
-import { GAME_ART } from "./art";
-import {
-  ACCOUNT,
-  DAY,
-  DATA_DIRECTORY,
-  DEFAULT_SETTINGS,
-  EGL_BLOCKED_REASON,
-  EGL_INSTALL_PATH,
-  EGL_MANIFEST_PATH,
-  EGL_STALE_PATH,
-  FULL_DOWNLOAD_BYTES,
-  FULL_INSTALL_BYTES,
-  GiB,
-  INSTALLED_ON_DISK_BYTES,
-  LATEST_VERSION,
-  LOG_DIRECTORY,
-  MINUTE,
-  OLDER_VERSION,
-  OLD_VERSION,
-  UPDATE_DOWNLOAD_BYTES,
-  UPDATE_HEADROOM_BYTES,
-  iso,
-} from "./constants";
+import { generateCatalog, type MockGame } from "./catalog";
+import { ACCOUNT, DEFAULT_SETTINGS, FORTNITE, GiB, HOUR, MINUTE, OVERLAY_LATEST, OVERLAY_VERSION, iso } from "./constants";
+import { defaultDrives, type MockDrive } from "./disk";
 import { Errors } from "./errors";
-import { stressArt } from "./artStress";
-import type { MockArt, ScenarioInfo, ScenarioName } from "./options";
+import { mulberry32, shuffled } from "./rng";
+import type { ScenarioInfo, ScenarioName } from "./options";
+
+/** A job to hydrate when a scenario loads: running/paused/waiting/queued ones go to the queue, finished ones to history. */
+export interface SeedJob {
+  kind: JobKind;
+  appName: string;
+  status: JobStatus;
+  /** Fraction of the phase (or of the main byte phase when `phase` is omitted) a running/paused/waiting job is at. */
+  seek?: number;
+  phase?: JobPhase;
+  error?: ErrorCode;
+  /** Finished jobs: how long ago, and how long it took. */
+  finishedAgoMs?: number;
+  durationS?: number;
+  blockedReason?: string;
+  targetPath?: string;
+  outcome?: JobOutcome;
+  uninstallSeconds?: number;
+  importVerify?: boolean;
+  /** Pre-flight: the game this job targets will be flagged as "EGL busy with it". */
+  eglBusy?: boolean;
+}
+
+export interface EglWorld {
+  launcherInstalled: boolean;
+  launcherRunning: boolean;
+  /** The scan has run and its results are visible (otherwise they appear after sign-in). */
+  revealed: boolean;
+  installs: EglInstall[];
+  busyApps: string[];
+  lastScan: string | null;
+}
+
+export interface World {
+  scenario: ScenarioName;
+  now: number;
+  auth: AuthState;
+  connectivity: Connectivity;
+  games: MockGame[];
+  /** The library as Epic would sync it after sign-in (first run). */
+  deferred: MockGame[];
+  syncError: GliderError | null;
+  lastSyncedAt: string | null;
+  jobs: SeedJob[];
+  sessions: RunningGame[];
+  settings: Settings;
+  drives: MockDrive[];
+  egl: EglWorld;
+  overlay: OverlayState;
+  collections: Collection[];
+  onboarding: OnboardingState;
+  freeze: boolean;
+}
+
+export interface WorldConfig {
+  seed: number;
+  now: number;
+  games?: number;
+  art: boolean;
+  eacInstalled: boolean;
+}
 
 export const SCENARIOS: readonly ScenarioInfo[] = [
-  { name: "fresh", label: "Fresh", description: "First run: signed out, nothing installed, no Epic Games Launcher." },
-  { name: "eglSignedOut", label: "EGL found (signed out)", description: "First run on a PC with Epic Games Launcher and Fortnite installed." },
-  { name: "signedIn", label: "Signed in", description: "Signed in during onboarding, no install, no Epic Games Launcher." },
-  { name: "eglDetected", label: "EGL detected", description: "Signed in; one Epic Games Launcher install at the latest version." },
-  { name: "eglMultiple", label: "EGL multiple", description: "Signed in; two candidates, one outdated and one stale." },
-  { name: "installed", label: "Installed", description: "Up to date, ready to play, shared with Epic Games Launcher." },
-  { name: "updateAvailable", label: "Update available", description: "Installed, a 1.2 GB update is waiting." },
-  { name: "downloading", label: "Downloading", description: "A fresh install is downloading (seek sets the progress)." },
-  { name: "eglBusy", label: "EGL busy", description: "Epic Games Launcher is updating Fortnite; Glider's update waits." },
-  { name: "diskFull", label: "Disk full", description: "The update failed for lack of space; the drive is nearly full." },
-  { name: "authExpired", label: "Session expired", description: "Installed, but the Epic session needs a fresh sign-in." },
-  { name: "playing", label: "Playing", description: "Fortnite is running (1 h 12 min so far)." },
+  { name: "returning", label: "Returning user", description: "Signed in, ~300 games, installs on four drives, history, nothing running" },
+  { name: "firstRun", label: "First run", description: "Signed out, onboarding at Welcome; signing in syncs the library and scans for EGL installs" },
+  { name: "firstRunSignedIn", label: "First run: scan step", description: "Signed in mid-onboarding with a full EGL scan result" },
+  { name: "emptyLibrary", label: "Empty library", description: "Signed in, onboarding done, no games at all" },
+  { name: "offline", label: "Offline", description: "No connection: cached library, installs refused, offline-capable games still play" },
+  { name: "syncError", label: "Sync error", description: "The last library sync failed; the cached library stays usable" },
+  { name: "perf600", label: "600 games", description: "Performance library: 600 base games plus DLC" },
+  { name: "queue", label: "Busy queue", description: "One running download, a paused job, queued jobs, a waiting job and history" },
+  { name: "downloading", label: "Downloading", description: "A single install at 42%" },
+  { name: "playing", label: "Playing", description: "Fortnite has been running for 38 minutes" },
+  { name: "updates", label: "Many updates", description: "Two dozen installed games have updates pending" },
+  { name: "authExpired", label: "Session expired", description: "Epic session expired; sign in again" },
+  { name: "diskFull", label: "Disk almost full", description: "C: and D: are nearly full; installs and updates are refused" },
+  { name: "eglBusy", label: "EGL busy", description: "Epic Games Launcher is updating a game; its job waits" },
+  { name: "errors", label: "Error states", description: "Failed jobs with every kind of error, a sync error and broken installs" },
+  { name: "frozenPreparing", label: "Frozen: preparing", description: "An install held in its preparing step" },
+  { name: "frozenVerifying", label: "Frozen: verifying", description: "A verify reading files, bad files showing up" },
+  { name: "frozenRepairing", label: "Frozen: repairing", description: "Verify found bad files; re-downloading just those" },
+  { name: "frozenDownloading", label: "Frozen: downloading", description: "An install downloading (network + disk figures)" },
+  { name: "frozenInstalling", label: "Frozen: installing", description: "Network done; disk-only install tail" },
+  { name: "frozenFinalizing", label: "Frozen: finalizing", description: "An update in its finalizing step" },
+  { name: "frozenMoving", label: "Frozen: moving", description: "An install being moved to another drive" },
+  { name: "frozenRemoving", label: "Frozen: removing", description: "Files being deleted by an uninstall" },
+  { name: "frozenImporting", label: "Frozen: importing", description: "An Epic Games Launcher install being linked" },
 ];
 
-/** Side information the backend needs to run or finish a job. */
-export interface JobMeta {
-  candidateId?: string | null;
-  adoptPath?: string;
-  adoptVersion?: string | null;
-  adoptFromEgl?: boolean;
-  verifyMode?: VerifyMode;
-  uninstallMode?: UninstallMode;
-  followUpJobId?: string;
-}
+const FROZEN: Partial<Record<ScenarioName, { kind: JobKind; phase: JobPhase; seek: number; pick: "notInstalled" | "installedUpdate" | "broken" | "installed" }>> = {
+  frozenPreparing: { kind: "install", phase: "preparing", seek: 0.55, pick: "notInstalled" },
+  frozenVerifying: { kind: "verify", phase: "verifying", seek: 0.46, pick: "broken" },
+  frozenRepairing: { kind: "verify", phase: "repairing", seek: 0.5, pick: "broken" },
+  frozenDownloading: { kind: "install", phase: "downloading", seek: 0.42, pick: "notInstalled" },
+  frozenInstalling: { kind: "install", phase: "installing", seek: 0.4, pick: "notInstalled" },
+  frozenFinalizing: { kind: "update", phase: "finalizing", seek: 0.5, pick: "installedUpdate" },
+  frozenMoving: { kind: "move", phase: "moving", seek: 0.45, pick: "installed" },
+  frozenRemoving: { kind: "uninstall", phase: "removing", seek: 0.5, pick: "installed" },
+  frozenImporting: { kind: "import", phase: "importing", seek: 0.5, pick: "notInstalled" },
+};
 
-export interface BuildConfig {
-  backdrop: "mica" | "solid";
-  art: MockArt;
-}
+const isBase = (g: MockGame): boolean => g.summary.kind === "game";
+const installable = (g: MockGame): boolean => isBase(g) && g.summary.installStatus === "notInstalled" && g.summary.thirdParty === "none";
+const installedOk = (g: MockGame): boolean => isBase(g) && g.summary.installStatus === "installed" && g.summary.appName !== FORTNITE;
 
-export interface ScenarioBuild {
-  snapshot: AppSnapshot;
-  metas: Map<string, JobMeta>;
-  /** The running job that `seek` applies to. */
-  seekJobId: string | null;
-}
+function buildEgl(games: MockGame[], seed: number, now: number, revealed: boolean): EglWorld {
+  const rand = mulberry32(seed ^ 0xe91);
+  const installs: EglInstall[] = [];
+  const toInstall = games.filter(installable);
+  const pool = shuffled(rand, toInstall);
+  const drives = ["D:\\Epic Games", "E:\\Epic Games", "F:\\Epic Games", "C:\\Program Files\\Epic Games"];
+  const art = (g: MockGame): string | null => g.summary.art.tallThumb ?? g.summary.art.tall;
 
-function candidate(id: string, installPath: string, version: string | null, extra: Partial<InstallCandidate> = {}): InstallCandidate {
-  return {
-    id,
+  const fortnite = games.find((g) => g.summary.appName === FORTNITE);
+  if (fortnite && fortnite.summary.installPath) {
+    installs.push({
+      id: "glider:Fortnite",
+      source: "gliderV1",
+      appName: FORTNITE,
+      title: "Fortnite",
+      installPath: fortnite.summary.installPath,
+      drive: "D:\\",
+      version: fortnite.summary.installedVersion,
+      sizeBytes: Math.round(94.8 * GiB),
+      status: "imported",
+      drift: "eglNewer",
+      reason: null,
+      artUrl: art(fortnite),
+    });
+  }
+  for (const g of games.filter((x) => installedOk(x) && x.summary.sharedWithEgl).slice(0, 2)) {
+    installs.push({
+      id: `egl:${g.summary.appName}`,
+      source: "epicGamesLauncher",
+      appName: g.summary.appName,
+      title: g.summary.title,
+      installPath: g.summary.installPath ?? "",
+      drive: `${(g.summary.installPath ?? "C:")[0]}:\\`,
+      version: g.summary.installedVersion,
+      sizeBytes: g.summary.installedSizeBytes,
+      status: "imported",
+      drift: "none",
+      reason: null,
+      artUrl: art(g),
+    });
+  }
+  const importable = pool.slice(0, 8);
+  importable.forEach((g, i) => {
+    const base = drives[i % drives.length]!;
+    installs.push({
+      id: `egl:${g.summary.appName}`,
+      source: "epicGamesLauncher",
+      appName: g.summary.appName,
+      title: g.summary.title,
+      installPath: `${base}\\${g.folderName}`,
+      drive: `${base[0]}:\\`,
+      version: i % 4 === 3 ? "0.9.0" : g.summary.latestVersion,
+      sizeBytes: Math.round((g.summary.installSizeBytes ?? 4 * GiB) * 0.98),
+      status: "importable",
+      drift: i % 4 === 3 ? "eglNewer" : "none",
+      reason: null,
+      artUrl: art(g),
+    });
+  });
+  pool.slice(8, 10).forEach((g) => {
+    installs.push({
+      id: `egl:${g.summary.appName}`,
+      source: "epicGamesLauncher",
+      appName: g.summary.appName,
+      title: g.summary.title,
+      installPath: `E:\\Old Games\\${g.folderName}`,
+      drive: "E:\\",
+      version: g.summary.latestVersion,
+      sizeBytes: null,
+      status: "stale",
+      drift: "unknown",
+      reason: `${g.summary.title} isn't at this location any more. Epic Games Launcher still lists it, but the folder is gone.`,
+      artUrl: art(g),
+    });
+  });
+  const busy = pool[10];
+  if (busy) {
+    installs.push({
+      id: `egl:${busy.summary.appName}`,
+      source: "epicGamesLauncher",
+      appName: busy.summary.appName,
+      title: busy.summary.title,
+      installPath: `D:\\Epic Games\\${busy.folderName}`,
+      drive: "D:\\",
+      version: busy.summary.latestVersion,
+      sizeBytes: Math.round((busy.summary.installSizeBytes ?? 4 * GiB) * 0.6),
+      status: "busy",
+      drift: "none",
+      reason: "Epic Games Launcher is installing or updating this right now. Glider won't touch it.",
+      artUrl: art(busy),
+    });
+  }
+  installs.push({
+    id: "egl:Mystery",
     source: "epicGamesLauncher",
-    installPath,
-    version,
-    folderExists: true,
-    executableFound: true,
-    isStale: false,
-    sizeBytes: INSTALLED_ON_DISK_BYTES,
-    reason: null,
-    ...extra,
-  };
+    appName: "MysteryTitle",
+    title: "Starfall Courier",
+    installPath: "F:\\Epic Games\\StarfallCourier",
+    drive: "F:\\",
+    version: "1.0.0",
+    sizeBytes: Math.round(7.2 * GiB),
+    status: "notOwned",
+    drift: "unknown",
+    reason: "This game isn't in the signed-in Epic account's library.",
+    artUrl: null,
+  });
+  return { launcherInstalled: true, launcherRunning: true, revealed, installs, busyApps: [], lastScan: revealed ? iso(now - 14 * MINUTE) : null };
 }
 
-function finalProgress(jobId: string, downloadBytes: number, writeBytes: number, elapsed: number, phase: JobProgress["phase"] = "finalizing"): JobProgress {
-  return {
-    jobId,
-    phase,
-    percent: 100,
-    downloadedBytes: downloadBytes,
-    totalDownloadBytes: downloadBytes,
-    writtenBytes: writeBytes,
-    totalWriteBytes: writeBytes,
-    downloadBytesPerSecond: 0,
-    diskBytesPerSecond: 0,
-    rawDownloadBytesPerSecond: 0,
-    etaSeconds: 0,
-    elapsedSeconds: elapsed,
-  };
+function buildCollections(games: MockGame[], seed: number): Collection[] {
+  const rand = mulberry32(seed ^ 0xc011);
+  const base = games.filter(isBase);
+  const take = (n: number): string[] => shuffled(rand, base).slice(0, n).map((g) => g.summary.appName);
+  if (base.length < 12) return [];
+  return [
+    { id: "col-coop", name: "Co-op nights", appNames: take(6) },
+    { id: "col-backlog", name: "Backlog", appNames: take(14) },
+    { id: "col-cozy", name: "Cozy", appNames: take(9) },
+  ];
 }
 
-function job(id: string, kind: JobKind, status: JobInfo["status"], createdAt: number, extra: Partial<JobInfo> = {}): JobInfo {
-  return {
-    id,
-    kind,
-    status,
-    progress: null,
-    error: null,
-    createdAt: iso(createdAt),
-    finishedAt: null,
-    targetPath: null,
-    fromVersion: null,
-    toVersion: null,
-    blockedReason: null,
-    verify: null,
-    ...extra,
-  };
+function history(games: MockGame[], seed: number): SeedJob[] {
+  const rand = mulberry32(seed ^ 0x4157);
+  const inst = games.filter(installedOk);
+  const out: SeedJob[] = [];
+  const g = (i: number): string => (inst[i % Math.max(1, inst.length)]?.summary.appName ?? FORTNITE);
+  const kinds: [JobKind, JobStatus][] = [
+    ["update", "completed"],
+    ["install", "completed"],
+    ["verify", "completed"],
+    ["update", "completed"],
+    ["import", "completed"],
+    ["update", "failed"],
+    ["install", "cancelled"],
+    ["move", "completed"],
+    ["verify", "completed"],
+    ["update", "completed"],
+  ];
+  kinds.forEach(([kind, status], i) => {
+    out.push({
+      kind,
+      appName: i === 0 ? FORTNITE : g(i * 3),
+      status,
+      finishedAgoMs: (i + 1) * (2 + rand() * 20) * HOUR,
+      durationS: 60 + Math.round(rand() * 2400),
+      error: status === "failed" ? "filesLocked" : undefined,
+    });
+  });
+  return out;
 }
 
-export function buildScenario(name: ScenarioName, cfg: BuildConfig, now: number): ScenarioBuild {
-  const metas = new Map<string, JobMeta>();
-  let seekJobId: string | null = null;
+export function buildWorld(name: ScenarioName, cfg: WorldConfig): World {
+  const { now } = cfg;
+  const count = cfg.games ?? (name === "perf600" ? 600 : name === "emptyLibrary" ? 0 : 300);
+  const all = count === 0 ? [] : generateCatalog({ seed: cfg.seed, count, now, art: cfg.art });
+  const games = [...all];
+  const firstRun = name === "firstRun";
 
-  const game: GameState = {
-    appName: "Fortnite",
-    title: "Fortnite",
-    installStatus: "notInstalled",
-    installed: null,
-    latestVersion: LATEST_VERSION,
-    updateAvailable: false,
-    checkingForUpdates: false,
-    lastUpdateCheck: null,
-    runState: "idle",
-    runningSince: null,
-    art: cfg.art === "none" ? null : cfg.art === "default" ? { ...GAME_ART } : stressArt(cfg.art),
-    downloadSizeBytes: FULL_DOWNLOAD_BYTES,
-    installSizeBytes: FULL_INSTALL_BYTES,
-    installedSizeBytes: null,
-    playtimeSeconds: 0,
-    lastPlayedAt: null,
-  };
+  const libraryFolders = ["D:\\Games", "E:\\Epic Games", "F:\\Library", "C:\\Program Files\\Epic Games"];
+  const settings: Settings = { ...DEFAULT_SETTINGS, libraryFolders, defaultInstallBase: "D:\\Games" };
+  const eglRevealed = !firstRun;
+  const egl = buildEgl(games, cfg.seed, now, eglRevealed);
+  if (count === 0) egl.installs = [];
 
-  const s: AppSnapshot = {
-    app: {
-      version: "0.1.0",
-      legendaryVersion: "0.21.1",
-      isWindows11: true,
-      backdrop: cfg.backdrop,
-      dataDirectory: DATA_DIRECTORY,
-      logDirectory: LOG_DIRECTORY,
-      cpuCount: 16,
-      totalMemoryBytes: 32 * GiB,
-      autoWorkers: 8,
-      autoSharedMemoryMb: 1024,
-      warm: true,
-    },
-    auth: { status: "signedOut", account: null },
-    game,
+  const world: World = {
+    scenario: name,
+    now,
+    auth: { status: "signedIn", account: ACCOUNT },
+    connectivity: "online",
+    games: firstRun ? [] : games,
+    deferred: firstRun ? games : [],
+    syncError: null,
+    lastSyncedAt: firstRun || count === 0 ? null : iso(now - 9 * MINUTE),
     jobs: [],
-    egl: {
-      launcherInstalled: false,
-      launcherRunning: false,
-      busyWithGame: false,
-      candidates: [],
-      syncEnabled: DEFAULT_SETTINGS.eglSync,
-      syncAvailable: false,
-      manifestPath: null,
-      lastScan: null,
-    },
-    settings: { ...DEFAULT_SETTINGS },
-    onboarding: { completed: false, step: "welcome" },
+    sessions: [],
+    settings,
+    drives: defaultDrives(name === "diskFull"),
+    egl,
+    overlay: { installed: true, enabled: true, version: OVERLAY_VERSION, latestVersion: OVERLAY_LATEST, updateAvailable: true, installPath: "C:\\ProgramData\\Glider\\EOSOverlay", busy: false },
+    collections: firstRun ? [] : buildCollections(games, cfg.seed),
+    onboarding: { completed: true, step: "done", skipped: [] },
+    freeze: false,
   };
-
-  const signedIn = (): void => {
-    s.auth = { status: "signedIn", account: { ...ACCOUNT } };
-  };
-  const onboardingChoose = (): void => {
-    s.onboarding = { completed: false, step: "chooseInstall" };
-  };
-  const eglInstalled = (candidates: InstallCandidate[], lastScan = now - 2 * MINUTE): void => {
-    s.egl.launcherInstalled = true;
-    s.egl.candidates = candidates;
-    s.egl.lastScan = iso(lastScan);
-  };
-  /** Installed through Epic Games Launcher and adopted by Glider. */
-  const installed = (version: string, opts: { installedAgo?: number } = {}): void => {
-    signedIn();
-    s.onboarding = { completed: true, step: "done" };
-    game.installStatus = "installed";
-    game.installed = {
-      installPath: EGL_INSTALL_PATH,
-      version,
-      installSizeBytes: INSTALLED_ON_DISK_BYTES,
-      sharedWithEgl: true,
-      needsVerification: false,
-      installedAt: iso(now - (opts.installedAgo ?? 9 * DAY)),
-    };
-    game.updateAvailable = version !== LATEST_VERSION;
-    game.downloadSizeBytes = game.updateAvailable ? UPDATE_DOWNLOAD_BYTES : null;
-    game.installedSizeBytes = INSTALLED_ON_DISK_BYTES;
-    game.playtimeSeconds = 42 * 3600 + 17 * 60;
-    game.lastPlayedAt = iso(now - 2 * DAY);
-    game.lastUpdateCheck = iso(now - 4 * MINUTE);
-    eglInstalled([candidate("egl-1", EGL_INSTALL_PATH, version)], now - 4 * MINUTE);
-    s.egl.syncAvailable = true;
-    s.egl.manifestPath = EGL_MANIFEST_PATH;
-  };
-
-  switch (name) {
-    case "fresh":
-      game.latestVersion = null;
-      game.downloadSizeBytes = game.installSizeBytes = null;
-      break;
-
-    case "eglSignedOut":
-      game.latestVersion = null;
-      game.downloadSizeBytes = game.installSizeBytes = null;
-      eglInstalled([candidate("egl-1", EGL_INSTALL_PATH, LATEST_VERSION)]);
-      break;
-
-    case "signedIn":
-      signedIn();
-      onboardingChoose();
-      break;
-
-    case "eglDetected":
-      signedIn();
-      onboardingChoose();
-      eglInstalled([candidate("egl-1", EGL_INSTALL_PATH, LATEST_VERSION)]);
-      break;
-
-    case "eglMultiple":
-      signedIn();
-      onboardingChoose();
-      eglInstalled([
-        candidate("egl-1", EGL_INSTALL_PATH, OLD_VERSION),
-        candidate("egl-2", EGL_STALE_PATH, OLD_VERSION, { folderExists: false, executableFound: false, isStale: true, sizeBytes: null, reason: "This folder doesn't exist." }),
-      ]);
-      break;
-
-    case "installed": {
-      installed(LATEST_VERSION);
-      const created = now - DAY - 40 * MINUTE;
-      s.jobs.push(
-        job("job-1", "update", "completed", created, {
-          finishedAt: iso(created + 74_000),
-          targetPath: EGL_INSTALL_PATH,
-          fromVersion: OLDER_VERSION,
-          toVersion: OLD_VERSION,
-          progress: finalProgress("job-1", Math.round(0.9 * GiB), Math.round(3.1 * GiB), 74),
-        }),
-      );
-      break;
-    }
-
-    case "updateAvailable":
-      installed(OLD_VERSION);
-      break;
-
-    case "downloading": {
-      signedIn();
-      s.onboarding = { completed: true, step: "done" };
-      game.installStatus = "installing";
-      const verifiedAt = now - 2 * DAY;
-      s.jobs.push(
-        job("job-1", "verify", "completed", verifiedAt, {
-          finishedAt: iso(verifiedAt + 41_000),
-          progress: finalProgress("job-1", 0, INSTALLED_ON_DISK_BYTES, 41, "verifying"),
-        }),
-        job("job-2", "install", "running", now - 6 * MINUTE, {
-          targetPath: "D:\\Games\\Fortnite",
-          toVersion: LATEST_VERSION,
-        }),
-      );
-      metas.set("job-2", {});
-      seekJobId = "job-2";
-      break;
-    }
-
-    case "eglBusy":
-      installed(OLD_VERSION);
-      s.egl.launcherRunning = true;
-      s.egl.busyWithGame = true;
-      s.jobs.push(
-        job("job-1", "update", "waiting", now - 90_000, {
-          targetPath: EGL_INSTALL_PATH,
-          fromVersion: OLD_VERSION,
-          toVersion: LATEST_VERSION,
-          blockedReason: EGL_BLOCKED_REASON,
-        }),
-      );
-      metas.set("job-1", {});
-      break;
-
-    case "diskFull": {
-      installed(OLD_VERSION);
-      const created = now - 6 * MINUTE;
-      s.jobs.push(
-        job("job-1", "update", "failed", created, {
-          finishedAt: iso(created + 4_000),
-          targetPath: EGL_INSTALL_PATH,
-          fromVersion: OLD_VERSION,
-          toVersion: LATEST_VERSION,
-          error: Errors.insufficientSpace(UPDATE_HEADROOM_BYTES, Math.round(0.9 * GiB), "Needed 5154959155 bytes on D:, 966367641 free"),
-          progress: {
-            ...finalProgress("job-1", UPDATE_DOWNLOAD_BYTES, 0, 4, "preparing"),
-            percent: 0,
-            downloadedBytes: 0,
-            etaSeconds: null,
-          },
-        }),
-      );
-      break;
-    }
-
-    case "authExpired":
-      installed(LATEST_VERSION);
-      s.auth = { status: "expired", account: { ...ACCOUNT } };
-      game.latestVersion = null;
-      game.updateAvailable = false;
-      game.downloadSizeBytes = null;
-      game.lastUpdateCheck = iso(now - 3 * DAY);
-      break;
-
-    case "playing":
-      installed(LATEST_VERSION);
-      game.runState = "running";
-      game.runningSince = iso(now - 72 * MINUTE);
-      s.egl.launcherRunning = false;
-      break;
+  if (!cfg.eacInstalled) {
+    const f = world.games.find((g) => g.summary.appName === FORTNITE) ?? world.deferred.find((g) => g.summary.appName === FORTNITE);
+    if (f) f.prerequisites = [{ id: "eac", name: "Easy Anti-Cheat", installed: false }];
   }
 
-  s.egl.syncEnabled = s.settings.eglSync;
-  return { snapshot: s, metas, seekJobId };
+  const fortniteApp = FORTNITE;
+  const firstUpdate = games.find((g) => installedOk(g) && g.summary.updateAvailable)?.summary.appName ?? fortniteApp;
+  const toInstall = games.filter(installable);
+  const broken = games.find((g) => g.summary.installStatus === "broken");
+  const histJobs = (): SeedJob[] => history(games, cfg.seed);
+
+  switch (name) {
+    case "returning":
+    case "perf600":
+      world.jobs = histJobs();
+      break;
+    case "firstRun":
+      world.auth = { status: "signedOut", account: null };
+      world.onboarding = { completed: false, step: "welcome", skipped: [] };
+      world.settings = { ...DEFAULT_SETTINGS, libraryFolders: [], defaultInstallBase: null };
+      world.overlay = { installed: false, enabled: false, version: null, latestVersion: OVERLAY_LATEST, updateAvailable: false, installPath: null, busy: false };
+      break;
+    case "firstRunSignedIn":
+      world.onboarding = { completed: false, step: "scan", skipped: [] };
+      world.settings = { ...DEFAULT_SETTINGS, libraryFolders: [], defaultInstallBase: null };
+      world.collections = [];
+      break;
+    case "emptyLibrary":
+      world.egl.installs = [];
+      break;
+    case "offline":
+      world.connectivity = "offline";
+      world.syncError = Errors.offline("Syncing your library");
+      world.jobs = histJobs();
+      break;
+    case "syncError":
+      world.syncError = Errors.network("GET https://library-service.live.use1a.on.epicgames.com/library/api/public/items: connection reset");
+      world.jobs = histJobs();
+      break;
+    case "queue": {
+      const q = shuffled(mulberry32(cfg.seed ^ 0x9), toInstall);
+      world.jobs = [
+        { kind: "install", appName: q[0]!.summary.appName, status: "running", seek: 0.42 },
+        { kind: "update", appName: firstUpdate, status: "paused", seek: 0.31 },
+        { kind: "install", appName: q[1]!.summary.appName, status: "queued" },
+        { kind: "install", appName: q[2]!.summary.appName, status: "queued" },
+        { kind: "update", appName: games.filter((g) => installedOk(g) && g.summary.updateAvailable)[1]?.summary.appName ?? fortniteApp, status: "queued" },
+        ...histJobs(),
+      ];
+      break;
+    }
+    case "downloading":
+      world.jobs = [{ kind: "install", appName: toInstall[0]!.summary.appName, status: "running", seek: 0.42 }, ...histJobs().slice(0, 4)];
+      break;
+    case "playing":
+      world.sessions = [{ appName: fortniteApp, title: "Fortnite", state: "running", since: iso(now - 38 * MINUTE), offline: false, untracked: false }];
+      world.jobs = histJobs();
+      break;
+    case "updates": {
+      let n = 0;
+      for (const g of world.games) {
+        if (isBase(g) && g.summary.installStatus === "installed" && !g.summary.updateAvailable && n < 16) {
+          g.summary = { ...g.summary, updateAvailable: true, latestVersion: `${g.summary.installedVersion ?? "1.0.0"}.1`, downloadSizeBytes: g.updateDownloadBytes };
+          n++;
+        }
+      }
+      world.jobs = histJobs().slice(0, 5);
+      break;
+    }
+    case "authExpired":
+      world.auth = { status: "expired", account: ACCOUNT };
+      world.jobs = histJobs();
+      break;
+    case "diskFull":
+      world.jobs = histJobs().slice(0, 4);
+      break;
+    case "eglBusy": {
+      world.egl.busyApps = [firstUpdate];
+      world.jobs = [{ kind: "update", appName: firstUpdate, status: "waiting", seek: 0.2, eglBusy: true }, ...histJobs().slice(0, 4)];
+      break;
+    }
+    case "errors": {
+      const inst = games.filter(installedOk);
+      const codes: [ErrorCode, JobKind][] = [
+        ["insufficientSpace", "update"],
+        ["network", "install"],
+        ["filesLocked", "update"],
+        ["cdnUnavailable", "install"],
+        ["corrupted", "verify"],
+        ["legendaryFailed", "move"],
+      ];
+      world.syncError = Errors.network("library sync timed out");
+      world.jobs = [
+        ...codes.map(([error, kind], i): SeedJob => ({
+          kind,
+          appName: kind === "install" ? (toInstall[i]?.summary.appName ?? FORTNITE) : (inst[i]?.summary.appName ?? FORTNITE),
+          status: "failed",
+          error,
+          finishedAgoMs: (i + 1) * 25 * MINUTE,
+          durationS: 120 + i * 40,
+        })),
+        ...histJobs().slice(0, 3),
+      ];
+      break;
+    }
+    default: {
+      const f = FROZEN[name];
+      if (f) {
+        world.freeze = true;
+        const target =
+          f.pick === "notInstalled" ? toInstall[0]
+          : f.pick === "broken" ? broken
+          : f.pick === "installedUpdate" ? games.find((g) => g.summary.appName === firstUpdate)
+          : games.find(installedOk);
+        const appName = target?.summary.appName ?? fortniteApp;
+        world.jobs = [
+          { kind: f.kind, appName, status: "running", phase: f.phase, seek: f.seek, uninstallSeconds: f.kind === "uninstall" ? 6 : undefined, targetPath: f.kind === "move" ? "E:\\Epic Games" : undefined },
+          ...histJobs().slice(0, 5),
+        ];
+      }
+    }
+  }
+  return world;
 }
+

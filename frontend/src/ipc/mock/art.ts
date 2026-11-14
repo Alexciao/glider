@@ -1,12 +1,12 @@
 import type { GameArt } from "../contract.gen";
-import { mulberry32 } from "./sim";
+import { hashString, mulberry32, type Rand } from "./rng";
 
 /**
  * Original, procedural key art for the mock: a dusk-to-dawn sky over low-poly ridgelines.
  * No third-party imagery, no text. Delivered as SVG data URIs so the mock needs no assets.
  */
 
-type Rand = () => number;
+
 
 /** Midpoint-displacement ridge: returns n+1 heights in 0..1. */
 function ridge(rand: Rand, n: number, roughness: number): number[] {
@@ -116,4 +116,113 @@ export const heroArt: string = toDataUri(scene(1920, 1080, 4217, 0.66, 0.64));
 /** 3:4, 1200×1600. */
 export const tallArt: string = toDataUri(scene(1200, 1600, 9031, 0.72, 0.5));
 
-export const GAME_ART: GameArt = { heroUrl: heroArt, tallUrl: tallArt, logoUrl: null };
+
+/** Fortnite is the user's real v0.1 game: it keeps the original procedural dusk scene (no third-party imagery). */
+export const FORTNITE_ART: GameArt = { tall: tallArt, tallThumb: tallArt, wide: heroArt, logo: null, placeholder: "#2a1d5e" };
+
+/* ------------------------------------------------------------------ generated art for the rest of the library */
+
+const hsl = (h: number, s: number, l: number): string => `hsl(${Math.round(h) % 360} ${Math.round(s)}% ${Math.round(l)}%)`;
+
+interface Palette {
+  a: string;
+  b: string;
+  c: string;
+  accent: string;
+  /** A flat colour close to the average, for blur-up placeholders. */
+  flat: string;
+  pattern: number;
+}
+
+function palette(rand: Rand): Palette {
+  const h = rand() * 360;
+  const spread = 30 + rand() * 90;
+  const dark = rand() < 0.7;
+  return {
+    a: hsl(h, 55 + rand() * 25, dark ? 14 + rand() * 8 : 62 + rand() * 12),
+    b: hsl(h + spread, 55 + rand() * 25, dark ? 28 + rand() * 14 : 48 + rand() * 12),
+    c: hsl(h - spread * 0.6, 50 + rand() * 30, dark ? 40 + rand() * 18 : 36 + rand() * 12),
+    accent: hsl(h + 180 + rand() * 40, 70 + rand() * 20, 62 + rand() * 14),
+    flat: hsl(h + spread * 0.4, 45, dark ? 22 : 54),
+    pattern: Math.floor(rand() * 6),
+  };
+}
+
+function shapes(rand: Rand, w: number, h: number, p: Palette, detail: number): string {
+  const unit = Math.min(w, h);
+  let out = "";
+  switch (p.pattern) {
+    case 0: // concentric rings around an off-centre sun
+      for (let i = 0; i < 5 * detail; i++) {
+        out += `<circle cx="${Math.round(w * 0.62)}" cy="${Math.round(h * 0.36)}" r="${Math.round(unit * (0.12 + i * 0.1))}" fill="none" stroke="${p.accent}" stroke-opacity="${(0.55 - i * 0.07).toFixed(2)}" stroke-width="${Math.max(1, Math.round(unit * 0.012))}"/>`;
+      }
+      break;
+    case 1: // diagonal bands
+      for (let i = 0; i < 6 * detail; i++) {
+        const x = Math.round(rand() * w * 1.4 - w * 0.2);
+        out += `<polygon points="${x},0 ${x + Math.round(unit * 0.16)},0 ${x - Math.round(h * 0.4)},${h} ${x - Math.round(h * 0.4) - Math.round(unit * 0.16)},${h}" fill="${i % 2 ? p.c : p.accent}" opacity="${(0.12 + rand() * 0.2).toFixed(2)}"/>`;
+      }
+      break;
+    case 2: // low ridgelines
+      for (let l = 0; l < 3; l++) {
+        const base = h * (0.55 + l * 0.14);
+        let pts = `0,${h}`;
+        for (let i = 0; i <= 8 * detail; i++) pts += ` ${Math.round((i * w) / (8 * detail))},${Math.round(base - rand() * h * 0.2)}`;
+        out += `<polygon points="${pts} ${w},${h}" fill="${l === 0 ? p.c : l === 1 ? p.b : p.a}" opacity="${(0.55 + l * 0.2).toFixed(2)}"/>`;
+      }
+      break;
+    case 3: // scattered orbs
+      for (let i = 0; i < 9 * detail; i++) {
+        out += `<circle cx="${Math.round(rand() * w)}" cy="${Math.round(rand() * h)}" r="${Math.round(unit * (0.03 + rand() * 0.14))}" fill="${i % 3 ? p.c : p.accent}" opacity="${(0.15 + rand() * 0.35).toFixed(2)}"/>`;
+      }
+      break;
+    case 4: // diamond lattice
+      for (let i = 0; i < 6 * detail; i++) {
+        const cx = Math.round(rand() * w);
+        const cy = Math.round(rand() * h);
+        const r = Math.round(unit * (0.06 + rand() * 0.16));
+        out += `<polygon points="${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}" fill="${i % 2 ? p.accent : p.c}" opacity="${(0.18 + rand() * 0.3).toFixed(2)}"/>`;
+      }
+      break;
+    default: // horizon stripes
+      for (let i = 0; i < 7 * detail; i++) {
+        out += `<rect x="0" y="${Math.round(h * (0.3 + i * (0.6 / (7 * detail))))}" width="${w}" height="${Math.max(1, Math.round(unit * 0.02 * (1 + i / 4)))}" fill="${p.accent}" opacity="${(0.1 + i * 0.04).toFixed(2)}"/>`;
+      }
+  }
+  return out;
+}
+
+function svgArt(p: Palette, w: number, h: number, seed: number, detail: number): string {
+  const rand = mulberry32(seed);
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid slice">` +
+    `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${p.a}"/><stop offset=".6" stop-color="${p.b}"/><stop offset="1" stop-color="${p.a}"/></linearGradient></defs>` +
+    `<rect width="${w}" height="${h}" fill="url(#g)"/>${shapes(rand, w, h, p, detail)}</svg>`;
+  return toDataUri(svg);
+}
+
+const artCache = new Map<string, GameArt>();
+
+/**
+ * Deterministic, original art for a mock game: a gradient plus a seeded pattern, in a tall 3:4 box, a wide 16:9 hero,
+ * a tiny thumbnail and a flat placeholder colour. No text, no third-party imagery.
+ */
+export function generatedArt(key: string, opts: { tall?: boolean; wide?: boolean } = {}): GameArt {
+  const cacheKey = `${key}|${opts.tall === false ? 0 : 1}${opts.wide === false ? 0 : 1}`;
+  const hit = artCache.get(cacheKey);
+  if (hit) return hit;
+  const seed = hashString(key);
+  const p = palette(mulberry32(seed));
+  const art: GameArt = {
+    tall: opts.tall === false ? null : svgArt(p, 360, 480, seed ^ 0x51ed, 2),
+    tallThumb: opts.tall === false ? null : svgArt(p, 90, 120, seed ^ 0x51ed, 1),
+    wide: opts.wide === false ? null : svgArt(p, 640, 360, seed ^ 0xa11ce, 2),
+    logo: null,
+    placeholder: p.flat,
+  };
+  artCache.set(cacheKey, art);
+  return art;
+}
+
+/** Wide image for a free-game promo / store tile. */
+export const wideArt = (key: string): string => generatedArt(key).wide ?? "";
