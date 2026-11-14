@@ -25,6 +25,7 @@ function job(over: Partial<JobInfo> = {}): JobInfo {
     blockedReason: null,
     verify: null,
     outcome: null,
+    cancellable: true,
     ...over,
   };
 }

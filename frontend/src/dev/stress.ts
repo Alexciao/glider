@@ -58,6 +58,7 @@ function job(i: number, kind: JobKind, status: JobInfo["status"], ageMinutes: nu
     blockedReason: status === "waiting" ? "Epic Games Launcher is verifying, repairing and updating three other games" : null,
     verify: null,
     outcome: null,
+    cancellable: true,
   };
 }
 

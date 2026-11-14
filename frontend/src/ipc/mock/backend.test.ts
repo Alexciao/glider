@@ -1410,7 +1410,7 @@ describe("snapshots", () => {
 
   it("job info objects only use contract fields", async () => {
     const h = setup({ scenario: "queue" });
-    const keys = ["id", "appName", "title", "kind", "status", "phases", "phase", "progress", "error", "createdAt", "startedAt", "finishedAt", "targetPath", "fromVersion", "toVersion", "blockedReason", "verify", "outcome"];
+    const keys = ["id", "appName", "title", "kind", "status", "phases", "phase", "progress", "error", "createdAt", "startedAt", "finishedAt", "targetPath", "fromVersion", "toVersion", "blockedReason", "verify", "outcome", "cancellable"];
     for (const j of jobsOf(await h.snapshot())) expect(Object.keys(j).sort()).toEqual([...keys].sort());
   });
 

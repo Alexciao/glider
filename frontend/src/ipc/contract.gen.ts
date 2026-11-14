@@ -361,6 +361,7 @@ export interface JobInfo {
   blockedReason: string | null;
   verify: VerifyReport | null;
   outcome: JobOutcome | null;
+  cancellable: boolean;
 }
 
 export type JobKind = "install" | "update" | "repair" | "verify" | "move" | "uninstall" | "import" | "modify" | "overlay";
