@@ -75,13 +75,11 @@ jobs:
 
       # Core's Legendary layer against the real exe: temp LEGENDARY_CONFIG_PATH, fixture installs, no user.json, no Epic account
       # (docs/testing.md). Only RealLegendary tests run here; the others already ran in "Test", where these are reported as skipped.
-      # GLIDER_REAL_LEGENDARY_NET enables the two tests that send a deliberately invalid token to Epic's public endpoints
-      # (they skip themselves when Epic is unreachable).
+      # The two tests that send a deliberately invalid token to Epic (GLIDER_REAL_LEGENDARY_NET=1) are local-only: CI stays hermetic.
       - name: Real Legendary integration tests
         run: dotnet test --project tests/Glider.Core.Tests -c Release --no-build --filter-namespace Glider.Core.Tests.RealLegendary
         env:
           GLIDER_REAL_LEGENDARY: ${{ github.workspace }}\src\Glider.App\legendary\legendary.exe
-          GLIDER_REAL_LEGENDARY_NET: '1'
 
       - name: Package (Velopack)
         shell: pwsh
