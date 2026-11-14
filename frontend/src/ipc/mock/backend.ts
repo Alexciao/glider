@@ -1832,6 +1832,8 @@ export class MockBackend {
 
     // ---- store / free games ----
     "store.show": async (r) => {
+      // Like the host: no connection, no page. A session that ended lands on the Store's own sign-in, which the page reports as signedOut.
+      this.requireOnline("The Store");
       const loc = r.target || !this.store.url ? mockStoreLocation(r.target) : null;
       this.store = {
         ...this.store,
@@ -1846,7 +1848,7 @@ export class MockBackend {
       this.event("store", { ...this.store });
       this.timer(700, () => {
         if (this.store.phase !== "loading") return;
-        this.store = { ...this.store, loading: false, phase: "ready" };
+        this.store = { ...this.store, loading: false, phase: this.auth.status === "signedIn" ? "ready" : "signedOut" };
         this.event("store", { ...this.store });
       });
       return { ...this.store };

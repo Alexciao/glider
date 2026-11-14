@@ -12,6 +12,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "screenshots": "playwright test e2e/screenshots.spec.ts e2e/break-ui.spec.ts",
+    "screenshots:readme": "playwright test e2e/readme-shots.spec.ts",
     "a11y": "playwright test e2e/a11y.spec.ts e2e/focus.spec.ts"
   },
   "dependencies": {

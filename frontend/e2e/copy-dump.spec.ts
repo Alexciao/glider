@@ -16,7 +16,8 @@ test.describe("copy dump", () => {
     test(state.name, async ({ page }) => {
       mkdirSync(OUT!, { recursive: true });
       await page.goto(`/?${state.query}&theme=dark&backdrop=solid&dev=0`);
-      await page.waitForSelector("html[data-ready='1']", { timeout: 20_000 });
+      if (state.early) await page.waitForSelector("#root *");
+      else await page.waitForSelector("html[data-ready='1']", { timeout: 20_000 });
       await state.setup?.(page);
       await page.waitForTimeout(state.settle ?? 350);
       const text = await page.evaluate(() => {

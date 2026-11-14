@@ -11,6 +11,8 @@ export interface ShotState {
   setup?: (page: Page) => Promise<void>;
   /** Extra settle time after setup, ms (default 350). */
   settle?: number;
+  /** Shoot before the app reports ready (loading states: the skeleton exists only until the first library arrives). */
+  early?: boolean;
   /** Capture mid-animation instead of fast-forwarding CSS animations to their end. */
   live?: boolean;
 }
@@ -359,7 +361,7 @@ const RAW_STATES: ShotState[] = [
       await wait(700);
       await g(p, (h) => {
         h.mock.emitNotice({ level: "success", title: "Fortnite is ready to play", message: "Version 40.20 installed.", action: null });
-        h.mock.emitNotice({ level: "error", title: "Can't reach Epic", message: "Check your internet connection, then retry. Progress is kept.", action: "retry" });
+        h.mock.emitNotice({ level: "error", title: "Can't reach Epic", message: "Check your internet connection, then try again. Progress is kept.", action: "retry" });
       });
       await wait(900);
     },
@@ -749,13 +751,15 @@ const RAW_STATES: ShotState[] = [
       await go(p, "library");
       await p.locator("[data-tile-index='3']").click({ button: "right" });
       await wait(300);
-      await p.getByRole("menuitem", { name: /collection/i }).first().click();
-      await wait(400);
+      await p.getByRole("menuitem", { name: /Add to collection/ }).click();
+      await wait(300);
+      await p.getByRole("menuitem", { name: /New collection/ }).click();
+      await wait(450);
     },
   },
 
   // ---------------------------------------------------------- library states
-  { name: "lib-loading", query: "scenario=returning&latency=60", setup: async (p) => go(p, "library"), settle: 60 },
+  { name: "app-loading", query: "scenario=returning&latency=50", early: true, setup: async (p) => void (await p.evaluate(() => (location.hash = "#/library"))), settle: 250 },
   { name: "lib-offline", query: "scenario=offline", setup: async (p) => go(p, "library") },
   {
     name: "lib-filter-menu",
@@ -789,7 +793,7 @@ const RAW_STATES: ShotState[] = [
   },
 
   // ----------------------------------------------------------------- store
-  { name: "store-opening", query: "scenario=returning&latency=40", setup: async (p) => go(p, "store"), settle: 150 },
+  { name: "store-opening", query: "scenario=returning&latency=40", setup: async (p) => go(p, "store"), settle: 450 },
   { name: "store-loaded", query: "scenario=returning", setup: async (p) => go(p, "store"), settle: 1200 },
   { name: "store-offline", query: "scenario=offline", setup: async (p) => go(p, "store"), settle: 900 },
   { name: "store-signed-out", query: "scenario=authExpired", setup: async (p) => go(p, "store"), settle: 1200 },
