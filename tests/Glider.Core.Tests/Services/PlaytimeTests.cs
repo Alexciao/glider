@@ -72,4 +72,31 @@ public class PlaytimeTests
         Assert.Equal(131, game.PlaytimeSeconds);
         Assert.Equal(rig.Time.GetUtcNow(), game.LastPlayedAt);
     }
+
+    [Fact]
+    public async Task QuittingWhileAGameRunsKeepsThePlaytimeSinceTheLastFlush() // review L7
+    {
+        using var rig = new Rig { ProcessPollInterval = TimeSpan.FromDays(1) };
+        var rec = rig.Install("v2");
+        var setup = Path.Combine(rec.InstallPath, GameProfiles.Fortnite.Eac!.SetupRelative.Replace('\\', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(setup)!);
+        File.WriteAllText(setup, "");
+        rig.Services.Installed.Add("EasyAntiCheat_EOS");
+        await rig.StartWarmAsync();
+
+        await rig.Service.Launch(new LaunchRequest(FortniteLayout.AppName, null, false));
+        var launch = rig.Service.LaunchServiceForTests;
+        rig.Processes.Add(FortniteLayout.ShippingProcessName, rig.Time.GetUtcNow());
+        Assert.True(launch.Sessions.Tick());
+        await launch.PlaytimeFlushed;
+
+        rig.Time.Advance(TimeSpan.FromSeconds(20)); // less than the 30 s flush interval: nothing written yet
+        Assert.Equal(0, rig.Games.Get(FortniteLayout.AppName).PlaytimeSeconds);
+
+        launch.FlushPlaytimeForShutdown(TimeSpan.FromSeconds(5)); // what GliderService.Dispose does
+
+        Assert.Equal(20, rig.Games.Get(FortniteLayout.AppName).PlaytimeSeconds);
+        launch.FlushPlaytimeForShutdown(TimeSpan.FromSeconds(5)); // idempotent: nothing is counted twice
+        Assert.Equal(20, rig.Games.Get(FortniteLayout.AppName).PlaytimeSeconds);
+    }
 }

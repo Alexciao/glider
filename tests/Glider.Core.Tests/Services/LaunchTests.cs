@@ -375,6 +375,62 @@ public class LaunchTests
     }
 
     [Fact]
+    public async Task ClickingGameAIsNotHeldUpByGameBsInFlightPrepare() // review L1
+    {
+        using var rig = new Rig();
+        rig.Install("v2");
+        rig.AddGame("Alien", "Alien: Isolation", installedVersion: "1.0");
+        await rig.StartWarmAsync();
+        var gate = new TaskCompletionSource();
+        rig.Legendary.LaunchGates[Fn] = gate.Task; // hovering Fortnite: its `launch --json` hangs
+
+        await rig.Service.PrepareLaunch(new AppRef(Fn));
+        Assert.False(rig.Service.LaunchServiceForTests.Preparing.IsCompleted);
+
+        var result = await Launch(rig, "Alien").WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        Assert.Equal(LaunchOutcome.Started, result.Outcome);
+        Assert.False(rig.Service.LaunchServiceForTests.Preparing.IsCompleted); // Fortnite's fetch is still pending
+
+        gate.SetResult();
+        await rig.Service.LaunchServiceForTests.Preparing;
+    }
+
+    [Fact]
+    public async Task ASessionBegunAsTheWatchLoopFinishesIsStillPolled() // review L5
+    {
+        using var rig = new Rig();
+        rig.Install("v2");
+        rig.AddGame("Alien", "Alien: Isolation", installedVersion: "1.0");
+        await rig.StartWarmAsync();
+        var launch = rig.Service.LaunchServiceForTests;
+        var injected = 0;
+        launch.AfterWatchPass = () =>
+        {
+            // The window between "no session left" and the loop task completing: a launch begins right there (its StartWatching
+            // sees a loop that is still running and does nothing).
+            if (Interlocked.Exchange(ref injected, 1) == 0)
+            {
+                launch.Sessions.Begin("Alien", GameProfiles.For("Alien"));
+            }
+        };
+
+        rig.Processes.Add(FortniteLayout.ShippingProcessName, rig.Time.GetUtcNow());
+        Assert.True(launch.DetectExisting(Fn)); // adopts the running game and starts the loop
+        rig.Processes.Remove(FortniteLayout.ShippingProcessName); // the game closes
+
+        // Drive time until the Fortnite session is over and the injected Alien session (no process ever appears) has failed.
+        for (var i = 0; i < 400 && (Volatile.Read(ref injected) == 0 || launch.Sessions.AnyActive); i++)
+        {
+            rig.Time.Advance(TimeSpan.FromSeconds(2));
+            await Task.Delay(15, TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal(1, injected);
+        Assert.False(launch.Sessions.AnyActive); // before the fix the Alien session sat in "Launching" for good
+        Assert.Equal(RunState.Idle, Run(rig, "Alien"));
+    }
+
+    [Fact]
     public async Task ExpiredOrMismatchedPreparedCommandIsFetchedAgain()
     {
         var (rig, _) = await Ready();

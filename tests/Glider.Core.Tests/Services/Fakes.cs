@@ -363,15 +363,23 @@ public sealed class FakeLegendary(CallLog log, string config) : ILegendary
         return Task.FromResult(new LegendaryOutcome(true, null, null, null));
     }
 
-    public Task<LaunchCommand> GetLaunchCommandAsync(string appName, bool skipVersionCheck, string extraArgs, bool offline, CancellationToken ct)
+    /// <summary>Held `launch --json` fetches, per app (null/absent = answer at once).</summary>
+    public Dictionary<string, Task> LaunchGates { get; } = [];
+
+    public async Task<LaunchCommand> GetLaunchCommandAsync(string appName, bool skipVersionCheck, string extraArgs, bool offline, CancellationToken ct)
     {
         log.Add($"legendary.launch:{appName}");
+        if (LaunchGates.TryGetValue(appName, out var gate))
+        {
+            await gate.WaitAsync(ct);
+        }
+
         LastSkipVersionCheck = skipVersionCheck;
         LastOffline = offline;
         LastExtraArgs = extraArgs;
         LastLaunchedApp = appName;
         var dir = Get(appName)?.InstallPath ?? "game";
-        return Task.FromResult(new LaunchCommand(Path.Combine(dir, appName == "Fortnite" ? "FortniteLauncher.exe" : "Game.exe"), dir, ["-AUTH_PASSWORD=secret"], new Dictionary<string, string>()));
+        return new LaunchCommand(Path.Combine(dir, appName == "Fortnite" ? "FortniteLauncher.exe" : "Game.exe"), dir, ["-AUTH_PASSWORD=secret"], new Dictionary<string, string>());
     }
 
     public string? GetInstalledManifestPath(string appName, string version) => $"manifests/{version}.manifest";
