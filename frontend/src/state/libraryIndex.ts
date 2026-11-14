@@ -3,9 +3,11 @@ import type { GameSummary } from "../ipc/contract.gen";
 import { useLibrary } from "./library";
 
 /**
- * In-memory search / filter / sort index over the library. Built once per library change (a few ms for 600 games) and
- * queried synchronously on every keystroke: each query is one pass over a pre-sorted array (no sorting at query time),
- * so it answers in well under a frame (16 ms) for several hundred games.
+ * In-memory search / filter / sort index over the library. Built once per library change and queried synchronously on every
+ * keystroke: each query is one pass over a pre-sorted array (no sorting at query time), so it answers in well under a frame
+ * (16 ms) for several hundred games. A library delta does not rebuild it from scratch: the next index reuses the previous one's
+ * entries for every game whose summary is the same object (the store keeps unchanged games' identity), and when no game's
+ * sort position changed (a favorite, a job tick, playtime) it only swaps the changed entries into copies of the sorted arrays.
  */
 
 export type LibraryFilter = "all" | "installed" | "notInstalled" | "updates" | "cloudSaves" | "favorites" | "hidden";
@@ -46,9 +48,11 @@ interface Entry {
   added: number;
   played: number;
   size: number;
-  /** Position in the A–Z order; the stable tie-breaker everywhere. */
-  az: number;
+  /** Position in each order (SORTS); az is the stable tie-breaker everywhere. Only written while an index is being built. */
+  pos: number[];
 }
+
+const SORTS: readonly LibrarySort[] = LIBRARY_SORTS;
 
 /** "Brütal Légends: 2" → "brutal legends 2". */
 export function normalize(s: string): string {
@@ -89,43 +93,98 @@ function wordScore(e: Entry, w: string): number {
   return 0;
 }
 
+function makeEntry(g: GameSummary, old?: Entry): Entry {
+  const sameTitle = old !== undefined && old.g.title === g.title;
+  const key = sameTitle ? old.key : normalize(g.title);
+  return {
+    g,
+    key,
+    words: sameTitle ? old.words : key.split(" "),
+    dev: old !== undefined && old.g.developer === g.developer ? old.dev : g.developer ? normalize(g.developer) : "",
+    added: time(g.addedAt),
+    played: time(g.lastPlayedAt),
+    size: g.installedSizeBytes ?? g.installSizeBytes ?? 0,
+    pos: [0, 0, 0, 0],
+  };
+}
+
+const sortKeysEqual = (a: Entry, b: Entry): boolean => a.key === b.key && a.added === b.added && a.played === b.played && a.size === b.size;
+
 export class LibraryIndex {
   readonly size: number;
   readonly counts: LibraryCounts;
   /** Items by sort order, base games and add-ons together (queries filter by kind). */
   private readonly orders: Record<LibrarySort, Entry[]>;
   private readonly dlcByBase = new Map<string, GameSummary[]>();
-  private readonly byApp = new Map<string, GameSummary>();
+  private readonly entries: ReadonlyMap<string, Entry>;
+  /** Entries built for a new or changed summary (the rest were taken over from the previous index): tests. */
+  readonly rebuilt: number;
 
-  constructor(games: Iterable<GameSummary>) {
-    const entries: Entry[] = [];
+  /** `previous`: an earlier index to build on (any library state works; the closer, the cheaper). */
+  constructor(games: Iterable<GameSummary>, previous?: LibraryIndex) {
+    let entries: Entry[] = [];
+    const swapped: Entry[] = []; // same game, new summary, same sort position
+    let reorder = previous === undefined;
+    let carried = 0; // games that were in the previous index
+    let rebuilt = 0;
     for (const g of games) {
-      const key = normalize(g.title);
-      entries.push({
-        g,
-        key,
-        words: key.split(" "),
-        dev: g.developer ? normalize(g.developer) : "",
-        added: time(g.addedAt),
-        played: time(g.lastPlayedAt),
-        size: g.installedSizeBytes ?? g.installSizeBytes ?? 0,
-        az: 0,
-      });
-      this.byApp.set(g.appName, g);
+      const old = previous?.entries.get(g.appName);
+      if (old === undefined) {
+        reorder = true;
+        rebuilt++;
+        entries.push(makeEntry(g));
+        continue;
+      }
+      carried++;
+      if (old.g === g) {
+        entries.push(old);
+        continue;
+      }
+      rebuilt++;
+      const e = makeEntry(g, old);
+      if (sortKeysEqual(e, old)) {
+        e.pos = old.pos; // the same position in every order: nothing to sort
+        swapped.push(e);
+      } else {
+        reorder = true;
+      }
+      entries.push(e);
     }
-    const az = entries.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : a.g.appName < b.g.appName ? -1 : 1));
-    az.forEach((e, i) => (e.az = i));
-    const by = (cmp: (a: Entry, b: Entry) => number): Entry[] => [...az].sort((a, b) => cmp(a, b) || a.az - b.az);
-    this.orders = {
-      az,
-      recent: by((a, b) => b.played - a.played),
-      added: by((a, b) => b.added - a.added),
-      size: by((a, b) => b.size - a.size),
-    };
-    this.size = az.length;
+    if (previous !== undefined && previous.size !== carried) reorder = true; // something was removed
+    this.rebuilt = rebuilt;
+    this.size = entries.length;
+
+    let orders: Record<LibrarySort, Entry[]>;
+    if (!reorder && previous !== undefined) {
+      const patch = (i: number): Entry[] => {
+        if (swapped.length === 0) return previous.orders[SORTS[i]!];
+        const out = previous.orders[SORTS[i]!].slice();
+        for (const e of swapped) out[e.pos[i]!] = e;
+        return out;
+      };
+      orders = { az: patch(0), recent: patch(1), added: patch(2), size: patch(3) };
+    } else {
+      // Entries are never changed once an index is built (the previous index may still be in use): take new positions on copies.
+      entries = entries.map((e) => ({ ...e, pos: [0, 0, 0, 0] }));
+      const az = entries.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : a.g.appName < b.g.appName ? -1 : 1));
+      az.forEach((e, i) => (e.pos[0] = i));
+      const by = (i: number, cmp: (a: Entry, b: Entry) => number): Entry[] => {
+        const sorted = [...az].sort((a, b) => cmp(a, b) || a.pos[0]! - b.pos[0]!);
+        sorted.forEach((e, n) => (e.pos[i] = n));
+        return sorted;
+      };
+      orders = {
+        az,
+        recent: by(1, (a, b) => b.played - a.played),
+        added: by(2, (a, b) => b.added - a.added),
+        size: by(3, (a, b) => b.size - a.size),
+      };
+    }
+    this.orders = orders;
+    this.entries = !reorder && previous !== undefined && swapped.length === 0 ? previous.entries : new Map(orders.az.map((e) => [e.g.appName, e]));
 
     const counts: LibraryCounts = { all: 0, installed: 0, notInstalled: 0, updates: 0, cloudSaves: 0, favorites: 0, hidden: 0 };
-    for (const e of az) {
+    for (const e of orders.az) {
       const g = e.g;
       if (!isBase(g)) {
         if (g.baseAppName) {
@@ -143,7 +202,7 @@ export class LibraryIndex {
   }
 
   get(appName: string): GameSummary | undefined {
-    return this.byApp.get(appName);
+    return this.entries.get(appName)?.g;
   }
 
   /** Owned DLC / add-ons of a base game, A–Z. */
@@ -215,13 +274,18 @@ export class LibraryIndex {
 }
 
 const cache = new WeakMap<ReadonlyMap<string, GameSummary>, LibraryIndex>();
+let latest: LibraryIndex | undefined;
 
-/** The index for one library state, built on first use and shared by every selector until the library changes. */
+/**
+ * The index for one library state, built on first use and shared by every selector until the library changes. A new state is
+ * built on the most recent index: a delta costs a pass over the games (reference checks) plus the games that changed.
+ */
 export function getLibraryIndex(games: ReadonlyMap<string, GameSummary>): LibraryIndex {
   let idx = cache.get(games);
   if (!idx) {
-    idx = new LibraryIndex(games.values());
+    idx = new LibraryIndex(games.values(), latest);
     cache.set(games, idx);
+    latest = idx;
   }
   return idx;
 }
