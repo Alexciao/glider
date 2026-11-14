@@ -158,7 +158,14 @@ internal static class MigrationV1ToV2
 
         Step("jobs");
 
-        var onboarding = ReadObject(State(paths, "onboarding.json"));
+        var onboardingPath = State(paths, "onboarding.json");
+        var onboarding = ReadObject(onboardingPath);
+        if (onboarding is null && File.Exists(onboardingPath))
+        {
+            // Unreadable v0.1 file: keep its bytes next to it (not only in the backup) before writing the v2 document.
+            PreserveUnreadable(onboardingPath, log);
+        }
+
         if (onboarding is null || onboarding["schemaVersion"] is null)
         {
             var completed = (onboarding?["completed"] is JsonValue c && c.TryGetValue<bool>(out var done) && done) || game is not null;
@@ -484,6 +491,18 @@ internal static class MigrationV1ToV2
         AtomicFile.WriteAllBytesAsync(path, Encoding.UTF8.GetBytes(json.ToJsonString(Indented)), ct: ct);
 
     /// <summary>A JSON object from a v0.1 file (UTF-8 with or without BOM), or null when missing/unreadable.</summary>
+    /// <summary>Copies an unreadable v0.1 file to <c>&lt;name&gt;.v0.1-unreadable</c> (never overwriting an earlier copy).</summary>
+    internal static void PreserveUnreadable(string path, ILog log)
+    {
+        var target = path + ".v0.1-unreadable";
+        if (!File.Exists(target))
+        {
+            File.Copy(path, target);
+        }
+
+        log.Warn("migration", $"{Path.GetFileName(path)} could not be read; kept a copy as {Path.GetFileName(target)} and used defaults.");
+    }
+
     internal static JsonObject? ReadObject(string path)
     {
         try

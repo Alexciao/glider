@@ -139,6 +139,23 @@ public sealed class MigrationTests : IDisposable
     }
 
     [Fact]
+    public async Task AnUnreadableV01OnboardingFileIsKeptNextToTheNewOne()
+    {
+        SeedV01();
+        var path = Path.Combine(Paths.State, "onboarding.json");
+        byte[] torn = [0xEF, 0xBB, 0xBF, (byte)'{', (byte)'"', (byte)'c', (byte)'o'];
+        File.WriteAllBytes(path, torn);
+
+        var result = await Migrate();
+
+        Assert.Equal(MigrationStatus.Migrated, result.Status);
+        Assert.Equal(torn, File.ReadAllBytes(path + ".v0.1-unreadable"));
+        Assert.True(_log.Contains("could not be read"));
+        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        Assert.True(doc.RootElement.GetProperty("completed").GetBoolean()); // inferred from the install record
+    }
+
+    [Fact]
     public async Task AFailedRunLeavesV01FilesAndIsRetriedToTheSameResult()
     {
         SeedV01((Variant: "settings.json", Target: "state/settings.json"));
