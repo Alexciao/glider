@@ -40,7 +40,9 @@ public class PlaytimeTests
     [Fact]
     public async Task SessionIsPersistedPerGameWhenItExits()
     {
-        using var rig = new Rig();
+        // The test drives sessions.Tick() itself; the background watch loop would tick at intermediate fake times while
+        // Advance() steps through its timers (ending the session at t+130) and race the manual ticks.
+        using var rig = new Rig { ProcessPollInterval = TimeSpan.FromDays(1) };
         var rec = rig.Install("v2");
         var setup = Path.Combine(rec.InstallPath, GameProfiles.Fortnite.Eac!.SetupRelative.Replace('\\', Path.DirectorySeparatorChar));
         Directory.CreateDirectory(Path.GetDirectoryName(setup)!);

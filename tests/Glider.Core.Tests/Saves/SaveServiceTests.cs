@@ -615,6 +615,7 @@ public class SaveServiceTests
 
         s.Saves.AfterExit(App);
         await WaitUntil(() => s.Cloud.SyncCalls(SyncMode.Upload) == 2); // 1 baseline + the first attempt
+        await WaitUntil(() => s.State().Status == SaveSyncStatus.Error); // ...which has finished and failed (the drop is read at its end)
         s.Cloud.DropUploads = false;
         var idle = s.Saves.PostExitIdle;
         while (!idle.IsCompleted) // the retry timer is registered a moment after the first attempt failed

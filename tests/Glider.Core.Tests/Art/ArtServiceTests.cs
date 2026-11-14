@@ -1,3 +1,4 @@
+using Glider.Core.Infrastructure;
 using System.Text.Json;
 using Glider.Core.Art;
 using Glider.Core.Contracts;
@@ -44,7 +45,7 @@ public sealed class ArtServiceTests
             await first.StartWarmAsync();
             url = (await first.SummaryAsync())!.Art.TallThumb!;
             await first.Service.LibraryForTests.SaveCacheAsync();
-            libraryJson = await File.ReadAllBytesAsync(LibraryService.PathFor(first.Paths));
+            libraryJson = (await AtomicFile.TryReadAllBytesAsync(LibraryService.PathFor(first.Paths), TestContext.Current.CancellationToken))!;
         }
 
         // Second run: library.json holds the URLs, the pre-warm is held back, and the picture is wanted at once.
@@ -57,10 +58,13 @@ public sealed class ArtServiceTests
         Assert.Equal(url, again.Service.LibraryForTests.Games[Fn].Art.TallThumb);
 
         // A miss right after start: the cached URL is resolved against the catalog as soon as it is readable (never a hang, never a 404).
-        var response = await again.Service.Art.HandleAsync(url, CancellationToken.None);
+        // The request parks until the library files are read (the pre-warm's first step after the held-back version check).
+        var pending = again.Service.Art.HandleAsync(url, CancellationToken.None);
+        Assert.False(pending.IsCompleted);
+        again.Legendary.VersionGate.SetResult();
+        var response = await pending;
 
         Assert.Equal(200, response.Status);
-        again.Legendary.VersionGate.SetResult();
     }
 
     [Fact]
@@ -85,12 +89,12 @@ public sealed class ArtServiceTests
 
         Assert.Equal("#2a1d5e", withColours.Placeholders[Fn].Color);
         var file = Path.Combine(rig.Paths.Cache, "art", "placeholders.json");
-        for (var i = 0; i < 100 && !File.Exists(file); i++)
+        for (var i = 0; i < 6000 && !File.Exists(file); i++) // a safety net: the debounced write lands as soon as it can
         {
             await Task.Delay(10);
         }
 
-        using var doc = JsonDocument.Parse(await File.ReadAllBytesAsync(file));
+        using var doc = JsonDocument.Parse((await AtomicFile.TryReadAllBytesAsync(file, TestContext.Current.CancellationToken))!);
         Assert.Equal("#2a1d5e", doc.RootElement.GetProperty(Fn).GetProperty("c").GetString());
     }
 }

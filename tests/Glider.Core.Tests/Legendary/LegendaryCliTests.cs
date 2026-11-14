@@ -11,7 +11,7 @@ public class LegendaryCliTests
 
     private static LegendaryCli Cli(FakeLegendaryEnv env, TimeSpan? stall = null) => new(env.Paths, env.Log, new LegendaryOptions
     {
-        StallTimeout = stall ?? TimeSpan.FromSeconds(30),
+        StallTimeout = stall ?? TimeSpan.FromDays(1),
         SharedMemoryRetryCeilingMb = 8192,
         // These tests exercise the CLI paths; the no-spawn shortcuts have their own tests below.
         PinnedVersion = null,

@@ -92,10 +92,10 @@ internal sealed class QueueHarness : IAsyncDisposable
 
     private readonly ILegendary? _legendary;
 
-    public QueueHarness(TimeSpan? stall = null, ILegendary? legendary = null)
+    public QueueHarness(TimeSpan? stall = null, ILegendary? legendary = null, TimeProvider? cliTime = null)
     {
         _legendary = legendary;
-        Cli = new LegendaryCli(Env.Paths, Env.Log, new LegendaryOptions { StallTimeout = stall ?? TimeSpan.FromSeconds(30) });
+        Cli = new LegendaryCli(Env.Paths, Env.Log, new LegendaryOptions { StallTimeout = stall ?? TimeSpan.FromDays(1) }, cliTime);
         Games = Path.Combine(Env.Root, "Games");
         GameFolder = Path.Combine(Games, "Fortnite");
     }
@@ -133,7 +133,7 @@ internal sealed class QueueHarness : IAsyncDisposable
         return q;
     }
 
-    public static async Task<JobInfo> WaitFor(JobQueue q, string id, Func<JobInfo, bool> condition, int timeoutMs = 15_000)
+    public static async Task<JobInfo> WaitFor(JobQueue q, string id, Func<JobInfo, bool> condition, int timeoutMs = 60_000)
     {
         var sw = Stopwatch.StartNew();
         while (true)
@@ -326,7 +326,10 @@ public class JobQueueStallTests
     [Fact]
     public async Task StallFailsWithNetworkAndResumeContinues()
     {
-        await using var h = new QueueHarness(stall: TimeSpan.FromSeconds(2)); // > the fake's startup time on a loaded machine
+        // The watchdog runs on a manual clock, so how long the real fake process takes to start (or be scheduled) on a
+        // loaded machine can never trip it: the clock only moves once the process has reached its scripted stall.
+        var clock = new ManualTimeProvider();
+        await using var h = new QueueHarness(stall: TimeSpan.FromHours(2), cliTime: clock);
         h.Env.Script("install", """
             download chunks=100 files=10 mib=20 interval=10 stallat=50 spam
             """, invocation: 1);
@@ -335,13 +338,53 @@ public class JobQueueStallTests
         var q = await h.StartAsync();
         var job = q.Enqueue(h.Install());
 
-        var failed = await QueueHarness.WaitForStatus(q, job.Id, JobStatus.Failed);
+        var sw = Stopwatch.StartNew();
+        while (ResumedFiles(h.Env.ResumeFile) < 5)
+        {
+            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(60), "the fake never reached its stall point");
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        // Past the stall point it spams identical blocks (no liveness). Step the clock until the watchdog notices.
+        var failed = q.Snapshot().Single(j => j.Id == job.Id);
+        while (failed.Status != JobStatus.Failed)
+        {
+            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(60), $"the stall was not detected; job is {failed.Status}");
+            clock.Advance(TimeSpan.FromHours(1));
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+            failed = q.Snapshot().Single(j => j.Id == job.Id);
+        }
+
         Assert.Equal(ErrorCode.Network, failed.Error?.Code);
         Assert.Equal(5, File.ReadAllLines(h.Env.ResumeFile).Length);
 
         await q.ResumeAsync(job.Id);
-        await QueueHarness.WaitForStatus(q, job.Id, JobStatus.Completed);
+        // The clock still has to move (throttle timers run on it), in steps far below the 2 h stall timeout.
+        var done = q.Snapshot().Single(j => j.Id == job.Id);
+        while (done.Status != JobStatus.Completed)
+        {
+            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(120), $"the resumed job did not complete; it is {done.Status} {done.Error?.Code}");
+            clock.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+            done = q.Snapshot().Single(j => j.Id == job.Id);
+        }
+
         Assert.True(h.Env.Log.Contains("Skipping 5 files based on resume data."));
+    }
+
+    /// <summary>Lines of the resume file while the fake may be appending to it (0 if missing or momentarily locked).</summary>
+    private static int ResumedFiles(string path)
+    {
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(fs);
+            return reader.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
+        }
+        catch (IOException)
+        {
+            return 0;
+        }
     }
 
 }

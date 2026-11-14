@@ -23,7 +23,7 @@ public class JobHooksTests
         Assert.False(run.IsCompleted);
 
         rig.Egl.NotBusy.SetResult();
-        var done = await run.WaitAsync(TimeSpan.FromSeconds(5));
+        var done = await run.WaitAsync(TimeSpan.FromSeconds(60));
         Assert.Equal(JobStatus.Completed, done.Status);
         Assert.Null(done.BlockedReason);
         Assert.False(rig.Games.Record()!.NeedsVerification);
@@ -54,7 +54,7 @@ public class JobHooksTests
             await Task.Delay(10);
         }
 
-        Assert.Equal(JobStatus.Completed, (await run.WaitAsync(TimeSpan.FromSeconds(5))).Status);
+        Assert.Equal(JobStatus.Completed, (await run.WaitAsync(TimeSpan.FromSeconds(60))).Status);
     }
 
     [Fact]

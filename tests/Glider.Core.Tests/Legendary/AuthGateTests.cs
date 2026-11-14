@@ -39,7 +39,7 @@ public class AuthGateTests
         Assert.False(next.IsCompleted);
 
         time.Advance(TimeSpan.FromSeconds(46)); // a login that never printed anything
-        var lease = await next.WaitAsync(TimeSpan.FromSeconds(5), ct);
+        var lease = await next.WaitAsync(TimeSpan.FromSeconds(60), ct);
         Assert.True(stuck.Released);
         stuck.Release();
         Assert.True(gate.Held); // the old lease can't release the new holder
@@ -60,7 +60,7 @@ public class AuthGateTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled);
 
         holder.Release();
-        var lease = await after.WaitAsync(TimeSpan.FromSeconds(5), ct);
+        var lease = await after.WaitAsync(TimeSpan.FromSeconds(60), ct);
         Assert.Equal("c", lease.Label);
         lease.Release();
     }
@@ -83,30 +83,42 @@ public class AuthGateTests
     public async Task TheRunnerHoldsTheGateOnlyThroughTheLogin()
     {
         using var env = new FakeLegendaryEnv();
+        // The fake hands over at each step through marker files, so no part of this depends on how fast it starts.
         env.Script("info", """
             err [Core] INFO: Trying to re-use existing login session...
-            sleep 200
+            writefile fake/in-login x
+            waitfile fake/go
             err [cli] INFO: Getting game info...
-            sleep 1500
+            writefile fake/past-login x
+            waitfile fake/exit
             out {"game": null}
             """);
         env.Script("status", """
             out {"account": "<not logged in>"}
             """);
-        using var cli = new LegendaryCli(env.Paths, env.Log, new LegendaryOptions());
+        using var cli = new LegendaryCli(env.Paths, env.Log, new LegendaryOptions { StallTimeout = TimeSpan.FromDays(1) });
         var ct = TestContext.Current.CancellationToken;
+        var fake = Path.Combine(env.Config, "fake");
 
         var info = cli.GetGameInfoAsync("Fortnite", ct);
-        await Task.Delay(100, ct);
-        Assert.True(cli.Runner.Gate.Held); // inside its login
-        for (var i = 0; i < 300 && cli.Runner.Gate.Held; i++)
-        {
-            await Task.Delay(10, ct);
-        }
+        await WaitUntil(() => File.Exists(Path.Combine(fake, "in-login")));
+        Assert.True(cli.Runner.Gate.Held); // inside its login (the fake is parked before printing a post-login line)
 
-        Assert.False(cli.Runner.Gate.Held); // released at the first post-login line, long before the process exits
-        Assert.False(info.IsCompleted);
+        File.WriteAllText(Path.Combine(fake, "go"), "");
+        await WaitUntil(() => !cli.Runner.Gate.Held);
+        Assert.False(info.IsCompleted); // released at the first post-login line, long before the process exits
         await cli.RefreshSessionAsync(ct).ContinueWith(_ => { }, ct); // another login can start while info still runs
+        File.WriteAllText(Path.Combine(fake, "exit"), "");
         await Assert.ThrowsAsync<Glider.Core.Contracts.GliderException>(() => info);
+    }
+
+    private static async Task WaitUntil(Func<bool> condition)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (!condition())
+        {
+            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(60), "condition not met in time");
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
     }
 }

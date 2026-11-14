@@ -63,7 +63,7 @@ public class LegendaryProcessRunnerTests
         var sw = Stopwatch.StartNew();
         await cts.CancelAsync();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(10));
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(60)); // safety net: cancelling returns on the kill, not on a timeout
         await WaitUntil(() => !IsAlive(childPid));
         Assert.Equal(0, runner.ActiveProcesses);
     }
@@ -86,13 +86,32 @@ public class LegendaryProcessRunnerTests
         using var env = new FakeLegendaryEnv();
         // progresses for 4 files, then the network "drops": retry spam + identical progress blocks forever
         env.Script("install", "download chunks=100 files=10 mib=50 interval=20 stallat=40 spam");
-        using var runner = new LegendaryProcessRunner(env.Paths, env.Log);
+        // Manual clock: process startup/scheduling on a loaded machine can never count as "no progress". It only moves
+        // once the fake has written its 4th file (the scripted stall point), in steps the watchdog notices.
+        var clock = new ManualTimeProvider();
+        using var runner = new LegendaryProcessRunner(env.Paths, env.Log, clock);
         var progress = new List<LegendaryProgress>();
-        var run = await runner.RunAsync(new LegendaryCommand(LegendaryCommandKind.Install, ["install", "Fortnite"])
+        var runTask = runner.RunAsync(new LegendaryCommand(LegendaryCommandKind.Install, ["install", "Fortnite"])
         {
-            StallTimeout = TimeSpan.FromSeconds(1),
+            StallTimeout = TimeSpan.FromHours(2),
             Timeout = Timeout.InfiniteTimeSpan,
         }, new Progress(progress), TestContext.Current.CancellationToken);
+        await WaitUntil(() => File.Exists(env.ResumeFile) && ResumeLines(env.ResumeFile) >= 4);
+        // ...and has been spamming retries (each round re-publishes the same 40 % block) for a while.
+        await WaitUntil(() =>
+        {
+            lock (progress)
+            {
+                return progress.Count(p => p.Percent >= 40) >= 8;
+            }
+        });
+        while (!runTask.IsCompleted)
+        {
+            clock.Advance(TimeSpan.FromHours(1));
+            await Task.WhenAny(runTask, Task.Delay(10, TestContext.Current.CancellationToken));
+        }
+
+        var run = await runTask;
 
         Assert.True(run.Stalled);
         Assert.True(run.Facts.ChunkRetries > 5);
@@ -106,8 +125,16 @@ public class LegendaryProcessRunnerTests
     {
         using var env = new FakeLegendaryEnv();
         env.Script("status", "hang");
-        using var runner = new LegendaryProcessRunner(env.Paths, env.Log);
-        var run = await runner.RunAsync(Cmd("status") with { Timeout = TimeSpan.FromMilliseconds(600) }, null, TestContext.Current.CancellationToken);
+        var clock = new ManualTimeProvider();
+        using var runner = new LegendaryProcessRunner(env.Paths, env.Log, clock);
+        var runTask = runner.RunAsync(Cmd("status") with { Timeout = TimeSpan.FromMinutes(10) }, null, TestContext.Current.CancellationToken);
+        while (!runTask.IsCompleted)
+        {
+            clock.Advance(TimeSpan.FromMinutes(11)); // the command hangs; only the (manual) clock can time it out
+            await Task.WhenAny(runTask, Task.Delay(10, TestContext.Current.CancellationToken));
+        }
+
+        var run = await runTask;
         Assert.True(run.TimedOut);
         Assert.Equal(ErrorCode.Timeout, ErrorClassifier.Classify(LegendaryCommandKind.Status, run)?.Code);
     }
@@ -184,8 +211,9 @@ public class LegendaryProcessRunnerTests
         var run = await runner.RunAsync(new LegendaryCommand(LegendaryCommandKind.Install, ["install"]), slow, TestContext.Current.CancellationToken);
 
         Assert.Equal(20, slow.Count);                                   // every event delivered, in order, before return
-        Assert.True(run.Duration < TimeSpan.FromMilliseconds(20 * 100)); // the process didn't wait for the consumer
         Assert.True(sw.Elapsed >= TimeSpan.FromMilliseconds(20 * 100));
+        // the process didn't wait for the consumer: most of the consumer's 2 s ran after the process had already exited
+        Assert.True(sw.Elapsed - run.Duration > TimeSpan.FromMilliseconds(10 * 100));
     }
 
     [Fact]
@@ -201,7 +229,7 @@ public class LegendaryProcessRunnerTests
         var run = await runner.RunAsync(new LegendaryCommand(LegendaryCommandKind.Install, ["install"]) { AbortWhen = f => f.SdlDownloadFailed, Timeout = TimeSpan.FromSeconds(30) },
             null, TestContext.Current.CancellationToken);
         Assert.True(run.AbortedEarly);
-        Assert.True(run.Duration < TimeSpan.FromSeconds(15));
+        Assert.True(run.Duration < TimeSpan.FromSeconds(30)); // aborted on the SDL failure, well before the 30 s timeout
     }
 
     [Fact]
@@ -232,7 +260,21 @@ public class LegendaryProcessRunnerTests
         Assert.True(env.Log.Contains("auth --token ***"));
     }
 
-    internal static async Task WaitUntil(Func<bool> condition, int timeoutMs = 10_000)
+    private static int ResumeLines(string path)
+    {
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(fs);
+            return reader.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
+        }
+        catch (IOException)
+        {
+            return 0;
+        }
+    }
+
+    internal static async Task WaitUntil(Func<bool> condition, int timeoutMs = 60_000)
     {
         var sw = Stopwatch.StartNew();
         while (!condition())

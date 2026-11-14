@@ -111,7 +111,7 @@ public sealed class EglBusyTests
         }
 
         Directory.Delete(Bps(game), recursive: true); // EGL finished its update
-        await wait.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        await wait.WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
         lock (reasons)
         {
             Assert.Equal([EglService.UpdatingReason, null], reasons);
@@ -129,9 +129,9 @@ public sealed class EglBusyTests
         var blocked = new TaskCompletionSource<string?>();
 
         var wait = svc.WaitUntilNotBusyAsync(game, r => blocked.TrySetResult(r), TestContext.Current.CancellationToken);
-        Assert.Equal(EglService.InstallingReason, await blocked.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        Assert.Equal(EglService.InstallingReason, await blocked.Task.WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken));
         t.Processes.EglRunning = false;
-        await wait.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        await wait.WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
     }
 
     [Fact]

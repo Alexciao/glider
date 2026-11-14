@@ -249,16 +249,6 @@ public interface ILegendary
     /// </summary>
     Task<string> GetThirdPartyUriAsync(string appName, ThirdPartyStore store, bool offline, CancellationToken ct) =>
         throw new GliderException(Errors.NotAvailableYet("third-party launch"));
-
-    /// <summary>
-    /// Records which install tags (components) a game's folder holds, as Legendary's own <c>install</c> does: <c>[app] install_tags</c>
-    /// in config.ini, which <c>verify</c>, <c>repair</c> and <c>update</c> read. Without it an adopted install is verified against every
-    /// optional pack and an update deletes the packs it doesn't know about. Applied only while no Legendary process runs.
-    /// </summary>
-    Task SetInstallTagsAsync(string appName, IReadOnlyList<string> tags, bool overwrite, CancellationToken ct) => Task.CompletedTask;
-
-    /// <summary>The <c>[app] install_tags</c> Legendary will use (null when none are recorded).</summary>
-    Task<IReadOnlyList<string>?> GetConfiguredInstallTagsAsync(string appName, CancellationToken ct) => Task.FromResult<IReadOnlyList<string>?>(null);
 }
 
 // ============================== Glider's per-game records (state/games.json) ==============================
@@ -326,9 +316,7 @@ public sealed record EglItem(
     bool IsIncomplete,
     bool NeedsValidation,
     string AppName = "",
-    string? DisplayName = null,
-    /// <summary>The packs EGL installed (<c>InstallTags</c>); empty when none recorded.</summary>
-    IReadOnlyList<string>? InstallTags = null);
+    string? DisplayName = null);
 
 /// <summary>One install EGL (or a quick scan) knows about, before Glider joins it with its library.</summary>
 public sealed record EglFoundInstall(
@@ -415,22 +403,7 @@ public interface IEglService
 
     /// <summary>The AppName EGL's <c>.egstore\*.mancpn</c> in the folder declares, or null.</summary>
     string? DetectAppName(string folder) => null;
-
-    /// <summary>What <c>legendary import</c> will conclude for a folder, and what EGL left in it (read-only). Null when unknown.</summary>
-    Egl.EglAdoptionInfo? InspectForAdoption(string installPath, string appName) => null;
-
-    /// <summary>
-    /// Quick scan that can also name folders EGL's metadata doesn't (its <c>.mancpn</c> is gone, no <c>.item</c>):
-    /// <paramref name="identify"/> maps a folder to its AppName (e.g. by the catalog's folder name), else null.
-    /// </summary>
-    IReadOnlyList<EglFoundInstall> QuickScan(IReadOnlyList<string> driveRoots, Func<string, string?>? identify, CancellationToken ct) => QuickScan(driveRoots, ct);
-
-    /// <summary>Every EGL <c>.item</c> (games and DLC) currently in <c>Manifests\Pending</c>: updates EGL has queued and not finished.</summary>
-    IReadOnlyList<EglPendingUpdate> PendingUpdates() => [];
 }
-
-/// <summary>An update EGL started (its manifest sits in <c>Manifests\Pending</c>) and hasn't finished.</summary>
-public sealed record EglPendingUpdate(string AppName, string? Version, string InstallLocation);
 
 // ============================== Logging ==============================
 

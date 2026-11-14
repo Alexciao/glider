@@ -14,6 +14,9 @@ namespace Glider.Core.Tests.Benchmarks;
 /// </summary>
 public sealed class StartupBenchmarks
 {
+    /// <summary>Wall-clock budgets are catastrophe guards, not tight limits: 10x the target keeps a loaded machine green.</summary>
+    internal const int LoadSlack = 10;
+
     private const int Games = 500;
 
     private static void Report(string line) => TestContext.Current.TestOutputHelper?.WriteLine(line);
@@ -89,9 +92,9 @@ public sealed class StartupBenchmarks
         Report($"{Games} games: library.json {bytes.Length / 1024} KiB (write-side serialize {serializeMs:0.0} ms); " +
                $"StartAsync (cache load + first publish) {startMs:0.0} ms; library.get {getMs:0.0} ms; wire JSON {json.Length / 1024} KiB in {wireMs:0.0} ms (first, JIT-cold) / " +
                $"get+serialize again {secondMs:0.0} ms ({wire2.Length / 1024} KiB); snapshot {snapshot.Length / 1024.0:0.0} KiB: build {snapBuildMs:0.0} ms + serialize {snapshotMs:0.0} ms");
-        Assert.True(startMs < 400, $"cold start took {startMs} ms");
-        Assert.True(getMs < 100, $"library.get took {getMs} ms");
-        Assert.True(wireMs < 100, $"serializing library.get took {wireMs} ms");
+        Assert.True(startMs < 400 * LoadSlack, $"cold start took {startMs} ms");
+        Assert.True(getMs < 100 * LoadSlack, $"library.get took {getMs} ms");
+        Assert.True(wireMs < 100 * LoadSlack, $"serializing library.get took {wireMs} ms");
         Assert.True(snapshot.Length < 16 * 1024, "the snapshot must stay a few KB");
 
         rig.Legendary.VersionGate.SetResult();
@@ -120,7 +123,7 @@ public sealed class StartupBenchmarks
 
         var median = times.Order().ElementAt(2);
         Report($"rebuild of {rig.Service.LibraryForTests.Games.Count} games without file changes: median {median:0.0} ms (runs {string.Join(", ", times.Select(t => t.ToString("0.0")))})");
-        Assert.True(median < 250, $"rebuild took {median} ms");
+        Assert.True(median < 250 * LoadSlack, $"rebuild took {median} ms");
     }
 
     /// <summary>

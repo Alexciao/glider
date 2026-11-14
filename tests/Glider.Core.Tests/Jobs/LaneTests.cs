@@ -151,7 +151,7 @@ public class LaneTests
         var q = await h.StartAsync(Options());
 
         var installA = q.Enqueue(new JobRequest("A", JobKind.Install, h.Games, null, null, "1", "A"));
-        await l.StartedFor("A").Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await l.StartedFor("A").Task.WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
         await q.PauseAsync(installA.Id);
 
         var verifyA = q.Enqueue(Verify("A"));
@@ -174,7 +174,7 @@ public class LaneTests
         l.Gate("A");
         var q = await h.StartAsync(Options());
         var a = q.Enqueue(Repair("A"));
-        await l.StartedFor("A").Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await l.StartedFor("A").Task.WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
         var b = q.Enqueue(Verify("B"));
         var c = q.Enqueue(Verify("C"));
         var d = q.Enqueue(Verify("D"));
@@ -283,7 +283,7 @@ public class LaneTests
         l.Gate("A");
         var q = await h.StartAsync(Options(policy));
         var update = q.Enqueue(new JobRequest("A", JobKind.Update, null, null, "1", "2", "A"));
-        await l.StartedFor("A").Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await l.StartedFor("A").Task.WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
 
         policy.HoldReason = "Paused while Fortnite is running";
         q.Reevaluate();
@@ -313,7 +313,7 @@ public class LaneTests
         l.Gate("A");
         var q = await h.StartAsync(Options());
         var a = q.Enqueue(Repair("A"));
-        await l.StartedFor("A").Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await l.StartedFor("A").Task.WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
         var b = q.Enqueue(Verify("B"));
 
         await q.PauseAllAsync();
@@ -362,7 +362,7 @@ public class LaneTests
         l.Gate("A");
         var q = await h.StartAsync(Options(activity: activity));
         q.Enqueue(Repair("A"));
-        await l.StartedFor("A").Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await l.StartedFor("A").Task.WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
 
         Assert.True(activity.InPreDownload); // spawned, logging in / refreshing metadata, no progress yet
         var waiter = activity.WhenNotPreDownloadAsync(TestContext.Current.CancellationToken);
@@ -370,7 +370,7 @@ public class LaneTests
         Assert.False(waiter.IsCompleted);
 
         l.Gate("A").SetResult(); // the first progress line arrives
-        await waiter.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await waiter.WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
         await Eventually(() => !q.IsBusy, "job done");
         Assert.False(activity.InPreDownload);
     }

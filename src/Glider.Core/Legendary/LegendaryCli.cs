@@ -380,44 +380,9 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
         return new LegendaryOutcome(error is null, error, null, null, new VerifyCounts(f.VerifyFilesChecked, f.VerifyCorrupted, f.VerifyMissing));
     }
 
-    public async Task SetInstallTagsAsync(string appName, IReadOnlyList<string> tags, bool overwrite, CancellationToken ct)
-    {
-        // Legendary writes ','.join(tags) with the untagged bucket ("") first (cli.py:971); keep that shape.
-        var list = tags.Prepend("").Distinct(StringComparer.Ordinal).ToList();
-        await Runner.SetConfigValueAsync(appName, "install_tags", string.Join(',', list), overwrite, ct).ConfigureAwait(false);
-    }
-
-    public async Task<IReadOnlyList<string>?> GetConfiguredInstallTagsAsync(string appName, CancellationToken ct)
-    {
-        var ini = await AtomicFile.TryReadAllBytesAsync(LegendaryConfigFile.PathIn(Config), ct).ConfigureAwait(false);
-        return ini is not null && LegendaryConfigFile.GetValue(System.Text.Encoding.UTF8.GetString(ini), appName, "install_tags") is { } saved
-            ? saved.Split(',').Select(t => t.Trim()).ToList()
-            : null;
-    }
-
-    /// <summary>
-    /// <c>import</c>. Legendary refuses a game it already has ("Game is already installed!", cli.py:1357), so re-reading an
-    /// install that EGL changed (a newer build, other packs) first forgets it with <c>uninstall --keep-files</c>. Files are
-    /// never touched, and only an unlinked record at the same folder is forgotten: a record linked to EGL
-    /// (<c>egl_guid</c>) would make Legendary delete EGL's own manifest and <c>.egstore</c> on uninstall.
-    /// </summary>
     public async Task<LegendaryOutcome> ImportAsync(string appName, string gamePath, CancellationToken ct)
     {
         var path = FolderMover.Normalize(gamePath);
-        if (await GetInstalledAsync(appName, ct) is { } already)
-        {
-            if (!FolderMover.PathsEqual(FolderMover.Normalize(already.InstallPath), path) || !string.IsNullOrEmpty(already.EglGuid))
-            {
-                return Fail(Errors.AlreadyInstalled(already.Title ?? appName, appName));
-            }
-
-            var forgotten = await UninstallAsync(appName, keepFiles: true, ct);
-            if (!forgotten.Success)
-            {
-                return forgotten;
-            }
-        }
-
         var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Import, ["-y", "import", appName, path, "--skip-dlcs"])
         {
             Exclusive = true,
