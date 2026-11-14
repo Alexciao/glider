@@ -1,6 +1,7 @@
 using System.Windows;
 using Glider.App.Native;
 using Glider.Core;
+using Glider.Core.Infrastructure.Migrations;
 using Glider.Core.Links;
 using Microsoft.Web.WebView2.Core;
 using Velopack;
@@ -124,17 +125,59 @@ public static class Program
             var root = options.DataDir
                 ?? (options.LoginDebugDir is not null ? Path.Combine(options.LoginDebugDir, "data-" + options.ParsedVariant.ToString().ToLowerInvariant() + (options.NoCdp ? "-nocdp" : ""))
                 : options.IsTestRun ? Path.Combine(Path.GetTempPath(), "glider-host-test") : null);
-            var paths = root is null
-                ? AppPaths.ForCurrentUser()
-                : new AppPaths(root, Path.Combine(AppContext.BaseDirectory, "legendary", "legendary.exe"));
+
+            // Schema 3: the per-user data leaves Velopack's install root. This must run before anything opens a file in the data
+            // root (logs, WebView2, Core) and with the single-instance mutex held (always true here: root is null only when
+            // this is not a test run). An explicit root is never moved.
+            var prepared = DataRoot.Prepare(root, new DataRootMoverOptions { OverlayRegistry = new Glider.Core.Overlay.WindowsOverlayRegistry() });
+            StartupTimeline.Mark("data-root");
+            if (!prepared.CanStart)
+            {
+                return DataMoveFailed(prepared);
+            }
+
+            var paths = AppPaths.ForRoot(prepared.Root);
             paths.EnsureCreated();
             HostLog.Init(paths.Logs);
+            foreach (var message in prepared.Messages)
+            {
+                HostLog.Info("data root: " + message);
+            }
+
+            if (prepared.Status == DataRootMoveStatus.Deferred)
+            {
+                HostLog.Warn($"data root: still using {prepared.Root} this session", prepared.Error);
+            }
+
             return HostApp.Run(paths, options, single);
         }
         finally
         {
             single?.Dispose();
         }
+    }
+
+    /// <summary>
+    /// The data is split between the old and the new root and could not be put back: starting now would run on half the data.
+    /// Nothing is written in either root (a stray file there would change what the next start resumes); the details go to %TEMP%.
+    /// </summary>
+    private static int DataMoveFailed(DataRootMoveResult prepared)
+    {
+        var log = Path.Combine(Path.GetTempPath(), "glider-data-move.log");
+        try
+        {
+            File.AppendAllLines(log, [$"{DateTimeOffset.Now:O} data move failed: {prepared.Error}", .. prepared.Messages, ""]);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+
+        Win32.MessageBox(
+            0,
+            $"Glider couldn't finish moving its data to {prepared.Root}, and couldn't put it back either. Nothing was lost: Glider will finish the move the next time it starts.\n\nClose any game or program that may be using Glider's files (or restart Windows), then start Glider again.\n\nDetails: {log}",
+            "Glider",
+            Win32.MB_ICONERROR);
+        return 1;
     }
 }
 

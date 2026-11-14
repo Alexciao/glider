@@ -1,4 +1,5 @@
 using Glider.Core;
+using Glider.Core.Infrastructure.Migrations;
 using Glider.Core.Links;
 using Glider.Core.Shortcuts;
 using Velopack.Locators;
@@ -45,7 +46,8 @@ internal sealed class WindowsShellIntegration : IShellIntegration
 /// <summary>
 /// What the installer/uninstaller hooks do (Velopack runs them in a separate short-lived process before the app starts): register
 /// <c>glider://</c> on install and update, and on uninstall remove it, hand the Epic link handler back and delete the shortcuts
-/// Glider created. Every step is best effort and never blocks setup.
+/// Glider created. Every step is best effort and never blocks setup. Glider's data is outside the install root (schema 3), so
+/// uninstall keeps it; the hook only finishes a data move this install never got to make.
 /// </summary>
 internal static class ShellRegistration
 {
@@ -64,7 +66,20 @@ internal static class ShellRegistration
 
     public static void OnUninstalling()
     {
+        var moved = MoveDataOutOfInstallRoot();
         var paths = AppPaths.ForCurrentUser();
+        var outside = !string.Equals(paths.Root, DataRoot.LegacyRootFor(DataRoot.LocalAppDataFolder), StringComparison.OrdinalIgnoreCase);
+        if (outside)
+        {
+            HostLog.Init(paths.Logs);
+            foreach (var message in moved?.Messages ?? [])
+            {
+                HostLog.Info("data root: " + message);
+            }
+
+            HostLog.Info($"Glider is being uninstalled; its data in {paths.Root} is kept (delete that folder to remove it).");
+        }
+
         var shell = new WindowsShellIntegration();
         try
         {
@@ -84,6 +99,36 @@ internal static class ShellRegistration
         catch (Exception ex)
         {
             HostLog.Warn("Removing the shortcuts failed", ex);
+        }
+    }
+
+    /// <summary>
+    /// Data still in the install root (this version never started, or its move was deferred) would be deleted with it: move it now,
+    /// renames only (no time for a cross-volume copy here), and only when no Glider is running (a running one moved it at its start).
+    /// </summary>
+    private static DataRootMoveResult? MoveDataOutOfInstallRoot()
+    {
+        try
+        {
+            using var mutex = new Mutex(true, HostConstants.MainMutexName, out var first);
+            if (!first)
+            {
+                return null;
+            }
+
+            try
+            {
+                return DataRoot.Prepare(null, new DataRootMoverOptions { AllowCopy = false, OverlayRegistry = new Glider.Core.Overlay.WindowsOverlayRegistry() });
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+        }
+        catch (Exception ex)
+        {
+            HostLog.Warn("Moving the data out of the install root before uninstall failed", ex);
+            return null;
         }
     }
 
