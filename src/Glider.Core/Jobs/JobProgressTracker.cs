@@ -149,8 +149,19 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
             _phase = phase;
             if (_last is not null)
             {
-                update = Groups(_last with { Phase = phase }, phase);
-                _last = update;
+                var full = phase == JobPhase.Verifying
+                    ? _last with
+                    {
+                        Phase = phase,
+                        PhasePercent = 0,
+                        EtaSeconds = null,
+                        Verify = new VerifyStats(0, 0, 0, _installSize ?? 0, 0, _verifyCounts().Bad, _verifyCounts().Fixed),
+                        FilesDone = 0,
+                        FilesTotal = 0,
+                    }
+                    : _last with { Phase = phase };
+                _last = full;
+                update = Groups(full, phase);
             }
         }
 

@@ -148,6 +148,12 @@ internal sealed class AuthGate
     /// Legendary's login lines (core.py:211-278, cli.py auth): the gate stays closed while these print and opens at the first
     /// other line after one of them.
     /// </summary>
+    /// <summary>Output that only appears once a command is past its login (download manager, verify, JSON results).</summary>
+    public static bool IsPastLogin(ReadOnlySpan<char> line) =>
+        line.Contains("[DLManager]", StringComparison.Ordinal) ||
+        line.StartsWith("Verification progress", StringComparison.Ordinal) ||
+        line.StartsWith("{", StringComparison.Ordinal);
+
     public static bool IsLoginLine(ReadOnlySpan<char> line) =>
         line.Contains("login session", StringComparison.OrdinalIgnoreCase) ||
         line.Contains("Logging in", StringComparison.OrdinalIgnoreCase) ||

@@ -293,7 +293,7 @@ public sealed class EglWriteBackTests
         var newGame = t.CreateGame(t.Drive("G", "Moved", "Fortnite"), egstoreGuid: FixtureGuid);
         using var svc = t.CreateService();
 
-        await svc.UpdateLocationAsync(FixtureGuid.ToLowerInvariant(), newGame + Path.DirectorySeparatorChar, TestContext.Current.CancellationToken);
+        await svc.UpdateLocationAsync("Fortnite", FixtureGuid.ToLowerInvariant(), newGame + Path.DirectorySeparatorChar, TestContext.Current.CancellationToken);
 
         Assert.Equal(GoldenFor("move-fortnite.golden.item", @"G:\Moved\Fortnite", newGame), Text(File.ReadAllBytes(itemPath)));
         Assert.Equal(itemPath, svc.FindByLocation(newGame)!.ItemPath);
@@ -302,7 +302,7 @@ public sealed class EglWriteBackTests
         var backup = Assert.Single(Directory.GetDirectories(t.Paths.EglBackups));
         Assert.Equal(originalItem, File.ReadAllBytes(Path.Combine(backup, "Manifests", FixtureGuid + ".item")));
 
-        await Assert.ThrowsAsync<GliderException>(() => svc.UpdateLocationAsync("00000000000000000000000000000000", newGame, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<GliderException>(() => svc.UpdateLocationAsync("Fortnite", "00000000000000000000000000000000", newGame, TestContext.Current.CancellationToken));
     }
 
     // ------------------------------------------------ LauncherInstalled.dat patching ------------------------------------------------
@@ -311,7 +311,7 @@ public sealed class EglWriteBackTests
     public void LauncherInstalledPatchKeepsEveryOtherByte()
     {
         var src = EglTestTree.Fixture("LauncherInstalled.dat");
-        var patched = LauncherInstalledDat.Patch(src, @"d:/games/epic games/fortnite/", "E:\\Neu\\Fortnit\u00e9", EglTestTree.V3320)!;
+        var patched = LauncherInstalledDat.Patch(src, "Fortnite", @"d:/games/epic games/fortnite/", "E:\\Neu\\Fortnit\u00e9", EglTestTree.V3320)!;
         var expected = Text(src)
             .Replace("\"D:\\\\Games\\\\Epic Games\\\\Fortnite\"", "\"E:\\\\Neu\\\\Fortnit\\u00e9\"", StringComparison.Ordinal)
             .Replace(EglTestTree.V3310, EglTestTree.V3320, StringComparison.Ordinal);
@@ -319,12 +319,12 @@ public sealed class EglWriteBackTests
         var entry = LauncherInstalledDat.Parse(patched).Single(e => e.AppName == "Fortnite");
         Assert.Equal("E:\\Neu\\Fortnit\u00e9", entry.InstallLocation);
 
-        Assert.Null(LauncherInstalledDat.Patch(src, @"X:\Nope", "a", "b"));
-        Assert.Null(LauncherInstalledDat.Patch(src, @"D:\Games\Epic Games\Fortnite", null, EglTestTree.V3310)); // nothing to change
+        Assert.Null(LauncherInstalledDat.Patch(src, "Fortnite", @"X:\Nope", "a", "b"));
+        Assert.Null(LauncherInstalledDat.Patch(src, "Fortnite", @"D:\Games\Epic Games\Fortnite", null, EglTestTree.V3310)); // nothing to change
 
         // UTF-16LE with BOM (Unreal's AutoDetect encoding for non-ANSI text) stays UTF-16LE with BOM.
         byte[] utf16 = [0xFF, 0xFE, .. Encoding.Unicode.GetBytes(Text(src))];
-        var p16 = LauncherInstalledDat.Patch(utf16, @"D:\Games\Epic Games\Fortnite", null, EglTestTree.V3320)!;
+        var p16 = LauncherInstalledDat.Patch(utf16, "Fortnite", @"D:\Games\Epic Games\Fortnite", null, EglTestTree.V3320)!;
         Assert.Equal(new byte[] { 0xFF, 0xFE }, p16[..2]);
         Assert.Equal(Text(src).Replace(EglTestTree.V3310, EglTestTree.V3320, StringComparison.Ordinal), Encoding.Unicode.GetString(p16, 2, p16.Length - 2));
     }

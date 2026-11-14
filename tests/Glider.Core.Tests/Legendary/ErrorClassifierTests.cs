@@ -31,7 +31,7 @@ public class ErrorClassifierTests
         { "synthetic-install-diskfull.stderr.txt", null, 0, nameof(LegendaryCommandKind.Install), ErrorCode.InsufficientSpace },
         { "synthetic-install-lockedfile.stderr.txt", null, 0, nameof(LegendaryCommandKind.Update), ErrorCode.FilesLocked },
         { "synthetic-install-memoryerror.stderr.txt", null, 1, nameof(LegendaryCommandKind.Install), ErrorCode.LegendaryFailed },
-        { "synthetic-install-lock.stderr.txt", null, 0, nameof(LegendaryCommandKind.Install), ErrorCode.Busy },
+        { "synthetic-install-lock.stderr.txt", null, 0, nameof(LegendaryCommandKind.Install), ErrorCode.LegendaryLocked },
         { "synthetic-install-login-expired.stderr.txt", null, 1, nameof(LegendaryCommandKind.Install), ErrorCode.AuthExpired },
         { "synthetic-install-downloader-exception.stderr.txt", null, 0, nameof(LegendaryCommandKind.Install), ErrorCode.LegendaryFailed },
         { "synthetic-install-cdn.stderr.txt", null, 1, nameof(LegendaryCommandKind.Install), ErrorCode.CdnUnavailable },

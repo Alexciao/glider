@@ -78,7 +78,7 @@ internal class StubLegendary(bool verifySucceeds) : ILegendary
 
     public Task<LegendaryOutcome> UninstallAsync(string appName, bool keepFiles, CancellationToken ct) => Ok;
 
-    public Task<LaunchCommand> GetLaunchCommandAsync(string appName, bool skipVersionCheck, string extraArgs, CancellationToken ct) => throw new NotSupportedException();
+    public Task<LaunchCommand> GetLaunchCommandAsync(string appName, bool skipVersionCheck, string extraArgs, bool offline, CancellationToken ct) => throw new NotSupportedException();
 
     public string? GetInstalledManifestPath(string appName, string version) => null;
 }
@@ -159,7 +159,7 @@ internal sealed class QueueHarness : IAsyncDisposable
         err [cli] INFO: Finished installation process in 0.20 seconds.
         """);
 
-    public JobRequest Install() => new(JobKind.Install, Games, null, null, Build);
+    public JobRequest Install() => new("Fortnite", JobKind.Install, Games, null, null, Build, "Fortnite");
 
     public async ValueTask DisposeAsync()
     {
@@ -202,6 +202,23 @@ public class JobQueueRunTests
         Assert.Contains(JobPhase.Verifying, phases);
         var download = h.Progress.Where(p => p.Phase == JobPhase.Downloading).Select(p => p.Percent).ToList();
         Assert.Equal(download.Order(), download); // monotonic bar
+        var whole = h.Progress.Select(p => p.Percent).ToList();
+        Assert.Equal(whole.Order(), whole); // the whole-job percent never goes back, across download and verify
+        Assert.Equal([JobPhase.Preparing, JobPhase.Downloading, JobPhase.Installing, JobPhase.Verifying, JobPhase.Finalizing], done.Phases);
+        Assert.All(h.Progress.Where(p => p.Phase == JobPhase.Downloading), p =>
+        {
+            Assert.NotNull(p.Network);
+            Assert.NotNull(p.Disk);
+            Assert.Null(p.Verify);
+            Assert.Equal("Fortnite", p.AppName);
+        });
+        Assert.All(h.Progress.Where(p => p.Phase == JobPhase.Verifying), p =>
+        {
+            Assert.Null(p.Network); // verifying only reads: never network figures
+            Assert.NotNull(p.Verify);
+        });
+        Assert.Equal(OutcomeKind.Success, done.Outcome!.Kind);
+        Assert.NotEmpty(q.History(job.Id).Samples);
 
         await q.DisposeAsync(); // flushes the final save
         var onDisk = JsonSerializer.Deserialize(await File.ReadAllBytesAsync(JobQueue.PathFor(h.Env.Paths), TestContext.Current.CancellationToken),
@@ -267,7 +284,7 @@ public class JobQueueWriteFailureTests
         h.Env.Script("verify", "verify files=4 interval=1 corrupt=1");
         h.Env.Script("repair", "err [cli] INFO: Finished installation process in 0.05 seconds.");
         var q = await h.StartAsync();
-        var job = q.Enqueue(new JobRequest(JobKind.Update, null, null, "old", QueueHarness.Build));
+        var job = q.Enqueue(new JobRequest("Fortnite", JobKind.Update, null, null, "old", QueueHarness.Build));
         await QueueHarness.WaitForStatus(q, job.Id, JobStatus.Completed);
         Assert.Equal(["update", "verify", "repair"], h.Env.Invocations().Select(c => c.Command));
     }
@@ -344,7 +361,7 @@ public class JobQueueHookTests
             setBlocked(null);
         };
         var q = await h.StartAsync();
-        var job = q.Enqueue(new JobRequest(JobKind.Verify, null, null, null, null));
+        var job = q.Enqueue(new JobRequest("Fortnite", JobKind.Verify, null, null, null, null));
 
         var waiting = await QueueHarness.WaitForStatus(q, job.Id, JobStatus.Waiting);
         Assert.Equal("Epic Games Launcher is updating Fortnite.", waiting.BlockedReason);
@@ -373,17 +390,17 @@ public class JobQueueHookTests
             """);
         var q = await h.StartAsync();
 
-        var uninstall = q.Enqueue(new JobRequest(JobKind.Uninstall, null, UninstallMode.DeleteFiles, null, null));
+        var uninstall = q.Enqueue(new JobRequest("Fortnite", JobKind.Uninstall, null, UninstallMode.DeleteFiles, null, null));
         await QueueHarness.WaitForStatus(q, uninstall.Id, JobStatus.Completed);
         Directory.CreateDirectory(h.GameFolder);
-        var import = q.Enqueue(new JobRequest(JobKind.Import, h.GameFolder, null, null, null));
+        var import = q.Enqueue(new JobRequest("Fortnite", JobKind.Import, h.GameFolder, null, null, null));
         await QueueHarness.WaitForStatus(q, import.Id, JobStatus.Completed);
 
         var calls = h.Env.Invocations();
         Assert.Equal(["-y", "uninstall", "Fortnite", "--skip-uninstaller"], calls[0].Args);
         Assert.Equal(["-y", "import", "Fortnite", h.GameFolder, "--skip-dlcs"], calls[1].Args);
-        Assert.Throws<GliderException>(() => q.Enqueue(new JobRequest(JobKind.Move, "relative", null, null, null)));
-        Assert.Throws<GliderException>(() => q.Enqueue(new JobRequest(JobKind.Uninstall, null, null, null, null)));
+        Assert.Throws<GliderException>(() => q.Enqueue(new JobRequest("Fortnite", JobKind.Move, "relative", null, null, null)));
+        Assert.Throws<GliderException>(() => q.Enqueue(new JobRequest("Fortnite", JobKind.Uninstall, null, null, null, null)));
     }
 }
 
@@ -427,7 +444,7 @@ public class JobQueuePauseRaceTests
         var q = await h.StartAsync();
         for (var i = 0; i < 10; i++)
         {
-            var job = q.Enqueue(new JobRequest(JobKind.Verify, null, null, null, null));
+            var job = q.Enqueue(new JobRequest("Fortnite", JobKind.Verify, null, null, null, null));
             if (i % 2 == 1)
             {
                 await Task.Delay(i * 3, TestContext.Current.CancellationToken); // land on both sides of the claim
@@ -459,7 +476,7 @@ public class JobQueueBlockingTests
         await QueueHarness.WaitFor(q, install.Id, j => j.Progress is { Percent: > 0 });
         await q.PauseAsync(install.Id);
 
-        var verify = q.Enqueue(new JobRequest(JobKind.Verify, null, null, null, null));
+        var verify = q.Enqueue(new JobRequest("Fortnite", JobKind.Verify, null, null, null, null));
         await Task.Delay(300, TestContext.Current.CancellationToken);
         Assert.Equal(JobStatus.Queued, q.Snapshot().Single(j => j.Id == verify.Id).Status);
 
@@ -520,7 +537,7 @@ public class JobQueueCancelUpdateTests
         File.Copy(Fixture.PathOf("synthetic-installed.json"), Path.Combine(h.Env.Config, "installed.json"));
         h.Env.Script("update", "download chunks=200 files=20 mib=20 interval=40");
         var q = await h.StartAsync();
-        var job = q.Enqueue(new JobRequest(JobKind.Update, null, null, "old", "new"));
+        var job = q.Enqueue(new JobRequest("Fortnite", JobKind.Update, null, null, "old", "new"));
         await QueueHarness.WaitFor(q, job.Id, j => j.Progress is { Percent: >= 10 });
         // the fake appends to the resume file per completed file; under load that can lag the progress events
         for (var i = 0; i < 200 && !File.Exists(h.Env.ResumeFile); i++)
@@ -571,14 +588,15 @@ public class JobQueueRestoreTests
         await using var h = new QueueHarness();
         var now = DateTimeOffset.UtcNow;
         JobInfo Info(string id, JobKind kind, JobStatus status, int minutes) =>
-            new(id, kind, status, null, null, now.AddMinutes(minutes), null, null, null, null, status == JobStatus.Waiting ? "EGL busy" : null);
+            new(id, "Fortnite", "Fortnite", kind, status, [], null, null, null, now.AddMinutes(minutes), null, null, null, null, null,
+                status == JobStatus.Waiting ? "EGL busy" : null, null, null);
         var file = new PersistedJobFile
         {
             Jobs =
             [
-                new PersistedJob { Info = Info("done", JobKind.Verify, JobStatus.Completed, -10), Request = new JobRequest(JobKind.Verify, null, null, null, null) },
-                new PersistedJob { Info = Info("paused", JobKind.Repair, JobStatus.Paused, -5), Request = new JobRequest(JobKind.Repair, null, null, null, null) },
-                new PersistedJob { Info = Info("waiting", JobKind.Verify, JobStatus.Waiting, -1), Request = new JobRequest(JobKind.Verify, null, null, null, null), Step = JobStep.Main },
+                new PersistedJob { Info = Info("done", JobKind.Verify, JobStatus.Completed, -10), Request = new JobRequest("Fortnite", JobKind.Verify, null, null, null, null) },
+                new PersistedJob { Info = Info("paused", JobKind.Repair, JobStatus.Paused, -5), Request = new JobRequest("Fortnite", JobKind.Repair, null, null, null, null) },
+                new PersistedJob { Info = Info("waiting", JobKind.Verify, JobStatus.Waiting, -1), Request = new JobRequest("Fortnite", JobKind.Verify, null, null, null, null), Step = JobStep.Main },
             ],
         };
         Directory.CreateDirectory(h.Env.Paths.State);
@@ -586,10 +604,10 @@ public class JobQueueRestoreTests
 
         var q = await h.StartAsync();
         var jobs = q.Snapshot();
-        Assert.Equal(["done", "paused", "waiting"], jobs.Select(j => j.Id));
-        Assert.Equal(JobStatus.Paused, jobs[1].Status);
-        Assert.Equal(JobStatus.Queued, jobs[2].Status); // interrupted while waiting: back in the queue, behind the paused one
-        Assert.Null(jobs[2].BlockedReason);
+        Assert.Equal(["paused", "waiting", "done"], jobs.Select(j => j.Id)); // unfinished in queue order, then finished
+        Assert.Equal(JobStatus.Paused, jobs[0].Status);
+        Assert.Equal(JobStatus.Queued, jobs[1].Status); // interrupted while waiting: back in the queue, behind the paused one
+        Assert.Null(jobs[1].BlockedReason);
         await Task.Delay(200, TestContext.Current.CancellationToken);
         Assert.Empty(h.Env.Invocations());
     }
@@ -623,7 +641,7 @@ public class JobQueuePersistenceTests
         // many state changes: verifies fail instantly, get dismissed, repeat
         for (var i = 0; i < 40; i++)
         {
-            var job = q.Enqueue(new JobRequest(JobKind.Verify, null, null, null, null));
+            var job = q.Enqueue(new JobRequest("Fortnite", JobKind.Verify, null, null, null, null));
             await QueueHarness.WaitForStatus(q, job.Id, JobStatus.Failed);
             q.Dismiss(job.Id);
         }
@@ -641,7 +659,7 @@ public class JobQueuePersistenceTests
     {
         await using var h = new QueueHarness(legendary: new StubLegendary(verifySucceeds: true));
         var first = await h.StartAsync();
-        var job = first.Enqueue(new JobRequest(JobKind.Verify, null, null, null, null));
+        var job = first.Enqueue(new JobRequest("Fortnite", JobKind.Verify, null, null, null, null));
         await QueueHarness.WaitForStatus(first, job.Id, JobStatus.Completed);
         await first.DisposeAsync();
         await File.WriteAllTextAsync(JobQueue.PathFor(h.Env.Paths), "{ torn", TestContext.Current.CancellationToken);
@@ -668,7 +686,7 @@ public class JobQueueHostileJobsJsonTests
         await File.WriteAllTextAsync(JobQueue.PathFor(h.Env.Paths), json, TestContext.Current.CancellationToken);
 
         var q = await h.StartAsync();
-        var job = q.Enqueue(new JobRequest(JobKind.Repair, null, null, null, null));
+        var job = q.Enqueue(new JobRequest("Fortnite", JobKind.Repair, null, null, null, null));
         await QueueHarness.WaitForStatus(q, job.Id, JobStatus.Completed);
         await q.DisposeAsync();
         var onDisk = JsonSerializer.Deserialize(await File.ReadAllBytesAsync(JobQueue.PathFor(h.Env.Paths), TestContext.Current.CancellationToken),

@@ -10,13 +10,15 @@ using GameProcesses = Glider.Core.Tests.Services.FakeProcesses;
 namespace Glider.Core.Tests.EndToEnd;
 
 /// <summary>
-/// The real <see cref="GliderRuntime"/> (FileLog, stores, LegendaryCli, JobQueue, EglService, GliderService) over a temp
-/// data dir, driving tests/FakeLegendary as legendary.exe, with a temp EGL ProgramData tree. Only the host window,
-/// process list, disk and art download are faked. Restartable: <see cref="RestartAsync"/> keeps the data dir.
+/// The real <see cref="GliderRuntime"/> (migration, FileLog, stores, LegendaryCli, JobQueue, EglService, GliderService) over a
+/// temp data dir, driving tests/FakeLegendary as legendary.exe, with a temp EGL ProgramData tree and Legendary's library files
+/// seeded from the real catalog fixtures. Only the host window, process list and disk are faked. Restartable:
+/// <see cref="RestartAsync"/> keeps the data dir.
 /// </summary>
 internal sealed class EndToEndHarness : IAsyncDisposable
 {
     public const string Account = "Tester";
+    public const string Fn = FortniteLayout.AppName;
 
     private EndToEndHarness() => Egl = Tree.Environment;
 
@@ -33,12 +35,15 @@ internal sealed class EndToEndHarness : IAsyncDisposable
     public Services.FakeServices EacInstalled { get; } = new() { Installed = { "EasyAntiCheat_EOS" } };
     public GliderRuntime Runtime { get; private set; } = null!;
     public IGliderRpc Rpc => Runtime.Rpc;
+    public LibraryFixture Library { get; private set; } = null!;
 
     public string GamesRoot => Legendary.Root + Path.DirectorySeparatorChar + "Games";
 
     public static async Task<EndToEndHarness> StartAsync(string latestVersion, bool signedIn = true)
     {
         var h = new EndToEndHarness();
+        h.Library = LibraryFixture.Fortnite(h.Legendary.Config, latestVersion).Save();
+        h.Library.WritesInstalled = false; // from now on the fake exe owns installed.json
         h.DefaultScripts(latestVersion);
         if (signedIn)
         {
@@ -66,9 +71,13 @@ internal sealed class EndToEndHarness : IAsyncDisposable
             ProcessStarter = GameProcesses,
             DiskInfo = Disk,
             ServiceQuery = EacInstalled,
-            ArtCache = new Services.FakeArt(),
+            LibraryCoalesceInterval = TimeSpan.Zero,
+            LibraryCacheDelay = TimeSpan.Zero,
+            LockRetryDelay = TimeSpan.FromMilliseconds(50),
         });
         await Runtime.Service.WarmupTask;
+        await Runtime.Service.PrewarmForTests.LibrarySync;
+        await Runtime.Service.LibraryForTests.FlushAsync();
     }
 
     public void WriteUserJson() =>
@@ -84,6 +93,16 @@ internal sealed class EndToEndHarness : IAsyncDisposable
             err [cli] INFO: Testing existing login data if present...
             err [cli] INFO: Successfully logged in as "{{Account}}"
             """);
+        Legendary.Script("list", """
+            err [Core] INFO: Trying to re-use existing login session...
+            err [cli] INFO: Getting game list... (this may take a while)
+            out []
+            """);
+        Legendary.Script("list-installed", """
+            err [Core] INFO: Trying to re-use existing login session...
+            err [cli] INFO: Checking for updates...
+            out []
+            """);
         Legendary.Script("verify", "verify files=5 interval=1");
         Legendary.Script("uninstall", """
             uninstalled
@@ -97,11 +116,14 @@ internal sealed class EndToEndHarness : IAsyncDisposable
         Legendary.Script("info", $$"""out {"game": {"app_name": "Fortnite", "title": "Fortnite", "version": "{{version}}"}, "install": null, "manifest": null}""");
 
     public void Import(string version) => Legendary.Script("import", $"""
+        err [Core] INFO: Trying to re-use existing login session...
         installed version={version} path={"{arg:1}"}
         err [cli] INFO: Game "Fortnite" has been imported.
         """);
 
     public void Install(string version, string downloadArgs) => Legendary.Script("install", $"""
+        err [Core] INFO: Trying to re-use existing login session...
+        err [cli] INFO: Preparing download for "Fortnite"...
         download chunks=400 files=8 mib=64 {downloadArgs}
         writefile {"{basepath}"}/Fortnite/{FortniteLayout.ShippingExeRelative.Replace('\\', '/')} MZ
         installed version={version} path={"{basepath}"}/Fortnite
@@ -112,7 +134,10 @@ internal sealed class EndToEndHarness : IAsyncDisposable
 
     public AppSnapshot Snapshot => Runtime.Service.Hub.BuildSnapshot();
 
-    public JobInfo Job(string id) => Snapshot.Jobs.Single(j => j.Id == id);
+    /// <summary>The published summary of a game (the library rebuilds right after every change in these tests).</summary>
+    public GameSummary? Game(string app = Fn) => Runtime.Service.LibraryForTests.Summary(app);
+
+    public JobInfo Job(string id) => Snapshot.Queue.Jobs.Single(j => j.Id == id);
 
     public static async Task<T> WaitFor<T>(Func<T> read, Func<T, bool> until, string what, int timeoutMs = 15_000)
     {
@@ -136,6 +161,8 @@ internal sealed class EndToEndHarness : IAsyncDisposable
 
     public Task<JobInfo> WaitForJob(string id, Func<JobInfo, bool> until, string what) => WaitFor(() => Job(id), until, what);
 
+    public Task<JobInfo> WaitForDone(string id, string what) => WaitForJob(id, j => j.Status is JobStatus.Completed or JobStatus.Failed or JobStatus.Cancelled, what);
+
     /// <summary>A Fortnite folder EGL installed (shipping exe + .egstore) and its .item at <paramref name="version"/>.</summary>
     public (string Game, string Guid) EglInstall(string version)
     {
@@ -143,6 +170,16 @@ internal sealed class EndToEndHarness : IAsyncDisposable
         var game = Tree.CreateGame(Tree.Drive("E", "Epic Games", "Fortnite"), guid);
         Tree.WriteItem(game, version, guid);
         return (game, guid);
+    }
+
+    /// <summary>Imports a folder through the RPC (an Import job) and waits for it (and any verify it queued) to finish.</summary>
+    public async Task<JobInfo> ImportAsync(string folder, VerifyMode mode = VerifyMode.Auto)
+    {
+        var job = await Rpc.ImportFolder(new LocateRequest(folder, mode));
+        var done = await WaitForDone(job.Id, "import");
+        Assert.True(done.Status == JobStatus.Completed, done.Error?.Detail);
+        await Runtime.Service.LibraryForTests.FlushAsync();
+        return done;
     }
 
     public async ValueTask DisposeAsync()

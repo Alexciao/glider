@@ -135,9 +135,10 @@ internal sealed class InstalledSizeMeter : IDisposable
         }
     }
 
-    private (string Path, string Version)? Current(string app)
+    /// <summary>Path and version of the install right now (installed.json read directly; Glider's record as a fallback).</summary>
+    private async Task<(string Path, string Version)?> CurrentAsync(string app, CancellationToken ct)
     {
-        var installed = _c.Library.Installed(app);
+        var installed = await _c.Legendary.GetInstalledAsync(app, ct).ConfigureAwait(false);
         if (installed is { InstallPath.Length: > 0 })
         {
             return (installed.InstallPath, installed.Version);
@@ -149,7 +150,7 @@ internal sealed class InstalledSizeMeter : IDisposable
 
     private async Task MeasureOnceAsync(string app, bool force, CancellationToken ct)
     {
-        if (Current(app) is not { } target)
+        if (await CurrentAsync(app, ct).ConfigureAwait(false) is not { } target)
         {
             return;
         }
@@ -167,7 +168,7 @@ internal sealed class InstalledSizeMeter : IDisposable
         if (_lastFinished is { } last && _c.Now - last < _c.Options.SizeMeasureMinInterval)
         {
             await Task.Delay(_c.Options.SizeMeasureMinInterval - (_c.Now - last), _c.Time, ct).ConfigureAwait(false);
-            if (Current(app) != target)
+            if (await CurrentAsync(app, ct).ConfigureAwait(false) != target)
             {
                 lock (_gate)
                 {
@@ -185,7 +186,7 @@ internal sealed class InstalledSizeMeter : IDisposable
         _c.Log.Info("size", $"measured {app} at {target.Path}: {bytes} bytes in {_c.Time.GetElapsedTime(started).TotalSeconds:0.0} s");
 
         // The folder or version may have changed while we walked; a stale number must never be published.
-        if (Current(app) == target)
+        if (await CurrentAsync(app, ct).ConfigureAwait(false) == target)
         {
             var m = new SizeMeasure(target.Path, target.Version, bytes, _c.Now);
             Publish(app, m);

@@ -105,9 +105,15 @@ public sealed class SettingsStore : ISettingsStore, IDisposable
             AutoUpdate = s.AutoUpdate is AutoUpdatePolicy.Always or AutoUpdatePolicy.Ask or AutoUpdatePolicy.Never ? s.AutoUpdate : d.AutoUpdate,
             SpeedLimitBytesPerSecond = s.SpeedLimitBytesPerSecond is > 0 and var limit ? limit : null,
             DefaultInstallBase = CleanPath(s.DefaultInstallBase),
-            LibraryFolders = LibraryFolders(s.LibraryFolders, CleanPath(s.DefaultInstallBase)),
+            LibraryFolders = SameOrNew(s.LibraryFolders, LibraryFolders(s.LibraryFolders, CleanPath(s.DefaultInstallBase))),
         };
     }
+
+    /// <summary>Keeps the caller's list instance when nothing changed (records compare lists by reference).</summary>
+    private static IReadOnlyList<string> SameOrNew(IReadOnlyList<string>? old, List<string> cleaned) =>
+        old is not null && old.SequenceEqual(cleaned, StringComparer.Ordinal) ? old
+        : cleaned.Count == 0 ? Settings.Default.LibraryFolders
+        : cleaned;
 
     /// <summary>Full, distinct paths; the default install base is always one of them.</summary>
     private static List<string> LibraryFolders(IReadOnlyList<string>? folders, string? defaultBase)

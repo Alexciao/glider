@@ -87,7 +87,7 @@ public sealed class EglDetectionTests
     }
 
     [Fact]
-    public async Task MultipleCandidatesAndOnlyFortniteGameItems()
+    public async Task MultipleCandidates_EveryGameButNoDlcItems()
     {
         using var t = new EglTestTree();
         var a = t.CreateGame(t.Drive("C", "Epic", "Fortnite"));
@@ -97,7 +97,7 @@ public sealed class EglDetectionTests
         // Duplicate .item for the same folder (older): deduped.
         var dup = t.WriteItem(a.ToLowerInvariant() + Path.DirectorySeparatorChar, EglTestTree.V3300);
         EglTestTree.Age(dup, TimeSpan.FromDays(30));
-        // Another game and a DLC whose main game is Fortnite: ignored.
+        // Another game is listed too (whole library); a DLC whose main game is Fortnite and an item of another main game are not.
         t.WriteItem(t.Drive("C", "Epic", "Other"), edit: j => { j["AppName"] = "Sugar"; j["MainGameAppName"] = "Sugar"; });
         t.WriteItem(t.Drive("C", "Epic", "Fortnite", "dlc"), edit: j => { j["AppName"] = "FortniteDLC"; });
         t.WriteItem(t.Drive("C", "Epic", "Weird"), edit: j => { j["MainGameAppName"] = "SomethingElse"; });
@@ -105,10 +105,11 @@ public sealed class EglDetectionTests
         using var svc = t.CreateService();
         var state = await svc.ScanAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(2, state.Candidates.Count);
+        Assert.Equal(3, state.Candidates.Count);
         Assert.Equal(EglTestTree.V3310, Assert.Single(state.Candidates, c => EglPath.Same(c.InstallPath, a)).Version);
         Assert.Equal(EglTestTree.V3320, Assert.Single(state.Candidates, c => EglPath.Same(c.InstallPath, b)).Version);
-        Assert.NotEqual(state.Candidates[0].Id, state.Candidates[1].Id);
+        Assert.Equal("Sugar", Assert.Single(state.Candidates, c => c.InstallPath.EndsWith("Other", StringComparison.Ordinal)).AppName);
+        Assert.Equal(3, state.Candidates.Select(c => c.Id).Distinct().Count());
     }
 
     [Fact]
@@ -164,30 +165,35 @@ public sealed class EglDetectionTests
         var state = await svc.ScanAsync(TestContext.Current.CancellationToken);
         Assert.False(state.LauncherInstalled);
         Assert.Empty(state.Candidates);
-        Assert.False(state.SyncAvailable);
-        Assert.Null(state.ManifestPath);
         Assert.False(Directory.Exists(Path.Combine(t.Environment.ProgramData, "Epic")));
     }
 
     [Fact]
-    public async Task ScanReportsSyncAvailabilityForGliderRecord()
+    public async Task ScanReportsTheItemOfEveryApp_WithItsGuidAndDisplayName()
     {
         using var t = new EglTestTree();
         var game = t.CreateGame(t.Drive("D", "Fortnite"));
-        var item = t.WriteItem(game);
-        t.Settings.Current = Settings.Default with { EglSync = false };
+        var item = t.WriteItem(game, guid: "33333333333333333333333333333333");
+        var alien = t.CreateOtherGame(t.Drive("E", "Epic Games", "AlienIsolation"), "8935bb3e1420443a9789fe01758039a5", "44444444444444444444444444444444");
+        t.WriteOtherItem(alien, "8935bb3e1420443a9789fe01758039a5", "1.0", "44444444444444444444444444444444", "Alien: Isolation");
+        // A DLC .item shares its base game's folder: never a separate install.
+        t.WriteItem(alien, "1.0", "55555555555555555555555555555555", n =>
+        {
+            n["AppName"] = "6b61b3692dae45be889bf38cb1f9ed84";
+            n["MainGameAppName"] = "8935bb3e1420443a9789fe01758039a5";
+        });
         using var svc = t.CreateService();
 
-        var none = await svc.ScanAsync(TestContext.Current.CancellationToken);
-        Assert.False(none.SyncAvailable);
-        Assert.False(none.SyncEnabled);
-
-        t.Records.Current = Make.For(game + Path.DirectorySeparatorChar, EglTestTree.V3310);
-        t.Settings.Current = Settings.Default;
         var state = await svc.ScanAsync(TestContext.Current.CancellationToken);
-        Assert.True(state.SyncAvailable);
-        Assert.True(state.SyncEnabled);
-        Assert.Equal(item, state.ManifestPath);
+        Assert.Equal(2, state.Installs.Count);
+        var fn = state.Installs.Single(i => i.AppName == "Fortnite");
+        Assert.Equal("33333333333333333333333333333333", fn.InstallationGuid);
+        var a = state.Installs.Single(i => i.AppName == "8935bb3e1420443a9789fe01758039a5");
+        Assert.Equal("Alien: Isolation", a.DisplayName);
+        Assert.True(a.LooksInstalled);
+        Assert.Equal(item, svc.FindByLocation(game + Path.DirectorySeparatorChar, "Fortnite")!.ItemPath);
+        Assert.Null(svc.FindByLocation(game, "8935bb3e1420443a9789fe01758039a5"));
+        Assert.Equal("8935bb3e1420443a9789fe01758039a5", svc.DetectAppName(alien));
         Assert.False(state.BusyWithGame);
     }
 
@@ -276,24 +282,24 @@ public sealed class EglDetectionTests
         var before = EglTreeHasher.Hash(t.Environment, clean, staging, noManifest, plain);
         using var svc = t.CreateService();
 
-        var a = svc.InspectForAdoption(clean);
+        var a = svc.InspectForAdoption(clean, "Fortnite");
         Assert.True(a.HasEglMetadata && a.HasEglManifest && !a.StagingPresent);
         Assert.False(a.LegendaryWillRequireVerification);
         Assert.False(a.VerifyRecommended);
         Assert.Equal("11111111111111111111111111111111", a.ManifestGuid);
         Assert.Equal(EglTestTree.V3310, a.EglVersion);
 
-        var b = svc.InspectForAdoption(staging);
+        var b = svc.InspectForAdoption(staging, "Fortnite");
         Assert.True(b.StagingPresent);
         Assert.True(b.LegendaryWillRequireVerification);
 
-        var c = svc.InspectForAdoption(noManifest);
+        var c = svc.InspectForAdoption(noManifest, "Fortnite");
         Assert.True(c.HasEglMetadata);
         Assert.False(c.HasEglManifest);
         Assert.False(c.LegendaryWillRequireVerification); // Legendary's quirk...
         Assert.True(c.VerifyRecommended);                // ...which Glider compensates for
 
-        var d = svc.InspectForAdoption(plain);
+        var d = svc.InspectForAdoption(plain, "Fortnite");
         Assert.False(d.HasEglMetadata);
         Assert.True(d.LegendaryWillRequireVerification);
         Assert.Null(d.EglVersion);

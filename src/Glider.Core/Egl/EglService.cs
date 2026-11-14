@@ -215,7 +215,8 @@ public sealed class EglService : IEglService, IDisposable
             }
 
             return LauncherInstalledDat.Parse(ReadSmall(path))
-                .Where(e => !string.IsNullOrWhiteSpace(e.AppName) && !string.IsNullOrWhiteSpace(e.InstallLocation))
+                .Where(e => !string.IsNullOrWhiteSpace(e.AppName) && !string.IsNullOrWhiteSpace(e.InstallLocation) &&
+                            !e.AppName!.StartsWith("UE_", StringComparison.Ordinal)) // Unreal Engine installs are not games
                 .ToList();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)

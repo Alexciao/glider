@@ -569,9 +569,9 @@ internal sealed class LegendaryProcessRunner : IDisposable
                     {
                         _sawLogin = true;
                     }
-                    else if (_sawLogin)
+                    else if (_sawLogin || AuthGate.IsPastLogin(line))
                     {
-                        lease.Release(); // first line after the login: the next process may log in now
+                        lease.Release(); // first line after the login (or download/verify output): the next process may log in now
                     }
                 }
 
