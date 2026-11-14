@@ -117,6 +117,14 @@ internal sealed class CheckoutRefresher : IDisposable
                 }
 
                 await Task.Delay(_o.PollInterval, _time, ct).ConfigureAwait(false);
+                lock (_gate)
+                {
+                    if (!_pending)
+                    {
+                        return; // another trigger (tab left / window activated) already found the new game
+                    }
+                }
+
                 if (!_userPresent())
                 {
                     continue;
