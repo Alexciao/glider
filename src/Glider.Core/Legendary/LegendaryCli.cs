@@ -50,7 +50,7 @@ public static class LegendaryPin
 /// <see cref="ILegendary"/> over the bundled legendary.exe, using the recipes of legendary.md §10. Every run is
 /// classified from its output (exit codes are unreliable); failures surface as <see cref="GliderError"/>s.
 /// </summary>
-public sealed class LegendaryCli : ILegendary, IDisposable
+public sealed partial class LegendaryCli : ILegendary, IDisposable
 {
     private const string NotLoggedIn = "<not logged in>";
 

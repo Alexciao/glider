@@ -33,6 +33,9 @@ public sealed class AppPaths
     public string MigrationBackups => Path.Combine(Backups, "migration");
     public string WebView2 => Path.Combine(Root, "webview2");
 
+    /// <summary>Where Glider's own copy of the EOS overlay lives (passed to <c>eos-overlay install --path</c>).</summary>
+    public string Overlay => Path.Combine(Root, "overlay");
+
     public void EnsureCreated()
     {
         foreach (var d in new[] { Root, LegendaryConfig, State, Cache, Logs, EglBackups })
@@ -59,6 +62,12 @@ public interface IHostPlatform
 
     /// <summary>Runs an exe elevated (UAC) and waits; returns exit code, or null if the user declined UAC.</summary>
     Task<int?> RunElevatedAsync(string exe, string arguments, CancellationToken ct);
+
+    /// <summary>
+    /// Hands a launch URI to another store's launcher (<c>uplay://</c> or <c>link2ea://</c> only; anything else must be refused).
+    /// The URI carries a live Epic exchange code: never log it.
+    /// </summary>
+    void OpenThirdPartyUri(string uri) => throw new NotSupportedException("This host cannot open third-party launcher links.");
 
     void SetStartWithWindows(bool enabled);
     void MinimizeWindow();
@@ -111,7 +120,9 @@ public sealed record LegendaryInstalledGame(
     string? Title = null,
     bool CanRunOffline = true,
     bool RequiresOwnershipToken = false,
-    string? Platform = null);
+    string? Platform = null,
+    /// <summary>installed.json <c>prereq_info</c>: the redistributables the manifest asks to run once. Null when the game declares none.</summary>
+    PrerequisiteInfo? Prerequisites = null);
 
 /// <summary>Raw (unsmoothed) progress parsed from Legendary's DLManager/verify output.</summary>
 public readonly record struct LegendaryProgress(
@@ -216,6 +227,28 @@ public interface ILegendary
 
     /// <summary>`list-installed --check-updates --json`: one assets request per platform (also warms the session).</summary>
     Task<LegendaryOutcome> CheckUpdatesAsync(CancellationToken ct) => Task.FromResult(new LegendaryOutcome(true, null, null, null));
+
+    /// <summary>
+    /// `eos-overlay install --path` (or `update` when Legendary already manages one): downloads Glider's copy of the EOS overlay with
+    /// live progress. Anonymous session, no installed.json lock. Legendary also points HKCU at it. Success also covers "already up to date".
+    /// </summary>
+    Task<LegendaryOutcome> InstallOverlayAsync(string? path, IProgress<LegendaryProgress> progress, CancellationToken ct) =>
+        Task.FromResult(new LegendaryOutcome(false, Errors.NotAvailableYet("the EOS overlay"), null, null));
+
+    /// <summary>`eos-overlay remove`: deletes Glider's overlay copy and its HKCU entries. Succeeds when nothing is left installed.</summary>
+    Task<LegendaryOutcome> RemoveOverlayAsync(CancellationToken ct) =>
+        Task.FromResult(new LegendaryOutcome(false, Errors.NotAvailableYet("the EOS overlay"), null, null));
+
+    /// <summary>`activate --uplay`: claims and redeems the account's Ubisoft keys. Fails with ActivationRequired when no Ubisoft account is linked.</summary>
+    Task<LegendaryOutcome> ActivateUplayAsync(CancellationToken ct) =>
+        Task.FromResult(new LegendaryOutcome(false, Errors.NotAvailableYet("third-party activation"), null, null));
+
+    /// <summary>
+    /// `launch &lt;app&gt; --ubisoft|--origin --json [--offline]`: the <c>uplay://</c> / <c>link2ea://</c> URI that starts the game in the other
+    /// store's launcher. It embeds a live exchange code: callers open it at once and never log it.
+    /// </summary>
+    Task<string> GetThirdPartyUriAsync(string appName, ThirdPartyStore store, bool offline, CancellationToken ct) =>
+        throw new GliderException(Errors.NotAvailableYet("third-party launch"));
 }
 
 // ============================== Glider's per-game records (state/games.json) ==============================

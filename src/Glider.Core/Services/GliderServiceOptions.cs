@@ -13,6 +13,30 @@ public sealed class GliderServiceOptions
     /// <summary>Authenticode check for the EAC setup before it is run elevated.</summary>
     public IPublisherCheck PublisherCheck { get; init; } = new Game.AuthenticodePublisherCheck();
 
+    /// <summary>Authenticode check for a game's prerequisite installer before it is run elevated: any valid signature, any publisher.</summary>
+    public IPublisherCheck PrerequisiteCheck { get; init; } = Game.AuthenticodePublisherCheck.AnyValidSignature();
+
+    /// <summary>The per-user EOS overlay registry entries (HKCU only). Tests must always replace it: the default is the real registry.</summary>
+    public Overlay.IOverlayRegistry OverlayRegistry { get; init; } = new Overlay.WindowsOverlayRegistry();
+
+    /// <summary>Where Epic's own software keeps an overlay Glider can reuse.</summary>
+    public Overlay.OverlayEnvironment OverlayEnvironment { get; init; } = Overlay.OverlayEnvironment.ForMachine();
+
+    /// <summary>The overlay state is re-read (and its update check considered) this often.</summary>
+    public TimeSpan OverlayCheckInterval { get; init; } = TimeSpan.FromMinutes(30);
+
+    /// <summary>A cached "latest overlay build" older than this triggers a metadata-lane refresh (Legendary refreshes it at most daily).</summary>
+    public TimeSpan OverlayVersionMaxAge { get; init; } = TimeSpan.FromHours(25);
+
+    /// <summary>Is Ubisoft Connect / the EA app installed (their URL handler is registered)?</summary>
+    public Game.IThirdPartyLaunchers ThirdPartyLaunchers { get; init; } = new Game.RegistryThirdPartyLaunchers();
+
+    /// <summary>
+    /// How long a game handed to another store's launcher shows as "Launching" (Untracked) before the UI returns to Play: Glider can't see
+    /// when it exits, and a session that never ends would pause downloads for good.
+    /// </summary>
+    public TimeSpan ThirdPartyHandoffDisplay { get; init; } = TimeSpan.FromSeconds(8);
+
     /// <summary>Null = treat the user as idle (auto-update then only waits for the game to close).</summary>
     public IIdleSignal? IdleSignal { get; init; }
 

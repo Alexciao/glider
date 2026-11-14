@@ -17,9 +17,29 @@ internal sealed class JobHooks : IJobHooks
     /// <summary>Queues follow-up jobs (import → verify); set by GliderService.</summary>
     public Func<GameSummary, JobInfo>? EnqueueVerify { get; set; }
 
+    /// <summary>The overlay service's side of an overlay job's end (state refresh, notice, outcome); set by GliderService.</summary>
+    public Func<JobInfo, bool, CancellationToken, Task>? OverlayFinished { get; set; }
+
     public async Task BeforeRunAsync(JobInfo job, Action<string?> setBlockedReason, CancellationToken ct)
     {
         var app = job.AppName;
+        if (job.Kind == JobKind.Overlay)
+        {
+            // The overlay's DLL is loaded into every running game: it can't be replaced until they all close.
+            if (_c.Hub.State.AnySessionActive)
+            {
+                setBlockedReason("Waiting for games to close");
+                while (_c.Hub.State.AnySessionActive)
+                {
+                    await Task.Delay(_c.Options.ProcessPollInterval, _c.Time, ct);
+                }
+
+                setBlockedReason(null);
+            }
+
+            return;
+        }
+
         if (ServiceContext.IsWriteJob(job.Kind) && _c.IsGameRunning(app))
         {
             // Files of a running game can't be replaced: wait for it to close instead of failing the job.
@@ -135,6 +155,14 @@ internal sealed class JobHooks : IJobHooks
             case JobKind.Import:
                 await AfterImportAsync(job, ct);
                 break;
+
+            case JobKind.Overlay:
+                if (OverlayFinished is { } overlayDone)
+                {
+                    await overlayDone(job, true, ct);
+                }
+
+                return; // not a game: nothing to reload
         }
 
         await _c.Library.ReloadAsync();
@@ -269,6 +297,16 @@ internal sealed class JobHooks : IJobHooks
     public async Task OnFailedAsync(JobInfo job, CancellationToken ct)
     {
         var e = job.Error ?? Errors.LegendaryFailed();
+        if (job.Kind == JobKind.Overlay)
+        {
+            if (OverlayFinished is { } overlayDone)
+            {
+                await overlayDone(job, false, ct);
+            }
+
+            return;
+        }
+
         if (e.Code == ErrorCode.Cancelled)
         {
             return;

@@ -102,6 +102,15 @@ internal sealed class LegendaryOutputFacts
     public bool Uninstalled { get; private set; }
     public bool UninstallFailed { get; private set; }
 
+    // eos-overlay / activate / third-party launch (cli.py:2072-2430, 746-800)
+    public bool OverlayUpToDate { get; private set; }
+    public bool OverlayNotInstalled { get; private set; }
+    public bool OverlayDownloaded { get; private set; }
+    public bool NoLinkedAccount { get; private set; }
+    public bool ActivationDone { get; private set; }
+    public bool ActivationFailed { get; private set; }
+    public bool ThirdPartyUnknown { get; private set; }
+
     /// <summary>Phase implied by the lines so far (download/verify progress also moves it; see the runner).</summary>
     public JobPhase Phase { get; internal set; } = JobPhase.Preparing;
 
@@ -270,6 +279,20 @@ internal sealed class LegendaryOutputFacts
         {
             Phase = JobPhase.Removing;
         }
+        else if (msg.StartsWith("Installed version is up to date, nothing to do", StringComparison.Ordinal))
+        {
+            OverlayUpToDate = true;
+        }
+        else if (msg.StartsWith("Finished downloading, setting up overlay", StringComparison.Ordinal))
+        {
+            OverlayDownloaded = true;
+            Phase = JobPhase.Finalizing;
+        }
+        else if (msg.StartsWith("Redeemed all outstanding Uplay codes", StringComparison.Ordinal) ||
+                 (msg.StartsWith("All of your ", StringComparison.Ordinal) && msg.Contains("have already been activated on your Ubisoft account", StringComparison.Ordinal)))
+        {
+            ActivationDone = true;
+        }
 
         return LineClass.Normal;
     }
@@ -413,6 +436,23 @@ internal sealed class LegendaryOutputFacts
         else if (msg.StartsWith("Game is out of date", StringComparison.Ordinal))
         {
             OutOfDate = true;
+        }
+        else if (msg.StartsWith("Overlay not installed, nothing to update", StringComparison.Ordinal))
+        {
+            OverlayNotInstalled = true;
+        }
+        else if (msg.StartsWith("No linked ubisoft account found", StringComparison.Ordinal))
+        {
+            NoLinkedAccount = true;
+        }
+        else if (msg.StartsWith("Claiming \"", StringComparison.Ordinal) || msg.StartsWith("Redeeming codes", StringComparison.Ordinal) ||
+                 msg.StartsWith("Failed to redeem Uplay codes", StringComparison.Ordinal))
+        {
+            ActivationFailed = true;
+        }
+        else if (msg.StartsWith("Unknown game \"", StringComparison.Ordinal) || msg.StartsWith("The specified game is not an Origin or Ubisoft title", StringComparison.Ordinal))
+        {
+            ThirdPartyUnknown = true;
         }
         else if ((msg.StartsWith("Could not find \"", StringComparison.Ordinal) && msg.Contains("list of available games", StringComparison.Ordinal)) ||
                  msg.StartsWith("Did not find game \"", StringComparison.Ordinal) ||

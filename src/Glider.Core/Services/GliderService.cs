@@ -30,12 +30,12 @@ public sealed class GliderService : IGliderRpc, IDisposable
     private readonly JobHooks _hooks;
     private readonly CollectionsStore _collections;
     private readonly Saves.SaveService _saves;
-    private readonly Overlay.OverlayService _overlay = new();
+    private readonly Overlay.OverlayService _overlay;
     private readonly Store.StoreService _store = new();
     private readonly Store.FreeGamesService _freeGames = new();
     private readonly ShortcutService _shortcuts = new();
-    private readonly ActivationService _activation = new();
-    private readonly PrerequisiteService _prereqs = new();
+    private readonly ThirdPartyService _thirdParty;
+    private readonly PrerequisiteService _prereqs;
     private Task _periodic = Task.CompletedTask;
     private int _started;
 
@@ -84,7 +84,13 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _storage = new StorageService(_c);
         _saves = new Saves.SaveService(_c);
         _prewarm = new Prewarm(_c, _auth, _egl, _updates, _install, _launch);
+        _overlay = new Overlay.OverlayService(_c, options.OverlayRegistry, options.OverlayEnvironment);
+        _prereqs = new PrerequisiteService(_c);
+        _thirdParty = new ThirdPartyService(_c);
+        _launch.ThirdParty = _thirdParty;
+        _launch.Prerequisites = _prereqs;
         _hooks = new JobHooks(_c) { EnqueueVerify = _install.EnqueueVerify };
+        _hooks.OverlayFinished = (job, ok, ct) => _overlay.OnJobFinishedAsync(job, ok, (id, outcome) => _hooks.SetOutcome?.Invoke(id, outcome), ct);
         if (jobs is JobQueue q)
         {
             _hooks.SetOutcome = q.SetOutcome;
@@ -153,6 +159,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
             _c.Log.Warn("startup", "library cache unreadable", e);
         }
 
+        _overlay.Refresh();
         _c.Hub.Attach();
         _c.Hub.StateChanged += _ => _c.Library.Invalidate();
         _c.Jobs.Changed += () => _c.Library.Invalidate();
@@ -174,7 +181,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
         try
         {
             await WarmupTask;
-            await _updates.RunPeriodicAsync(t => _egl.RescanAsync(t), ct);
+            await Task.WhenAll(_updates.RunPeriodicAsync(t => _egl.RescanAsync(t), ct), _overlay.RunPeriodicAsync(ct));
         }
         catch (OperationCanceledException)
         {
@@ -204,6 +211,9 @@ public sealed class GliderService : IGliderRpc, IDisposable
         {
         }
 
+        _overlay.Dispose();
+        _prereqs.Dispose();
+        _thirdParty.Dispose();
         _c.Library.Dispose();
         _c.Sizes.Dispose();
         _c.Hub.Dispose();
@@ -426,11 +436,12 @@ public sealed class GliderService : IGliderRpc, IDisposable
 
     // ================================================================== game
 
-    public Task<GameDetail> GetGameDetail(AppRef request) => Rpc(nameof(GetGameDetail), async _ =>
+    public Task<GameDetail> GetGameDetail(AppRef request) => Rpc(nameof(GetGameDetail), async ct =>
     {
         var app = App(request);
         await _c.Library.FlushAsync();
-        return _c.Library.Detail(app, _c.Library.Summary(app) is null ? null : _saves.Get(app));
+        var detail = _c.Library.Detail(app, _c.Library.Summary(app) is null ? null : _saves.Get(app));
+        return detail with { Prerequisites = await _prereqs.ForAsync(app, ct), ThirdPartyInfo = await _thirdParty.StatusAsync(app, ct) };
     });
 
     public Task<GameSettings> UpdateGameSettings(GameSettingsRequest request) => Rpc(nameof(UpdateGameSettings), async _ =>
@@ -506,9 +517,9 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _c.Host.OpenPath(path);
     });
 
-    public Task ActivateGame(AppRef request) => Rpc(nameof(ActivateGame), _ => _activation.ActivateAsync(App(request)));
+    public Task ActivateGame(AppRef request) => Rpc(nameof(ActivateGame), ct => _thirdParty.ActivateAsync(App(request), ct));
 
-    public Task InstallPrerequisites(AppRef request) => Rpc(nameof(InstallPrerequisites), _ => _prereqs.InstallAsync(App(request)));
+    public Task InstallPrerequisites(AppRef request) => Rpc(nameof(InstallPrerequisites), ct => _prereqs.InstallAsync(App(request), ct));
 
     public Task<ShortcutState> SetShortcut(ShortcutRequest request) => Rpc(nameof(SetShortcut), _ => _shortcuts.SetAsync(Require(request, "request")));
 
@@ -629,13 +640,13 @@ public sealed class GliderService : IGliderRpc, IDisposable
         return _egl.Readiness();
     });
 
-    // ================================================================== EOS overlay (Phase 2)
+    // ================================================================== EOS overlay
 
     public Task<JobInfo> InstallOverlay() => Rpc(nameof(InstallOverlay), _ => _overlay.InstallAsync());
 
     public Task<OverlayState> SetOverlayEnabled(GameFlagRequest request) => Rpc(nameof(SetOverlayEnabled), _ => _overlay.SetEnabledAsync(Require(request, "request")));
 
-    public Task<OverlayState> RemoveOverlay() => Rpc(nameof(RemoveOverlay), _ => _overlay.RemoveAsync());
+    public Task<OverlayState> RemoveOverlay() => Rpc(nameof(RemoveOverlay), ct => _overlay.RemoveAsync(ct));
 
     // ================================================================== store / free games (Phase 2)
 

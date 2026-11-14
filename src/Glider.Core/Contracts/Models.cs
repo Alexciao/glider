@@ -227,7 +227,24 @@ public sealed record GameDetail(
     string? Executable,
     DateTimeOffset? InstalledAt,
     /// <summary>The EGL manifest kept in sync for this install, when there is one.</summary>
-    string? EglManifestPath);
+    string? EglManifestPath,
+    /// <summary>Third-party store state (launcher present, account linked) for Ubisoft Connect / EA app games; null for ordinary Epic games.</summary>
+    ThirdPartyStatus? ThirdPartyInfo = null);
+
+/// <summary>
+/// What a game that runs through another store's launcher needs. <see cref="ManagedExternally"/> games have no Epic files
+/// (the other launcher installs, updates and starts them); the others install from Epic and only need the account linked.
+/// </summary>
+public sealed record ThirdPartyStatus(
+    ThirdPartyStore Store,
+    string Name,
+    /// <summary>Ubisoft Connect / EA app is installed on this PC (its URL handler is registered).</summary>
+    bool LauncherInstalled,
+    /// <summary>Glider linked/activated this Epic account with the store (Ubisoft), or the store was opened for the game (EA).</summary>
+    bool Activated,
+    /// <summary>Play will ask for activation first (<see cref="LaunchOutcome.NeedsActivation"/>).</summary>
+    bool NeedsActivation,
+    bool ManagedExternally);
 
 [JsonConverter(typeof(CamelEnumConverter<AntiCheat>))]
 public enum AntiCheat { None, EasyAntiCheat, BattlEye }
@@ -313,7 +330,9 @@ public sealed record LaunchRequest(
     /// <summary>Null = the game's setting.</summary>
     LaunchMode? Mode,
     /// <summary>Skip the pre-launch cloud-save sync once (e.g. after the user chose "Play without syncing").</summary>
-    bool SkipSaveSync);
+    bool SkipSaveSync,
+    /// <summary>Launch without running the game's pending prerequisites (the user chose "Play anyway" after they failed).</summary>
+    bool SkipPrerequisites = false);
 
 [JsonConverter(typeof(CamelEnumConverter<LaunchOutcome>))]
 public enum LaunchOutcome
@@ -686,7 +705,13 @@ public sealed record OverlayState(
     bool UpdateAvailable,
     string? InstallPath,
     /// <summary>An overlay job is queued or running.</summary>
-    bool Busy);
+    bool Busy,
+    /// <summary>Glider downloaded this overlay itself, so update and remove apply. False when only an overlay installed by Epic's own software exists.</summary>
+    bool Managed = false,
+    /// <summary>An overlay installed by Epic's launcher / EOS service that can be switched on without downloading anything.</summary>
+    string? ExternalPath = null,
+    /// <summary>One calm sentence worth showing under the switch (what Glider left alone), else null.</summary>
+    string? Note = null);
 
 // ===================================== Store / free games =====================================
 
@@ -841,7 +866,7 @@ public enum ErrorCode
 }
 
 [JsonConverter(typeof(CamelEnumConverter<FixAction>))]
-public enum FixAction { SignIn, FreeSpace, Repair, Retry, ChooseFolder, OpenLogs, CloseGame, WaitForEgl, Activate, ResolveSaves, InstallPrerequisites, PlayOffline }
+public enum FixAction { SignIn, FreeSpace, Repair, Retry, ChooseFolder, OpenLogs, CloseGame, WaitForEgl, Activate, ResolveSaves, InstallPrerequisites, PlayOffline, PlayAnyway }
 
 /// <summary>A human-readable failure with an optional one-click fix. Detail is technical (for logs/copy).</summary>
 public sealed record GliderError(ErrorCode Code, string Title, string Message, FixAction? Fix, string? Detail, string? AppName = null);
