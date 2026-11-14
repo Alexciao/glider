@@ -4,23 +4,18 @@ namespace Glider.Core.Infrastructure;
 public sealed record AutoTuneResult(int Workers, int SharedMemoryMb);
 
 /// <summary>
-/// Chooses Legendary's <c>--max-workers</c> and <c>--max-shared-memory</c>.
+/// Chooses Legendary's <c>--max-workers</c> and <c>--max-shared-memory</c> (docs/download-perf.md §5.3, §5.5).
 /// <para>
-/// Workers: Legendary's own default is <c>min(2 × CPUs, 16)</c> (manager.py:52). Each worker is a separate
-/// process that fetches one ~1 MiB chunk at a time, so throughput is bounded by per-request latency, not CPU:
-/// ~10–20 MiB/s per worker against Epic's CDN, i.e. 8–16 workers saturate 1–2.5 Gbit/s. CPU cost (zlib + SHA-1)
-/// scales with bytes, not with worker count, so we keep Legendary's curve but raise the floor to 6 for 2–3 core
-/// machines (they would otherwise get 4 and under-fill a fast pipe), cap at 16 (beyond that the single
-/// FileWorker writer is the bottleneck), and cap lower on small-RAM machines (each worker costs ~40–60 MB RSS).
-/// Legendary runs at below-normal priority (see LegendaryProcessRunner), so this never starves the foreground.
+/// Workers: 16 on every machine (12 below 4 GiB RAM). Workers are network-bound (93–96 % of their time blocked on a
+/// socket, ~30 MB each), so the CPU count is the wrong input: 8 workers reach the ceiling on a good link, 16 are needed
+/// on a high-latency one, and more than 16 is slightly worse everywhere (extra flows only queue). The old
+/// <c>clamp(2 × CPUs, 6, 16)</c> gave 6–8 workers on small machines, 40–70 % below what 16 reach.
 /// </para>
 /// <para>
-/// Shared memory: allocated up front as one block (commit charge). Legendary's real default is 2048 MiB
-/// (core.py:1645; the help text's "1 GiB" is wrong). More cache only helps when the disk is slower than the
-/// network or when an update reuses many old chunks (analysis raises MemoryError if the cache is smaller than
-/// its computed minimum). So: 1 GiB on &lt;6 GiB RAM, 2 GiB (Legendary's default) up to 12 GiB, 3 GiB up to
-/// 24 GiB, 4 GiB above. A MemoryError is retried once with Legendary's suggested size, up to
-/// <see cref="MaxSharedMemoryMb"/>.
+/// Shared memory: 1 GiB everywhere. The cache never filled in a network-bound run (peak 40–237 MiB); when the disk is
+/// slower than the network any size fills up and a bigger one only makes the end-of-job drain longer and costs commit
+/// charge while the user may be gaming. A MemoryError (analyses that reuse many old chunks) is retried with
+/// Legendary's suggested size, up to <see cref="MaxSharedMemoryMb"/>.
 /// </para>
 /// </summary>
 public static class AutoTune
@@ -32,29 +27,16 @@ public static class AutoTune
     public const int MinSharedMemoryMb = 256;
     public const int MaxSharedMemoryCeilingMb = 16384;
 
+    public const int DefaultWorkers = 16;
+    public const int LowMemoryWorkers = 12;
+    public const int DefaultSharedMemoryMb = 1024;
+
+    /// <summary>Same on every machine; the parameters stay so callers don't change (RAM only lowers the worker count when tiny).</summary>
     public static AutoTuneResult Compute(int cpuCount, long totalMemoryBytes)
     {
-        cpuCount = Math.Max(1, cpuCount);
-        var workers = Math.Clamp(cpuCount * 2, 6, 16);
-        if (totalMemoryBytes > 0 && totalMemoryBytes < 4 * GiB)
-        {
-            workers = Math.Min(workers, 4);
-        }
-        else if (totalMemoryBytes > 0 && totalMemoryBytes < 8 * GiB)
-        {
-            workers = Math.Min(workers, 8);
-        }
-
-        var shm = totalMemoryBytes switch
-        {
-            <= 0 => 2048,
-            < 6 * GiB => 1024,
-            < 12 * GiB => 2048,
-            < 24 * GiB => 3072,
-            _ => 4096,
-        };
-
-        return new AutoTuneResult(workers, shm);
+        _ = cpuCount;
+        var workers = totalMemoryBytes > 0 && totalMemoryBytes < 4 * GiB ? LowMemoryWorkers : DefaultWorkers;
+        return new AutoTuneResult(workers, DefaultSharedMemoryMb);
     }
 
     public static AutoTuneResult ForCurrentMachine() => Compute(Environment.ProcessorCount, TotalMemoryBytes());

@@ -125,7 +125,15 @@ public readonly record struct LegendaryProgress(
     double DownloadBytesPerSecond,
     double DecompressedBytesPerSecond,
     double DiskWriteBytesPerSecond,
-    double DiskReadBytesPerSecond);
+    double DiskReadBytesPerSecond,
+    /// <summary>Shared-memory cache in use (the " - Cache usage:" line); 0 when not printed. Full cache = the disk can't keep up.</summary>
+    double CacheUsedMiB = 0,
+    /// <summary>Chunk downloads in flight (the " - Cache usage:" line).</summary>
+    int ActiveTasks = 0,
+    /// <summary>Glider fork only (" + Glider" line): CDN host in use, or null on stock Legendary.</summary>
+    string? Cdn = null,
+    /// <summary>Glider fork only: shared-memory cache size.</summary>
+    double CacheTotalMiB = 0);
 
 [System.Text.Json.Serialization.JsonConverter(typeof(CamelEnumConverter<InstallMode>))]
 public enum InstallMode { Install, Update, Repair }
