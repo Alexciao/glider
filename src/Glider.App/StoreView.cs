@@ -20,8 +20,6 @@ namespace Glider.App;
 /// </summary>
 internal sealed class StoreView : IStoreHost, IDisposable
 {
-    private static readonly TimeSpan SuspendAfter = TimeSpan.FromSeconds(60);
-    private static readonly TimeSpan CloseAfter = TimeSpan.FromMinutes(20);
     private static readonly TimeSpan CheckoutWindow = TimeSpan.FromMinutes(10);
     private const int MaxSsoAttempts = 2;
     private const string CoverFile = "store-cover.png";
@@ -44,6 +42,7 @@ internal sealed class StoreView : IStoreHost, IDisposable
     private string? _lastUrl;
     private string? _glideExchangeUrl;
     private bool _wantVisible;
+    private bool _windowHidden;
     private bool _hasContent;
     private bool _covered;
     private bool _loading;
@@ -63,8 +62,8 @@ internal sealed class StoreView : IStoreHost, IDisposable
         _rt = rt;
         _window = window;
         // Bound to the UI dispatcher explicitly: Core may be the first to touch this object, from a pool thread.
-        _suspendTimer = new DispatcherTimer(SuspendAfter, DispatcherPriority.Background, (_, _) => { }, rt.Ui);
-        _closeTimer = new DispatcherTimer(CloseAfter, DispatcherPriority.Background, (_, _) => { }, rt.Ui);
+        _suspendTimer = new DispatcherTimer(StoreLifecycle.SuspendAfter, DispatcherPriority.Background, (_, _) => { }, rt.Ui);
+        _closeTimer = new DispatcherTimer(StoreLifecycle.CloseAfter, DispatcherPriority.Background, (_, _) => { }, rt.Ui);
         _publishTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(100), DispatcherPriority.Normal, (_, _) => { }, rt.Ui);
         _coverCleanup = new DispatcherTimer(TimeSpan.FromMinutes(1), DispatcherPriority.Background, (_, _) => { }, rt.Ui);
         _suspendTimer.Stop();
@@ -79,11 +78,16 @@ internal sealed class StoreView : IStoreHost, IDisposable
         _closeTimer.Tick += (_, _) =>
         {
             _closeTimer.Stop();
-            if (!_wantVisible && !CheckoutActive)
+            switch (StoreLifecycle.OnCloseTimer(Life))
             {
-                HostLog.Info("store: closing the idle view");
-                CloseController();
-                Publish(StorePhase.Idle);
+                case StoreTimerAction.Act:
+                    HostLog.Info("store: closing the idle view");
+                    CloseController();
+                    Publish(StorePhase.Idle);
+                    break;
+                case StoreTimerAction.Retry:
+                    _closeTimer.Start();
+                    break;
             }
         };
         _publishTimer.Tick += (_, _) =>
@@ -116,6 +120,18 @@ internal sealed class StoreView : IStoreHost, IDisposable
     private Dispatcher Ui => _rt.Ui;
 
     private bool CheckoutActive => DateTimeOffset.UtcNow < _checkoutUntil;
+
+    private StoreLifeState Life => new(_wantVisible, _windowHidden, _popups.Count > 0, CheckoutActive, _suspended);
+
+    /// <summary>Self-test: the page is suspended.</summary>
+    internal bool IsSuspendedForTests => _web?.IsSuspended ?? false;
+
+    /// <summary>Self-test: how long a hidden view waits before suspending (the real value is 60 s).</summary>
+    internal TimeSpan SuspendDelay
+    {
+        get => _suspendTimer.Interval;
+        set => _suspendTimer.Interval = value;
+    }
 
     private static StoreState Idle() => new(false, false, false, false, null);
 
@@ -205,9 +221,13 @@ internal sealed class StoreView : IStoreHost, IDisposable
     /// <summary>The window came to the foreground: Core refreshes the library if a checkout was seen.</summary>
     public void OnWindowActivated() => WindowActivated?.Invoke();
 
-    /// <summary>Window hidden to the tray / minimized: hide the view, lowest memory, suspend in the same pass.</summary>
+    /// <summary>
+    /// Window hidden to the tray / minimized: the Store counts as hidden even if its tab is the active one (the suspended page cannot
+    /// send <c>store.hide</c>): not visible, lowest memory, suspended after 60 s, closed after ~20 min without checkout activity.
+    /// </summary>
     public void OnWindowHidden()
     {
+        _windowHidden = true;
         if (_controller is null || _web is null)
         {
             return;
@@ -215,23 +235,64 @@ internal sealed class StoreView : IStoreHost, IDisposable
 
         SetNativeVisible(false);
         TrySetMemory(CoreWebView2MemoryUsageTargetLevel.Low);
+        ApplyTimers();
+        Publish(StoreLifecycle.PhaseFor(Life));
+    }
+
+    /// <summary>Window shown again: bring the view back if its tab is the active one (re-creating it if it was closed meanwhile).</summary>
+    public void OnWindowShown()
+    {
+        _windowHidden = false;
+        if (_disposed || !_wantVisible)
+        {
+            return; // another tab is active: the view stays hidden and its timers keep running
+        }
+
+        if (_controller is null)
+        {
+            _ = ReopenAfterIdleCloseAsync();
+            return;
+        }
+
+        ApplyTimers();
+        ResumeIfNeeded();
+        TrySetMemory(CoreWebView2MemoryUsageTargetLevel.Normal);
+        UpdateNativeVisibility();
+        Publish(StoreLifecycle.PhaseFor(Life));
+    }
+
+    /// <summary>The idle timer closed the view while its tab was still open in the tray: bring it back (same page) when the window returns.</summary>
+    private async Task ReopenAfterIdleCloseAsync()
+    {
+        try
+        {
+            await ShowCoreAsync(null, _bounds);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
+        {
+            HostLog.Warn("Store: reopening after the idle close failed", ex);
+        }
+    }
+
+    /// <summary>Arms the suspend and close timers while the Store is not on screen; stops them while the user is looking at it.</summary>
+    private void ApplyTimers()
+    {
+        if (!StoreLifecycle.ShouldArmTimers(Life))
+        {
+            _suspendTimer.Stop();
+            _closeTimer.Stop();
+            return;
+        }
+
         if (!_suspendTimer.IsEnabled)
         {
             _suspendTimer.Start();
         }
-    }
 
-    /// <summary>Window shown again: bring the view back if its tab is the active one.</summary>
-    public void OnWindowShown()
-    {
-        if (_controller is null || !_wantVisible)
+        if (!_closeTimer.IsEnabled)
         {
-            return;
+            _closeTimer.Start();
         }
-
-        ResumeIfNeeded();
-        TrySetMemory(CoreWebView2MemoryUsageTargetLevel.Normal);
-        UpdateNativeVisibility();
     }
 
     /// <summary>Self-test: the native rectangle in physical px next to the DPI scale it was computed with.</summary>
@@ -268,8 +329,7 @@ internal sealed class StoreView : IStoreHost, IDisposable
 
         _bounds = bounds;
         _wantVisible = true;
-        _suspendTimer.Stop();
-        _closeTimer.Stop();
+        ApplyTimers();
         _covered = false;
 
         if (!await EnsureCreatedAsync())
@@ -329,17 +389,24 @@ internal sealed class StoreView : IStoreHost, IDisposable
 
     private async Task SuspendAsync()
     {
-        if (_web is null || _controller is null || _wantVisible || _popups.Count > 0 || CheckoutActive || _suspended)
+        if (_web is null || _controller is null)
         {
             return;
         }
 
+        switch (StoreLifecycle.OnSuspendTimer(Life))
+        {
+            case StoreTimerAction.None:
+                return;
+            case StoreTimerAction.Retry:
+                _suspendTimer.Stop();
+                _suspendTimer.Start(); // a popup or a checkout is in the way: look again later instead of never
+                return;
+        }
+
         try
         {
-            if (_controller.IsVisible)
-            {
-                return; // TrySuspend needs IsVisible == false
-            }
+            SetNativeVisible(false); // TrySuspend needs IsVisible == false
 
             _suspended = await _web.TrySuspendAsync();
             if (_suspended)
@@ -447,6 +514,7 @@ internal sealed class StoreView : IStoreHost, IDisposable
         _loading = false;
         _covered = false;
         _suspendTimer.Stop();
+        _closeTimer.Stop();
     }
 
     // ================================================================== navigation
@@ -649,7 +717,7 @@ internal sealed class StoreView : IStoreHost, IDisposable
 
         _error = null;
         UpdateNativeVisibility();
-        Publish(_wantVisible ? StorePhase.Ready : _suspended ? StorePhase.Suspended : StorePhase.Hidden);
+        Publish(StoreLifecycle.PhaseFor(Life));
     }
 
     private static bool IsLoginPage(Uri u) =>
@@ -871,7 +939,7 @@ internal sealed class StoreView : IStoreHost, IDisposable
     private void UpdateNativeVisibility()
     {
         var window = _window();
-        var shouldShow = _wantVisible && _hasContent && !_covered && !_signedOut && _error is null && window is { IsVisible: true } && !window.IsMinimized;
+        var shouldShow = _wantVisible && !_windowHidden && _hasContent && !_covered && !_signedOut && _error is null && window is { IsVisible: true } && !window.IsMinimized;
         SetNativeVisible(shouldShow);
         if (shouldShow)
         {
