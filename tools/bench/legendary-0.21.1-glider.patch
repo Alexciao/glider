@@ -1,0 +1,212 @@
+diff --git a/legendary/cli.py b/legendary/cli.py
+index 45bedf0..5f8a138 100644
+--- a/legendary/cli.py
++++ b/legendary/cli.py
+@@ -1006,6 +1006,7 @@ class LegendaryCLI:
+                                                           disable_delta=args.disable_delta,
+                                                           override_delta_manifest=args.override_delta_manifest,
+                                                           preferred_cdn=args.preferred_cdn,
++                                                          control_file=args.control_file,  # glider
+                                                           disable_https=args.disable_https,
+                                                           bind_ip=args.bind_ip)
+ 
+@@ -2879,6 +2880,8 @@ def main():
+                                 help='Skip SDL prompt and continue with defaults (only required game data)')
+     install_parser.add_argument('--disable-sdl', dest='disable_sdl', action='store_true',
+                                 help='Disable selective downloading for title, reset existing configuration (if any)')
++    install_parser.add_argument('--control-file', dest='control_file', action='store', metavar='<path>',
++                                help='[glider] JSON polled every second: {"max_active": n, "base_url": url}')
+     install_parser.add_argument('--preferred-cdn', dest='preferred_cdn', action='store', metavar='<hostname>',
+                                 help='Set the hostname of the preferred CDN to use when available')
+     install_parser.add_argument('--no-https', dest='disable_https', action='store_true',
+diff --git a/legendary/core.py b/legendary/core.py
+index 6e27a52..ed08019 100644
+--- a/legendary/core.py
++++ b/legendary/core.py
+@@ -1484,7 +1484,8 @@ class LegendaryCore:
+                          repair: bool = False, repair_use_latest: bool = False,
+                          disable_delta: bool = False, override_delta_manifest: str = '',
+                          egl_guid: str = '', preferred_cdn: str = None,
+-                         disable_https: bool = False, bind_ip: str = None) -> (DLManager, AnalysisResult, ManifestMeta):
++                         disable_https: bool = False, bind_ip: str = None,
++                         control_file: str = None) -> (DLManager, AnalysisResult, ManifestMeta):
+         # load old manifest
+         old_manifest = None
+ 
+@@ -1656,7 +1657,10 @@ class LegendaryCore:
+ 
+         dlm = DLManager(install_path, base_url, manifest_secrets, resume_file=resume_file, status_q=status_q,
+                         max_shared_memory=max_shm * 1024 * 1024, max_workers=max_workers,
+-                        dl_timeout=dl_timeout, bind_ip=bind_ip, case_insensitive=platform.startswith('Win'))
++                        dl_timeout=dl_timeout, bind_ip=bind_ip, case_insensitive=platform.startswith('Win'),
++                        # glider: the rest of Epic's CDN list is the failover order
++                        fallback_urls=[u.replace('https://', 'http://') if disable_https else u for u in base_urls],
++                        control_file=control_file)
+         anlres = dlm.run_analysis(manifest=new_manifest, old_manifest=old_manifest,
+                                   patch=not disable_patching, resume=not force,
+                                   file_prefix_filter=file_prefix_filter,
+diff --git a/legendary/downloader/mp/manager.py b/legendary/downloader/mp/manager.py
+index a2b5ec1..4c22a4f 100644
+--- a/legendary/downloader/mp/manager.py
++++ b/legendary/downloader/mp/manager.py
+@@ -1,6 +1,7 @@
+ 
+ # please don't look at this code too hard, it's a mess.
+ 
++import json
+ import logging
+ import os
+ import time
+@@ -31,12 +32,20 @@ from legendary.models.manifest import Manifest, ManifestComparison
+ class DLManager(Process):
+     def __init__(self, download_dir, base_url, manifest_secrets: dict, cache_dir=None, status_q=None,
+                  max_workers=0, update_interval=1.0, dl_timeout=10, resume_file=None,
+-                 max_shared_memory=1024 * 1024 * 1024, bind_ip=None, case_insensitive=True):
++                 max_shared_memory=1024 * 1024 * 1024, bind_ip=None, case_insensitive=True,
++                 fallback_urls=None, control_file=None):
+         super().__init__(name='DLManager')
+         self.log = logging.getLogger('DLM')
+         self.proc_debug = False
+ 
+         self.base_url = base_url
++        # glider: ordered CDN list (selected first); switched on repeated failures or via the control file
++        self.base_urls = [base_url] + [u for u in (fallback_urls or []) if u != base_url]
++        self.base_idx = 0
++        self.cdn_failures = deque()
++        self.max_active = 0  # glider: 0 = max_workers * 2 (stock behaviour)
++        self.control_file = control_file
++        self._control_mtime = 0.0
+         self.dl_dir = download_dir
+         self.cache_dir = cache_dir or os.path.join(download_dir, '.cache')
+         self.manifest_secrets = manifest_secrets
+@@ -450,7 +459,7 @@ class DLManager(Process):
+ 
+     def download_job_manager(self, task_cond: Condition, shm_cond: Condition):
+         while self.chunks_to_dl and self.running:
+-            while self.active_tasks < self.max_workers * 2 and self.chunks_to_dl:
++            while self.active_tasks < (self.max_active or self.max_workers * 2) and self.chunks_to_dl:
+                 try:
+                     sms = self.sms.popleft()
+                     no_shm = False
+@@ -462,7 +471,7 @@ class DLManager(Process):
+                 chunk = self.chunk_data_list.get_chunk_by_guid(c_guid)
+                 self.log.debug(f'Adding {chunk.guid_num} (active: {self.active_tasks})')
+                 try:
+-                    self.dl_worker_queue.put(DownloaderTask(url=self.base_url + '/' + chunk.path,
++                    self.dl_worker_queue.put(DownloaderTask(url=self.base_urls[self.base_idx] + '/' + chunk.path,
+                                                             chunk_guid=c_guid, shm=sms),
+                                              timeout=1.0)
+                 except Exception as e:
+@@ -550,9 +559,13 @@ class DLManager(Process):
+                         self.bytes_decompressed_since_last += res.size_decompressed
+                     else:
+                         self.log.error(f'Download for {res.chunk_guid} failed, retrying...')
++                        self._note_cdn_failure(res.url)  # glider: retry on the current (possibly new) CDN
++                        retry = DownloaderTask(url=self.base_urls[self.base_idx] + '/' +
++                                               self.chunk_data_list.get_chunk_by_guid(res.chunk_guid).path,
++                                               chunk_guid=res.chunk_guid, shm=res.shm)
+                         try:
+                             # since the result is a subclass of the task we can simply resubmit the result object
+-                            self.dl_worker_queue.put(res, timeout=1.0)
++                            self.dl_worker_queue.put(retry, timeout=1.0)  # glider: a fresh task, see above
+                             self.active_tasks += 1
+                         except Exception as e:
+                             self.log.warning(f'Failed adding retry task to queue! {e!r}')
+@@ -565,6 +578,46 @@ class DLManager(Process):
+ 
+         self.log.debug('Download result handler quitting...')
+ 
++    def _note_cdn_failure(self, failed_url):
++        # glider: 8 failed chunks within 30 s on the current CDN => switch to the next one. Failures of requests
++        # that were sent to an older CDN (still in flight when we switched) don't count against the new one.
++        if not failed_url.startswith(self.base_urls[self.base_idx] + '/'):
++            return
++        now = time.time()
++        self.cdn_failures.append(now)
++        while self.cdn_failures and now - self.cdn_failures[0] > 30:
++            self.cdn_failures.popleft()
++        if len(self.cdn_failures) >= 8 and len(self.base_urls) > 1:
++            old = self.base_urls[self.base_idx]
++            self.base_idx = (self.base_idx + 1) % len(self.base_urls)
++            self.cdn_failures.clear()
++            self.log.warning(f'CDN switch: "{old.split("/")[2]}" -> "{self.base_urls[self.base_idx].split("/")[2]}" '
++                             f'(8 failed chunk downloads in 30 s)')
++
++    def _poll_control(self):
++        # glider: {"max_active": n, "base_url": "https://host/..."}, written atomically (temp + rename) by the host
++        if not self.control_file:
++            return
++        try:
++            mtime = os.stat(self.control_file).st_mtime
++            if mtime == self._control_mtime:
++                return
++            self._control_mtime = mtime
++            with open(self.control_file, encoding='utf-8') as f:
++                ctl = json.load(f)
++        except (OSError, ValueError):
++            return
++        if isinstance(ctl.get('max_active'), int):
++            self.max_active = max(1, min(ctl['max_active'], self.max_workers * 2))
++        if isinstance(ctl.get('base_url'), str) and ctl['base_url'].startswith('http'):
++            url = ctl['base_url'].rstrip('/')
++            if url not in self.base_urls:
++                self.base_urls.append(url)
++            self.base_idx = self.base_urls.index(url)
++            self.cdn_failures.clear()
++        self.log.info(f'Control: max active {self.max_active or self.max_workers * 2}, '
++                      f'CDN "{self.base_urls[self.base_idx].split("/")[2]}"')
++
+     def fw_results_handler(self, shm_cond: Condition):
+         while self.running:
+             try:
+@@ -680,7 +733,7 @@ class DLManager(Process):
+                 bind_ip = self.bind_ips[i % len(self.bind_ips)]
+ 
+             w = DLWorker(f'DLWorker {i + 1}', self.dl_worker_queue, self.dl_result_q,
+-                         self.shared_memory.name, logging_queue=self.logging_queue,
++                         self.shared_memory.name, max_retries=3, logging_queue=self.logging_queue,  # glider
+                          dl_timeout=self.dl_timeout, bind_addr=bind_ip, secrets=self.manifest_secrets)
+             self.children.append(w)
+             w.start()
+@@ -774,6 +827,15 @@ class DLManager(Process):
+             self.log.info(f' + Disk\t- {w_speed / 1024 / 1024:.02f} MiB/s (write) / '
+                           f'{r_speed / 1024 / 1024:.02f} MiB/s (read)')
+ 
++            # glider: one machine-readable line per interval (the stock lines above stay unchanged)
++            self.log.info(' + Glider\t- ' + json.dumps({
++                'cdn': self.base_urls[self.base_idx].split('/')[2], 'cdn_failures_30s': len(self.cdn_failures),
++                'active': self.active_tasks, 'max_active': self.max_active or self.max_workers * 2,
++                'cache_used_mib': round(total_used),
++                'cache_total_mib': round(num_shared_memory_segments * self.analysis.biggest_chunk / 1024 / 1024),
++                'dl_bps': round(dl_speed), 'write_bps': round(w_speed), 'read_bps': round(r_speed)}))
++            self._poll_control()
++
+             # send status update to back to instantiator (if queue exists)
+             if self.status_queue:
+                 try:
+diff --git a/legendary/downloader/mp/workers.py b/legendary/downloader/mp/workers.py
+index 849b737..c993c39 100644
+--- a/legendary/downloader/mp/workers.py
++++ b/legendary/downloader/mp/workers.py
+@@ -93,11 +93,11 @@ class DLWorker(Process):
+                 while tries < self.max_retries:
+                     # retry once immediately, otherwise do exponential backoff
+                     if tries > 1:
+-                        sleep_time = 2**(tries-1)
++                        sleep_time = min(2**(tries-1), 4)
+                         logger.info(f'Sleeping {sleep_time} seconds before retrying.')
+                         time.sleep(sleep_time)
+ 
+-                    # print('Downloading', job.url)
++                    tries += 1  # glider: 0.21.1 never incremented this, so a failing chunk was retried forever
+                     logger.debug(f'Downloading {job.url}')
+ 
+                     try:
+@@ -120,6 +120,7 @@ class DLWorker(Process):
+                 logger.error(f'Job for {job.chunk_guid} failed with: {e!r}, fetching next one...')
+                 # add failed job to result queue to be requeued
+                 self.o_q.put(DownloaderTaskResult(success=False, **job.__dict__))
++                continue  # glider: without this the failure was reported twice (unreachable in 0.21.1)
+             except KeyboardInterrupt:
+                 logger.warning('Immediate exit requested, quitting...')
+                 break
