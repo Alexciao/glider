@@ -144,6 +144,6 @@ public sealed class StartupBenchmarks
         await File.WriteAllBytesAsync(Path.Combine(dir, "cache", "library.json"),
             JsonSerializer.SerializeToUtf8Bytes(new LibraryCacheFile { Games = SyntheticLibrary(Games) }, EngineJsonContext.Default.LibraryCacheFile), ct);
         await File.WriteAllTextAsync(Path.Combine(dir, "state", "onboarding.json"), """{"schemaVersion":2,"completed":true,"step":"done","skipped":[]}""", ct);
-        await File.WriteAllTextAsync(Path.Combine(dir, "state", "schema.json"), """{"schemaVersion":2,"migratedFrom":null,"migratedAt":"2026-11-14T00:00:00+00:00"}""", ct);
+        await File.WriteAllTextAsync(Path.Combine(dir, "state", "schema.json"), """{"schemaVersion":3,"migratedFrom":null,"migratedAt":"2026-11-14T00:00:00+00:00","history":[]}""", ct);
     }
 }

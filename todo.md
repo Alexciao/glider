@@ -41,7 +41,7 @@ Work interrupted by the budget stop on 2026-11-12, plus issues found since. Grou
 
 ## Found after v0.1.0
 - [x] **Epic login window was blank** (controller created under a never-shown parent). Fixed in v0.1.1: the window is shown first and the controller's visibility/bounds are re-asserted; the self-test now screenshots the login page.
-- [ ] Glider's data dir (`%LocalAppData%\Glider`) is also Velopack's install root, so uninstalling Glider deletes Legendary data, logs and EGL backups. Decide whether to move data to its own folder (with migration). Not fixed: needs a data-location migration; not a tiny safe change.
+- [x] Glider's data dir (`%LocalAppData%\Glider`) is also Velopack's install root, so uninstalling Glider deletes Legendary data, logs and EGL backups. Fixed in v0.2 (review H6): the data lives in `%LocalAppData%\GliderData`, moved once by the schema-3 data-root move (`DataRootMover`).
 - [x] The Core log was 0 bytes in an installed run while the app was open: confirm `FileLog` flushes promptly (or on a timer). Fixed in v0.1.2: FileLog flushes per batch (FlushFileBuffers); test added.
 - [ ] Windows 10 (solid backdrop) has never been tested on a real machine. Not fixed: needs a manual test on real Windows 10 hardware.
 - [ ] Never run against a real Epic account: everything in the README's manual checklist. Not fixed: needs a real account and machine.

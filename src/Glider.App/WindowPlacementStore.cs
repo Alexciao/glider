@@ -5,7 +5,7 @@ using Glider.Core;
 
 namespace Glider.App;
 
-/// <summary>Persists the window rectangle + maximized state to %LocalAppData%\Glider\state\window.json (Get/SetWindowPlacement).</summary>
+/// <summary>Persists the window rectangle + maximized state to state\window.json in the data root (Get/SetWindowPlacement).</summary>
 internal static class WindowPlacementStore
 {
     private const string FileName = "window.json";

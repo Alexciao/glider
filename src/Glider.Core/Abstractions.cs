@@ -17,10 +17,14 @@ public sealed class AppPaths
         LegendaryExe = legendaryExe;
     }
 
-    /// <summary>Default: %LocalAppData%\Glider, legendary.exe next to the host executable.</summary>
-    public static AppPaths ForCurrentUser() => new(
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Glider"),
-        Path.Combine(AppContext.BaseDirectory, "legendary", "legendary.exe"));
+    /// <summary>
+    /// Default: %LocalAppData%\GliderData (outside Velopack's install root, schema 3), or %LocalAppData%\Glider while older data
+    /// there has not been moved yet (<see cref="Infrastructure.Migrations.DataRoot.Resolve"/>); legendary.exe next to the host executable.
+    /// </summary>
+    public static AppPaths ForCurrentUser() => ForRoot(Infrastructure.Migrations.DataRoot.ResolveForCurrentUser());
+
+    /// <summary>A data root with the bundled legendary.exe next to the host executable.</summary>
+    public static AppPaths ForRoot(string root) => new(root, Path.Combine(AppContext.BaseDirectory, "legendary", "legendary.exe"));
 
     public string Root { get; }
     public string LegendaryExe { get; }
