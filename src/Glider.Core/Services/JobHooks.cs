@@ -104,7 +104,7 @@ internal sealed class JobHooks : IJobHooks
                 // Never touches EGL: GliderOnly forgets, DeleteFiles was done by Legendary (which also removed installed DLC).
                 await _c.SaveRecordAsync(app, null);
                 await ForgetUninstalledDlcAsync(app, ct);
-                _c.Notify(NoticeLevel.Success, $"{title} removed from Glider", null, toast: false, appName: app, jobId: job.Id);
+                _c.Notify(NoticeLevel.Success, $"{title} uninstalled", null, toast: false, appName: app, jobId: job.Id);
                 break;
 
             case JobKind.Install:

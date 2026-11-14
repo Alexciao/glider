@@ -81,7 +81,6 @@ export async function runUpdate(appName: string): Promise<void> {
 /** What the status means for a screen reader, since the badges are icons. */
 export function describeState(g: GameSummary): string {
   const parts: string[] = [rowStatus(g).text];
-  if (g.installStatus === "installed" && g.updateAvailable && !g.activeJobKind) parts.push("update available");
   if (g.cloudSaves) parts.push("cloud saves");
   if (g.favorite) parts.push("favorite");
   return parts.join(", ");

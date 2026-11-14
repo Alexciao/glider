@@ -35,15 +35,15 @@ import {
 import type { ActionKind, GameAction } from "./actionModel";
 
 const ICONS: Partial<Record<ActionKind, ReactNode>> = {
-  signIn: <LogIn size={17} />,
-  install: <Download size={17} />,
-  update: <ArrowDownToLine size={17} />,
-  play: <Play size={15} fill="currentColor" strokeWidth={0} />,
-  resume: <Play size={15} fill="currentColor" strokeWidth={0} />,
+  signIn: <LogIn size={18} />,
+  install: <Download size={18} />,
+  update: <ArrowDownToLine size={18} />,
+  play: <Play size={16} fill="currentColor" strokeWidth={0} />,
+  resume: <Play size={16} fill="currentColor" strokeWidth={0} />,
   repair: <Wrench size={16} />,
-  pause: <Pause size={15} fill="currentColor" strokeWidth={0} />,
-  cancel: <X size={17} />,
-  closeGame: <Square size={13} fill="currentColor" strokeWidth={0} />,
+  pause: <Pause size={16} fill="currentColor" strokeWidth={0} />,
+  cancel: <X size={18} />,
+  closeGame: <Square size={14} fill="currentColor" strokeWidth={0} />,
 };
 
 /** Runs what the primary segment says it does. */
@@ -143,20 +143,20 @@ function GameMenuItems({ snap, game, detail, action }: { snap: AppSnapshot; game
 
   if (job) {
     items.push(
-      <DropdownMenuItem key="downloads" icon={<ArrowDownToLine size={15} />} onSelect={() => go("downloads")}>
+      <DropdownMenuItem key="downloads" icon={<ArrowDownToLine size={14} />} onSelect={() => go("downloads")}>
         Open downloads
       </DropdownMenuItem>,
     );
     if (job.status === "queued") {
       items.push(
-        <DropdownMenuItem key="top" icon={<ArrowUpToLine size={15} />} onSelect={() => void actions.moveJobToTop(job.id)}>
+        <DropdownMenuItem key="top" icon={<ArrowUpToLine size={14} />} onSelect={() => void actions.moveJobToTop(job.id)}>
           Move to top of queue
         </DropdownMenuItem>,
       );
     }
     if (action.intent !== "cancel") {
       items.push(
-        <DropdownMenuItem key="cancel" icon={<X size={15} />} onSelect={() => openDialog({ kind: "cancelJob", jobId: job.id })}>
+        <DropdownMenuItem key="cancel" icon={<X size={14} />} onSelect={() => openDialog({ kind: "cancelJob", jobId: job.id })}>
           Cancel {JOB_NOUN[job.kind].toLowerCase()}…
         </DropdownMenuItem>,
       );
@@ -166,22 +166,22 @@ function GameMenuItems({ snap, game, detail, action }: { snap: AppSnapshot; game
 
   if (installed) {
     items.push(
-      <DropdownMenuItem key="verify" icon={<ShieldCheck size={15} />} disabled={busy || !signedIn} onSelect={() => void actions.verify(appName)}>
+      <DropdownMenuItem key="verify" icon={<ShieldCheck size={14} />} disabled={busy || !signedIn} onSelect={() => void actions.verify(appName)}>
         Verify
       </DropdownMenuItem>,
-      <DropdownMenuItem key="move" icon={<FolderInput size={15} />} disabled={busy} onSelect={() => openDialog({ kind: "move", appName })}>
+      <DropdownMenuItem key="move" icon={<FolderInput size={14} />} disabled={busy} onSelect={() => openDialog({ kind: "move", appName })}>
         Move…
       </DropdownMenuItem>,
       game.thirdParty !== "none" ? (
-        <DropdownMenuItem key="activate" icon={<ExternalLink size={15} />} disabled={!signedIn} onSelect={() => void actions.activate(appName)}>
-          Activate with {game.thirdPartyName ?? "launcher"}
+        <DropdownMenuItem key="activate" icon={<ExternalLink size={14} />} disabled={!signedIn} onSelect={() => void actions.activate(appName)}>
+          Link {game.thirdPartyName ?? "launcher"} account
         </DropdownMenuItem>
       ) : null,
-      <DropdownMenuItem key="open" icon={<FolderOpen size={15} />} onSelect={() => void actions.openInstallFolder(appName)}>
+      <DropdownMenuItem key="open" icon={<FolderOpen size={14} />} onSelect={() => void actions.openInstallFolder(appName)}>
         Open folder
       </DropdownMenuItem>,
       <DropdownMenuSub key="shortcut">
-        <DropdownMenuSubTrigger icon={<Link2 size={15} />} disabled={!detail}>
+        <DropdownMenuSubTrigger icon={<Link2 size={14} />} disabled={!detail}>
           Create shortcut
         </DropdownMenuSubTrigger>
         <DropdownMenuSubContent className="w-48">
@@ -199,7 +199,7 @@ function GameMenuItems({ snap, game, detail, action }: { snap: AppSnapshot; game
 
   items.push(
     <DropdownMenuSub key="collection">
-      <DropdownMenuSubTrigger icon={<ListPlus size={15} />}>Add to collection</DropdownMenuSubTrigger>
+      <DropdownMenuSubTrigger icon={<ListPlus size={14} />}>Add to collection</DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="w-56">
         {collections.length === 0 ? (
           <DropdownMenuItem disabled>No collections yet</DropdownMenuItem>
@@ -212,7 +212,7 @@ function GameMenuItems({ snap, game, detail, action }: { snap: AppSnapshot; game
         )}
       </DropdownMenuSubContent>
     </DropdownMenuSub>,
-    <DropdownMenuItem key="hide" icon={game.hidden ? <Eye size={15} /> : <EyeOff size={15} />} onSelect={() => void actions.setHidden(appName, !game.hidden)}>
+    <DropdownMenuItem key="hide" icon={game.hidden ? <Eye size={14} /> : <EyeOff size={14} />} onSelect={() => void actions.setHidden(appName, !game.hidden)}>
       {game.hidden ? "Show in library" : "Hide from library"}
     </DropdownMenuItem>,
   );
@@ -220,7 +220,7 @@ function GameMenuItems({ snap, game, detail, action }: { snap: AppSnapshot; game
   if (installed) {
     items.push(
       <DropdownMenuSeparator key="s-danger" />,
-      <DropdownMenuItem key="uninstall" icon={<Trash2 size={15} />} destructive disabled={busy} onSelect={() => openDialog({ kind: "uninstall", appName })}>
+      <DropdownMenuItem key="uninstall" icon={<Trash2 size={14} />} destructive disabled={busy} onSelect={() => openDialog({ kind: "uninstall", appName })}>
         Uninstall…
       </DropdownMenuItem>,
     );

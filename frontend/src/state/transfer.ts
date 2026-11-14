@@ -145,9 +145,8 @@ export function figuresOf(job: JobInfo, p: JobProgress | null): Figures {
       add(progress, "fixed", "Fixed", `${formatCount(verify.fixedFiles)} of ${formatCount(verify.badFiles)}`);
     }
     const speed: StatRow[] = [];
+    // Average and peak are the chart's own annotations (same numbers, drawn where they apply): not repeated in the list.
     if (running) add(speed, "now", "Now", known(net.bytesPerSecond));
-    add(speed, "avg", "Average", known(net.averageBytesPerSecond));
-    add(speed, "peak", "Peak", known(net.peakBytesPerSecond));
     if (net.cdn) add(speed, "cdn", "Server", cdnName(net.cdn), { title: net.cdn });
     return {
       headline: `${formatBytesPrecise(net.downloadedBytes)} of ${formatBytesPrecise(net.totalBytes)}`,
@@ -178,8 +177,6 @@ export function figuresOf(job: JobInfo, p: JobProgress | null): Figures {
     add(progress, "files", "Files", files);
     const speed: StatRow[] = [];
     if (running) add(speed, "now", "Now", known(disk.bytesPerSecond));
-    add(speed, "avg", "Average", known(disk.averageBytesPerSecond));
-    add(speed, "peak", "Peak", known(disk.peakBytesPerSecond));
     return {
       headline: `${formatBytesPrecise(disk.writtenBytes)} of ${formatBytesPrecise(disk.totalBytes)}`,
       groups: prune([group("progress", "Progress", progress), group("speed", "Speed", speed), group("time", "Time", elapsed), phase === "installing" ? diskGroup(disk, running, false) : group("disk", "Disk", [])]),

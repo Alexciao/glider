@@ -98,6 +98,17 @@ describe("mock catalog", () => {
     for (const g of none) expect(g.summary.art).toEqual({ tall: null, tallThumb: null, wide: null, logo: null, placeholder: null });
   });
 
+  it("artVariant: every game, Fortnite included, gets the same worst-case key art in every shape", () => {
+    for (const kind of ["busy", "bright", "white"] as const) {
+      const worst = generateCatalog({ seed: 1, count: 40, now: NOW, art: true, artVariant: kind });
+      const first = worst[0]!.summary.art;
+      expect(first.wide).toMatch(/^data:image\/svg/);
+      for (const g of worst) expect(g.summary.art).toEqual(first);
+    }
+    const [busy, white] = (["busy", "white"] as const).map((k) => generateCatalog({ seed: 1, count: 10, now: NOW, art: true, artVariant: k })[0]!.summary.art.wide);
+    expect(busy).not.toBe(white);
+  });
+
   it("titles are invented: no obviously real trademarks", () => {
     const banned = /hollow knight|zelda|mario|minecraft|elden|witcher|cyberpunk|half-life|portal|doom|halo|skyrim|stardew|celeste|hades|control|alan wake|borderlands|rocket league/i;
     for (const g of lib) if (g.summary.appName !== "Fortnite") expect(g.summary.title).not.toMatch(banned);

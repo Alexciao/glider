@@ -14,6 +14,7 @@ import type {
   RunningGame,
   Settings,
 } from "../contract.gen";
+import type { WorstArt } from "./art";
 import { generateCatalog, type MockGame } from "./catalog";
 import { ACCOUNT, DEFAULT_SETTINGS, FORTNITE, GiB, HOUR, MINUTE, OVERLAY_LATEST, OVERLAY_VERSION, iso } from "./constants";
 import { defaultDrives, type MockDrive } from "./disk";
@@ -78,6 +79,7 @@ export interface WorldConfig {
   now: number;
   games?: number;
   art: boolean;
+  artVariant?: WorstArt;
   eacInstalled: boolean;
 }
 
@@ -306,7 +308,7 @@ function notInstalledYet(g: MockGame): MockGame {
 export function buildWorld(name: ScenarioName, cfg: WorldConfig): World {
   const { now } = cfg;
   const count = cfg.games ?? (name === "perf600" ? 600 : name === "emptyLibrary" ? 0 : 300);
-  const all = count === 0 ? [] : generateCatalog({ seed: cfg.seed, count, now, art: cfg.art });
+  const all = count === 0 ? [] : generateCatalog({ seed: cfg.seed, count, now, art: cfg.art, artVariant: cfg.artVariant });
   const firstRun = name === "firstRun";
   const freshStart = firstRun || name === "firstRunSignedIn";
   const games = freshStart ? all.map((g) => (g.summary.appName === FORTNITE ? g : notInstalledYet(g))) : [...all];

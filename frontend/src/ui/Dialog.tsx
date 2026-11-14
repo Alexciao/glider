@@ -55,7 +55,7 @@ export function Modal({ open, onOpenChange, title, description, size = "md", chi
           {!hideClose && (
             <D.Close asChild>
               <IconButton label="Close" size="sm" className="absolute right-3 top-3">
-                <X size={15} />
+                <X size={16} />
               </IconButton>
             </D.Close>
           )}

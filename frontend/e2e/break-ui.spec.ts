@@ -39,6 +39,18 @@ const KEY = new Set([
   "dialog-move",
   "dialog-cancel-download",
   "toasts",
+  // v0.2 screens
+  "home-returning",
+  "lib-grid",
+  "lib-list",
+  "game-installed",
+  "game-update",
+  "game-dlc",
+  "dialog-install",
+  "dialog-save-conflict",
+  "downloads-queue",
+  "settings-library",
+  "settings-egl-import",
 ]);
 
 for (const mode of MODES) {

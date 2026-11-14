@@ -1,6 +1,7 @@
-import type { AppSnapshot, EglInstall, JobInfo, JobKind, JobProgress } from "../ipc/contract.gen";
+import type { AppSnapshot, EglInstall, GameSummary, JobInfo, JobKind, JobProgress } from "../ipc/contract.gen";
 import { refreshSnapshot } from "../state/actions";
 import { setProgressTransform } from "../state/bridge";
+import { setGameTransform } from "../state/library";
 import { setSnapshotTransform } from "../state/store";
 
 /**
@@ -30,7 +31,7 @@ const LONG_ERROR = {
   code: "filesLocked" as const,
   title: "Game files are in use",
   message:
-    "Close the game and any program using its files, then retry. Glider couldn't replace Content\\Paks\\pakchunk10-WindowsClient.ucas because another process (BattlEye, an antivirus scan or a backup tool) still has it open.",
+    "Close the game and any program using its files, then try again. Glider couldn't replace Content\\Paks\\pakchunk10-WindowsClient.ucas because another process (BattlEye, an antivirus scan or a backup tool) still has it open.",
   fix: "retry" as const,
   detail:
     "IOException: The process cannot access the file 'D:\\Users\\Aleksandra Wiśniewska-Kowalczyk\\Documents\\My Games\\Epic Games Store Library\\Game\\Content\\Paks\\pakchunk10-WindowsClient.ucas' because it is being used by another process.\n   at Glider.Legendary.Installer.Replace(String path)\n   at Glider.Jobs.JobRunner.Run(JobContext ctx)",
@@ -126,6 +127,35 @@ export function applyStress(snap: AppSnapshot, mode: StressMode): AppSnapshot {
   return s;
 }
 
+/**
+ * The library side of the worst case: titles people really have (a 70-character subtitle, a one-letter name, non-Latin
+ * script, an emoji), a long developer, a Legendary version of an unparsed shape and a terabyte-class install. Chosen by a
+ * stable hash of the appName so the same games are odd every time; Fortnite stays as it is (the hero legibility spec).
+ */
+const ODD_TITLES = [
+  LONG_TITLE,
+  "Z",
+  "ゲームのタイトルがとても長い場合 — 完全版",
+  "Hollow Orchard 🌿: Ünïcode Édition",
+  "The Quiet Archive of the Lanternfish Harbor & Other Short Stories, Vol. II (Deluxe)",
+] as const;
+const hash = (s: string): number => [...s].reduce((h, c) => (Math.imul(h, 31) + c.charCodeAt(0)) >>> 0, 7);
+
+export function stressGame(g: GameSummary, m: StressMode): GameSummary {
+  if (m !== "worst" || g.appName === "Fortnite" || g.kind !== "game") return g;
+  const h = hash(g.appName);
+  if (h % 4 !== 0) return g;
+  return {
+    ...g,
+    title: ODD_TITLES[(h >>> 3) % ODD_TITLES.length]!,
+    developer: h % 8 === 0 ? "Northgate Interactive Entertainment & Publishing Holdings, Ltd." : g.developer,
+    installedVersion: g.installedVersion ? ODD_VERSION : g.installedVersion,
+    latestVersion: g.latestVersion ? ODD_VERSION.replace("40.20", "40.30") : g.latestVersion,
+    installedSizeBytes: g.installedSizeBytes ? 1.4 * TB : g.installedSizeBytes,
+    dlcCount: Math.max(g.dlcCount, 12),
+  };
+}
+
 /** A stalled CDN: a few hundred bytes per second, an ETA measured in days, a terabyte-class total. */
 export function stressProgress(p: JobProgress, mode: StressMode): JobProgress {
   if (mode !== "worst" && mode !== "huge") return p;
@@ -171,4 +201,5 @@ export function installStress(search: string): void {
   if (q && STRESS_MODES.some((m) => m.value === q)) mode = q as StressMode;
   setSnapshotTransform((s) => applyStress(s, mode));
   setProgressTransform((p) => stressProgress(p, mode));
+  setGameTransform((g) => stressGame(g, mode));
 }

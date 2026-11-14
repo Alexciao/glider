@@ -141,15 +141,15 @@ export function ThirdPartyNotice({ game }: { game: GameSummary }) {
       <NoticeCard
         tone="warning"
         icon={<ExternalLink size={16} />}
-        title={`Activate with ${name}`}
+        title={`Link your ${name} account`}
         onDismiss={clear}
         actions={
           <Button size="sm" variant="secondary" loading={activating} disabled={!signedIn} onClick={() => void actions.activate(game.appName)}>
-            Activate
+            Link account
           </Button>
         }
       >
-        {note.message ?? "Do this once, then Play starts the game."}
+        {note.message ?? `${game.title} needs this once before it can start.`}
       </NoticeCard>
     );
   }

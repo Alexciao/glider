@@ -94,7 +94,7 @@ export function OfflineIndicator() {
         aria-label="Offline"
         className="app-no-drag mr-2 inline-flex h-7 items-center gap-1.5 rounded-full border border-border-strong bg-surface-2 pl-2.5 pr-3 text-xs font-medium text-fg-muted"
       >
-        <WifiOff size={13} className="text-warning-text" aria-hidden />
+        <WifiOff size={14} className="text-warning-text" aria-hidden />
         Offline
       </span>
     </Tooltip>
@@ -137,15 +137,15 @@ function AccountMenu() {
         </div>
         <DropdownMenuSeparator />
         {auth.status === "expired" && (
-          <DropdownMenuItem icon={<LogIn size={15} />} onSelect={() => void actions.signIn("hero")}>
+          <DropdownMenuItem icon={<LogIn size={14} />} onSelect={() => void actions.signIn("hero")}>
             Sign in again
           </DropdownMenuItem>
         )}
-        <DropdownMenuItem icon={<SettingsIcon size={15} />} shortcut="Ctrl+," onSelect={() => go("settings")}>
+        <DropdownMenuItem icon={<SettingsIcon size={14} />} shortcut="Ctrl+," onSelect={() => go("settings")}>
           Settings
         </DropdownMenuItem>
         <DropdownMenuLabel>Signing out keeps your install and settings.</DropdownMenuLabel>
-        <DropdownMenuItem icon={<LogOut size={15} />} onSelect={() => void actions.signOut()}>
+        <DropdownMenuItem icon={<LogOut size={14} />} onSelect={() => void actions.signOut()}>
           Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>

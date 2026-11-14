@@ -31,7 +31,7 @@ describe("deriveGameAction", () => {
     const g = w.find((x) => x.kind === "game" && x.installStatus === "installed" && x.thirdParty === "none" && !x.updateAvailable && x.canRunOffline);
     const a = deriveGameAction(w.snap, g, ctx());
     expect(a).toMatchObject({ kind: "play", label: "Play", tone: "primary", intent: "launch", busy: false, disabled: false });
-    expect(a.status).toEqual({ tone: "success", text: "Ready to play" });
+    expect(a.status).toEqual({ tone: "success", text: "Ready to play", quiet: true });
   });
 
   it("a pressed Play is busy with the Launching face, not a different button", () => {

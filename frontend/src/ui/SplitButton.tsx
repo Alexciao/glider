@@ -3,7 +3,7 @@ import { AnimatePresence, m } from "motion/react";
 import { ChevronDown } from "lucide-react";
 import { cx } from "./cx";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "./DropdownMenu";
-import { labelSwap, spring } from "./motion";
+import { labelSwap, spring, tween } from "./motion";
 import { Spinner } from "./Spinner";
 
 /** Heights and radii line up with Button: sm = md button (32 / 8), md = lg (40 / 12), lg = xl (48 / 16). */
@@ -96,7 +96,7 @@ export function SplitButton({
             initial={labelSwap.initial}
             animate={labelSwap.animate}
             exit={labelSwap.exit}
-            transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+            transition={tween.base}
             className={cx("flex items-center whitespace-nowrap", s.gap)}
           >
             {busy ? <Spinner size={size === "lg" ? 16 : 14} /> : icon}

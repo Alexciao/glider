@@ -80,7 +80,7 @@ function SearchField({ value, onChange }: { value: string; onChange: (v: string)
       suffix={
         value ? (
           <IconButton label="Clear search" size="sm" className="-mr-1.5 size-6" onClick={() => onChange("")}>
-            <X size={13} />
+            <X size={14} />
           </IconButton>
         ) : null
       }

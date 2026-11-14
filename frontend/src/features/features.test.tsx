@@ -212,6 +212,13 @@ describe("Downloads", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument());
   });
 
+  it("the lit step names the phase, so the card header does not repeat it as a state label", async () => {
+    await mount("downloading", <Downloads />, { freeze: true });
+    const header = (await screen.findAllByRole("heading", { level: 2 }))[0]!.closest("header")!;
+    expect(within(screen.getByRole("list", { name: "Steps" })).getByText("Downloading")).toBeInTheDocument();
+    expect(within(header).queryByText("Downloading")).not.toBeInTheDocument();
+  });
+
   it("says each fact once: one title, a big percent, one headline with time left, grouped figures", async () => {
     await mount("downloading", <Downloads />, { freeze: true });
     const bar = await screen.findByRole("progressbar", { name: /^Downloading / });
@@ -323,6 +330,15 @@ describe("Shell routing", () => {
     expect(await screen.findByRole("button", { name: "Open in browser" })).toBeInTheDocument(); // the Store toolbar
     act(() => navigate("settings"));
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+  });
+
+  it("the title-bar activity pill appears where the job is not already on the page, and hides on Downloads", async () => {
+    await mount("downloading", <Shell />, { freeze: true });
+    act(() => navigate("library"));
+    expect(await screen.findByRole("button", { name: /Open downloads$/ })).toBeInTheDocument();
+    act(() => navigate("downloads"));
+    await screen.findByRole("heading", { name: "Downloads" });
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Open downloads$/ })).not.toBeInTheDocument());
   });
 
   it("shows onboarding instead of the app until it is completed", async () => {

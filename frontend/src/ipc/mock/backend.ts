@@ -58,7 +58,7 @@ import { dirname, driveLetter, joinPath, samePath, trimSlashes, type MockDrive }
 import { Errors, errorForCode, fail, toGliderError } from "./errors";
 import { LICENSES } from "./licenses";
 import { generateLogs, logFileName } from "./logs";
-import type { MockController, MockOptions, ScenarioName } from "./options";
+import type { MockArt, MockController, MockOptions, ScenarioName } from "./options";
 import { mulberry32 } from "./rng";
 import { SCENARIOS, buildWorld, type SeedJob, type World } from "./scenarios";
 import { JobSim, TICK_MS, TICK_S, buildJobSim, type JobEnv, type JobSimInit } from "./sim";
@@ -93,7 +93,7 @@ interface Resolved {
   timeScale: number;
   timeScaleExplicit: boolean;
   freeze: boolean;
-  art: "default" | "none";
+  art: MockArt;
   backdrop: "mica" | "solid";
   latency: number;
   seed: number;
@@ -310,6 +310,7 @@ export class MockBackend {
       now,
       games: this.cfg.games,
       art: this.cfg.art !== "none",
+      artVariant: this.cfg.art === "busy" || this.cfg.art === "bright" || this.cfg.art === "white" ? this.cfg.art : undefined,
       eacInstalled: this.cfg.eacInstalled,
     });
     const w = this.world;
@@ -1678,7 +1679,7 @@ export class MockBackend {
     "jobs.cancel": async (r) => {
       const e = this.entry(r.jobId);
       if (!e) throw fail(Errors.invalidRequest("That task has already finished"));
-      if (e.info.kind === "uninstall" && e.info.status === "running") throw fail(Errors.invalidRequest("Removal can't be cancelled once it started"));
+      if (e.info.kind === "uninstall" && e.info.status === "running") throw fail(Errors.invalidRequest("Removal can't be canceled once it started"));
       return clone(this.cancelEntry(e));
     },
     "jobs.dismiss": async (r) => {
@@ -1839,6 +1840,8 @@ export class MockBackend {
 
     // ---- store / free games ----
     "store.show": async (r) => {
+      // Like the host: no connection, no page. A session that ended lands on the Store's own sign-in, which the page reports as signedOut.
+      this.requireOnline("The Store");
       const loc = r.target || !this.store.url ? mockStoreLocation(r.target) : null;
       this.store = {
         ...this.store,
@@ -1853,7 +1856,7 @@ export class MockBackend {
       this.event("store", { ...this.store });
       this.timer(700, () => {
         if (this.store.phase !== "loading") return;
-        this.store = { ...this.store, loading: false, phase: "ready" };
+        this.store = { ...this.store, loading: false, phase: this.auth.status === "signedIn" ? "ready" : "signedOut" };
         this.event("store", { ...this.store });
       });
       return { ...this.store };

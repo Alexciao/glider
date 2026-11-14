@@ -24,7 +24,7 @@ export function ImportDialog({ open, onOpenChange }: { open: boolean; onOpenChan
       footer={
         <>
           <Button variant="ghost" className="mr-auto" icon={<FolderSearch size={14} />} loading={session.locating} disabled={busy || phase === "scanning"} onClick={() => void session.locate()}>
-            Locate folder…
+            Locate another folder…
           </Button>
           <Button variant="secondary" onClick={() => close(false)}>
             {phase === "done" ? "Done" : "Close"}

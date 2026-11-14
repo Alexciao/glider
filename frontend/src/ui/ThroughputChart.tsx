@@ -357,7 +357,7 @@ export function ThroughputChart({
         aria-roledescription="chart"
         aria-label={label}
         className={cx(
-          "relative flex-1 cursor-crosshair select-none rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
+          "relative flex-1 cursor-crosshair select-none rounded-sm",
         )}
       >
         {/* One baseline. The average line and the peak label carry the scale; no other gridlines or axis text. */}

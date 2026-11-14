@@ -11,6 +11,8 @@ export interface ShotState {
   setup?: (page: Page) => Promise<void>;
   /** Extra settle time after setup, ms (default 350). */
   settle?: number;
+  /** Shoot before the app reports ready (loading states: the skeleton exists only until the first library arrives). */
+  early?: boolean;
   /** Capture mid-animation instead of fast-forwarding CSS animations to their end. */
   live?: boolean;
 }
@@ -89,7 +91,6 @@ const RAW_STATES: ShotState[] = [
       await wait(800);
     },
   },
-  { name: "onboarding-3-scanning", query: "scenario=firstRunSignedIn&latency=40", settle: 300 },
   { name: "onboarding-3-scan", query: "scenario=firstRunSignedIn", settle: 1100 },
   {
     name: "onboarding-3-scan-rest",
@@ -164,9 +165,9 @@ const RAW_STATES: ShotState[] = [
       await wait(600);
       await btn(p, "Add a library folder").click();
       await wait(500);
-      await btn(p, "Add a folder…").click();
+      await btn(p, "Add folder…").click();
       await wait(500);
-      await btn(p, "Add a folder…").click();
+      await btn(p, "Add folder…").click();
       await wait(700);
     },
   },
@@ -258,22 +259,6 @@ const RAW_STATES: ShotState[] = [
     },
   },
   {
-    name: "library-existing-install-hint",
-    query: "scenario=firstRunSignedIn",
-    setup: async (p) => {
-      await finishOnboarding(p);
-    },
-    settle: 900,
-  },
-  {
-    name: "library-not-installed",
-    query: "scenario=firstRunSignedIn",
-    setup: async (p) => {
-      await finishOnboarding(p);
-    },
-    settle: 900,
-  },
-  {
     name: "library-ready-moment",
     query: "scenario=returning",
     live: true,
@@ -359,7 +344,7 @@ const RAW_STATES: ShotState[] = [
       await wait(700);
       await g(p, (h) => {
         h.mock.emitNotice({ level: "success", title: "Fortnite is ready to play", message: "Version 40.20 installed.", action: null });
-        h.mock.emitNotice({ level: "error", title: "Can't reach Epic", message: "Check your internet connection, then retry. Progress is kept.", action: "retry" });
+        h.mock.emitNotice({ level: "error", title: "Can't reach Epic", message: "Check your internet connection, then try again. Progress is kept.", action: "retry" });
       });
       await wait(900);
     },
@@ -538,7 +523,7 @@ const RAW_STATES: ShotState[] = [
     setup: async (p) => {
       await go(p, "settings", "egl");
       await wait(400);
-      await btn(p, "Import games…").click();
+      await btn(p, "Import…").click();
       await wait(800);
     },
   },
@@ -710,15 +695,99 @@ const RAW_STATES: ShotState[] = [
       await wait(300);
     },
   },
+
+  // ------------------------------------------- game page variants (v0.2 UI review)
+  { name: "game-installed", query: "scenario=returning", setup: async (p) => void (await goPicked(p, PLAYABLE)) },
+  { name: "game-not-installed", query: "scenario=returning", setup: async (p) => void (await goPicked(p, FRESH)) },
+  { name: "game-update", query: "scenario=returning", setup: async (p) => void (await goPicked(p, "g.installStatus==='installed'&&g.updateAvailable&&g.thirdParty==='none'")) },
+  { name: "game-broken", query: "scenario=returning", setup: async (p) => void (await goPicked(p, "g.installStatus==='broken'")) },
+  { name: "game-running", query: "scenario=playing", setup: async (p) => goGame(p) },
+  { name: "game-third-party", query: "scenario=returning", setup: async (p) => void (await goPicked(p, "g.thirdParty!=='none'&&g.installStatus!=='installed'")) },
+  {
+    name: "game-needs-activation",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await goPicked(p, "g.installStatus==='installed'&&g.thirdParty==='ubisoft'");
+      await wait(500);
+      await btn(p, "Play").click();
+      await wait(1200);
+    },
+  },
+  { name: "game-save-conflict", query: "scenario=returning", setup: async (p) => void (await goPicked(p, "g.saveStatus==='conflict'")) },
+  { name: "game-dlc", query: "scenario=returning", setup: async (p) => void (await goPicked(p, "g.kind==='game'&&g.installStatus==='installed'&&g.dlcCount>0&&g.thirdParty==='none'")) },
+  { name: "game-loading", query: "scenario=returning&latency=40", setup: async (p) => goGame(p, "Fortnite"), settle: 120 },
+  { name: "game-not-found", query: "scenario=returning", setup: async (p) => goGame(p, "NoSuchGame") },
+  {
+    name: "dialog-save-conflict",
+    query: "scenario=returning",
+    setup: async (p) => {
+      const app = await goPicked(p, "g.saveStatus==='conflict'");
+      await wait(400);
+      await p.evaluate((a) => (window as unknown as { __glider: G }).__glider.ui.getState().openDialog({ kind: "saveConflict", appName: a }), app);
+      await wait(600);
+    },
+  },
+  {
+    name: "dialog-collection-new",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await go(p, "library");
+      await p.locator("[data-tile-index='3']").click({ button: "right" });
+      await wait(300);
+      await p.getByRole("menuitem", { name: /Add to collection/ }).click();
+      await wait(300);
+      await p.getByRole("menuitem", { name: /New collection/ }).click();
+      await wait(450);
+    },
+  },
+
+  // ---------------------------------------------------------- library states
+  { name: "app-loading", query: "scenario=returning&latency=50", early: true, setup: async (p) => void (await p.evaluate(() => (location.hash = "#/library"))), settle: 250 },
+  { name: "lib-offline", query: "scenario=offline", setup: async (p) => go(p, "library") },
+  {
+    name: "lib-filter-menu",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await go(p, "library");
+      await p.getByRole("combobox", { name: "Filter" }).click();
+      await wait(350);
+    },
+  },
+  {
+    name: "lib-filter-updates",
+    query: "scenario=updates",
+    setup: async (p) => {
+      await go(p, "library");
+      await p.getByRole("combobox", { name: "Filter" }).click();
+      await p.getByRole("option", { name: /Updates available/ }).click();
+      await wait(400);
+    },
+  },
+  {
+    name: "lib-list-installed",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await go(p, "library");
+      await p.getByRole("radio", { name: "List view" }).click();
+      await p.getByRole("combobox", { name: "Filter" }).click();
+      await p.getByRole("option", { name: /^Installed/ }).click();
+      await wait(400);
+    },
+  },
+
+  // ----------------------------------------------------------------- store
+  { name: "store-opening", query: "scenario=returning&latency=40", setup: async (p) => go(p, "store"), settle: 450 },
+  { name: "store-loaded", query: "scenario=returning", setup: async (p) => go(p, "store"), settle: 1200 },
+  { name: "store-offline", query: "scenario=offline", setup: async (p) => go(p, "store"), settle: 900 },
+  { name: "store-signed-out", query: "scenario=authExpired", setup: async (p) => go(p, "store"), settle: 1200 },
 ];
 
 const NEEDS_GAME_PAGE = /^(library-|focus-library|focus-rail|toasts|dialog-(uninstall|move|error))/;
 
 /**
- * Screenshot states. NOTE (Phase 1): the setups below were written for the v0.1 single-game screens. Scenario names and
- * RPC shapes are updated and game-page states open Fortnite's page, but states that click v0.1 onboarding/install
- * widgets (onboarding-*, dialog-install*, library-existing-install-hint, library-not-installed) and the art-variant
- * options are stale until the UI phases rebuild those screens and re-shoot them.
+ * Every state the specs share (screenshots, a11y, copy dump, break-UI). The legacy `library-*` names open Fortnite's game
+ * page (v2 has one page per game); the `game-*`, `lib-*`, `home-*`, `store-*` and `downloads-*` states cover the v0.2
+ * screens. States that pick a game do it by predicate (`goPicked`), never by title, so a reseeded mock keeps working.
  */
 export const STATES: ShotState[] = RAW_STATES.map((st) => {
   if (!NEEDS_GAME_PAGE.test(st.name)) return st;

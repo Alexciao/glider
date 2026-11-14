@@ -63,7 +63,7 @@ export function LogViewer() {
           <IconButton label="Refresh logs" size="sm" onClick={() => load()}>
             <RefreshCw size={14} className={cx(loading && "g-spinner")} />
           </IconButton>
-          <Button size="sm" variant="secondary" icon={<Copy size={13} />} onClick={() => void actions.copyLogs()}>
+          <Button size="sm" variant="secondary" icon={<Copy size={14} />} onClick={() => void actions.copyLogs()}>
             Copy logs
           </Button>
         </div>

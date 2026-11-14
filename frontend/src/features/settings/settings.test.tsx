@@ -48,7 +48,7 @@ describe("Settings structure", () => {
       ["library", "Library folders"],
       ["saves", "Cloud saves"],
       ["egl", "Epic Games Launcher"],
-      ["overlay", "EOS overlay"],
+      ["overlay", "Epic overlay"],
       ["links", "Links"],
       ["appearance", "Appearance"],
       ["startup", "Startup and tray"],
@@ -124,7 +124,7 @@ describe("Settings behaviour", () => {
     expect(screen.getByText("Always on")).toBeInTheDocument();
   });
 
-  it("EOS overlay: install state, enable switch, remove", async () => {
+  it("Epic overlay: install state, enable switch, remove", async () => {
     const { user } = await mount("returning", <Settings />);
     goto("overlay");
     expect(await screen.findByRole("switch", { name: "Use the overlay in games" })).toBeChecked();
@@ -145,7 +145,7 @@ describe("Settings behaviour", () => {
   it("Run setup again restarts onboarding", async () => {
     const { user } = await mount("returning", <Settings />);
     goto("advanced");
-    await user.click(await screen.findByRole("button", { name: "Run setup" }));
+    await user.click(await screen.findByRole("button", { name: "Run again" }));
     await waitFor(() => expect(useApp.getState().snapshot!.onboarding.completed).toBe(false));
     expect(useApp.getState().snapshot!.onboarding.step).toBe("welcome");
   });

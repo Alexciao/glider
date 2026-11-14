@@ -112,7 +112,7 @@ export function LibraryPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className={cx("shrink-0 border-b px-10 pb-4 pt-8 transition-[border-color] duration-150 max-[1000px]:px-7 [@media(max-height:700px)]:pt-5", scrolled ? "border-border" : "border-transparent")}>
+      <header className={cx("shrink-0 overflow-y-hidden border-b px-10 pb-4 pt-8 [scrollbar-gutter:stable] transition-[border-color] duration-150 max-[1000px]:px-7 [@media(max-height:700px)]:pt-5", scrolled ? "border-border" : "border-transparent")}>
         <div className="mb-4 flex h-7 items-center justify-between gap-6 [@media(max-height:700px)]:mb-3">
           <div className="flex min-w-0 items-baseline gap-3">
             <h1 className="text-xl font-semibold tracking-tight text-fg">Library</h1>
@@ -124,7 +124,7 @@ export function LibraryPage() {
                 onClick={() => void actions.refreshLibrary()}
                 className="inline-flex items-center gap-1.5 rounded-sm text-sm text-warning-text outline-none transition-opacity duration-150 hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
               >
-                <TriangleAlert size={13} aria-hidden />
+                <TriangleAlert size={14} aria-hidden />
                 Couldn&apos;t sync. Try again
               </button>
             ) : filtered && total > 0 && !showSkeleton ? (
@@ -134,7 +134,7 @@ export function LibraryPage() {
             ) : null}
           </div>
           {total > 0 && (
-            <IconButton label={busySyncing ? "Syncing library…" : "Sync library"} onClick={() => void actions.refreshLibrary()} disabled={busySyncing} className="disabled:opacity-100">
+            <IconButton label={busySyncing ? "Syncing library…" : "Sync library"} onClick={() => void actions.refreshLibrary()} disabled={busySyncing} className="-mr-2 disabled:opacity-100">
               {busySyncing ? <Spinner size={14} className="text-fg-muted" /> : <RefreshCw size={14} />}
             </IconButton>
           )}

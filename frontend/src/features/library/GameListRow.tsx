@@ -104,7 +104,7 @@ export const GameListRow = memo(function GameListRow({ game, index, count, y, co
                   variant="secondary"
                   tabIndex={-1}
                   aria-label={`${quick.label} ${game.title}`}
-                  icon={quick.kind === "play" ? <Play size={12} className="fill-current" /> : quick.kind === "install" ? <Download size={13} /> : <Wrench size={13} />}
+                  icon={quick.kind === "play" ? <Play size={12} className="fill-current" /> : quick.kind === "install" ? <Download size={14} /> : <Wrench size={14} />}
                   onClick={() => void runQuick(quick.kind, game.appName)}
                   className="pointer-events-auto"
                 >

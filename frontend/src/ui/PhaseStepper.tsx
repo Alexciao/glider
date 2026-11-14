@@ -43,7 +43,7 @@ export function PhaseStepper({ steps, current, paused, label = "Steps", classNam
                 !done && !isCurrent && "border border-border-strong text-fg-subtle",
               )}
             >
-              {done ? <Check size={11} strokeWidth={3} /> : i + 1}
+              {done ? <Check size={12} strokeWidth={3} /> : i + 1}
             </span>
             <span className={cx("ml-2 truncate transition-colors duration-200", isCurrent ? "font-medium text-fg" : done ? "text-fg-muted" : "text-fg-subtle")}>{s.label}</span>
             <span className="sr-only">{done ? ", done" : isCurrent ? ", in progress" : ""}</span>

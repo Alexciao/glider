@@ -24,20 +24,31 @@ export type DeltaResult =
   /** Revision skipped (or nothing loaded yet): state unchanged, the caller must refetch with `library.get`. */
   | "gap";
 
+/** Dev-only (mock mode): lets the stress toggle rewrite every incoming game summary. */
+let gameTransform: ((g: GameSummary) => GameSummary) | null = null;
+export const setGameTransform = (fn: typeof gameTransform): void => void (gameTransform = fn);
+const incoming = (g: GameSummary): GameSummary => (gameTransform ? gameTransform(g) : g);
+
 export const emptyLibrary = (): LibraryState => ({ games: new Map(), revision: 0, loaded: false });
 
 /** Pure: apply one delta. A reset keeps the identity of every game that did not change. */
 export function applyLibraryDelta(state: LibraryState, delta: LibraryDelta): { state: LibraryState; result: DeltaResult } {
   if (delta.reset) {
     const next = new Map<string, GameSummary>();
-    for (const g of delta.upserts) next.set(g.appName, state.loaded ? share(state.games.get(g.appName), g) : g);
+    for (const raw of delta.upserts) {
+      const g = incoming(raw);
+      next.set(g.appName, state.loaded ? share(state.games.get(g.appName), g) : g);
+    }
     return { state: { games: next, revision: delta.revision, loaded: true }, result: "reset" };
   }
   if (!state.loaded) return { state, result: "gap" };
   if (delta.revision <= state.revision) return { state, result: "stale" };
   if (delta.revision !== state.revision + 1) return { state, result: "gap" };
   const next = new Map(state.games);
-  for (const g of delta.upserts) next.set(g.appName, share(state.games.get(g.appName), g));
+  for (const raw of delta.upserts) {
+    const g = incoming(raw);
+    next.set(g.appName, share(state.games.get(g.appName), g));
+  }
   for (const a of delta.removes) next.delete(a);
   return { state: { games: next, revision: delta.revision, loaded: true }, result: "applied" };
 }

@@ -58,7 +58,8 @@ for (const theme of THEMES) {
             const errors: string[] = [];
             page.on("pageerror", (e) => errors.push(e.message));
             await page.goto(`/?${state.query}&theme=${theme}&backdrop=${backdrop}&dev=0`);
-            await ready(page);
+            if (state.early) await page.waitForSelector("#root *");
+            else await ready(page);
             if (backdrop === "mica")
               await page.addStyleTag({ content: `html{background:linear-gradient(${MICA_TINT[theme]},${MICA_TINT[theme]}),${WALLPAPER} !important}` });
             await state.setup?.(page);

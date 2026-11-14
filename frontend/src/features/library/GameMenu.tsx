@@ -32,7 +32,7 @@ export function GameMenuItems({ kit, game }: { kit: MenuKit; game: GameSummary }
     <>
       {quick && (
         <Item
-          icon={quick.kind === "play" ? <Play size={14} className="fill-current" /> : quick.kind === "install" ? <Download size={15} /> : <Wrench size={15} />}
+          icon={quick.kind === "play" ? <Play size={14} className="fill-current" /> : quick.kind === "install" ? <Download size={16} /> : <Wrench size={16} />}
           disabled={quick.kind === "install" && offline}
           onSelect={() => void runQuick(quick.kind, appName)}
         >
@@ -40,42 +40,42 @@ export function GameMenuItems({ kit, game }: { kit: MenuKit; game: GameSummary }
         </Item>
       )}
       {canUpdate && (
-        <Item icon={<ArrowDownToLine size={15} />} disabled={!signedIn || offline} onSelect={() => void runUpdate(appName)}>
+        <Item icon={<ArrowDownToLine size={14} />} disabled={!signedIn || offline} onSelect={() => void runUpdate(appName)}>
           Update
         </Item>
       )}
       {(quick || canUpdate) && <Separator />}
-      <Item icon={<Star size={15} className={game.favorite ? "fill-current" : undefined} />} onSelect={() => void actions.setFavorite(appName, !game.favorite)}>
+      <Item icon={<Star size={14} className={game.favorite ? "fill-current" : undefined} />} onSelect={() => void actions.setFavorite(appName, !game.favorite)}>
         {game.favorite ? "Remove from favorites" : "Add to favorites"}
       </Item>
-      <Sub label="Add to collection" icon={<Layers size={15} />}>
+      <Sub label="Add to collection" icon={<Layers size={14} />}>
         {collections.map((c) => (
           <CheckItem key={c.id} checked={c.appNames.includes(appName)} onCheckedChange={(on) => void collectionActions.setMember(c.id, appName, on === true)}>
             {c.name}
           </CheckItem>
         ))}
         {collections.length > 0 && <Separator />}
-        <Item icon={<FolderPlus size={15} />} onSelect={() => askNewCollection(appName)}>
+        <Item icon={<FolderPlus size={14} />} onSelect={() => askNewCollection(appName)}>
           New collection…
         </Item>
       </Sub>
-      <Item icon={game.hidden ? <Eye size={15} /> : <EyeOff size={15} />} onSelect={() => void actions.setHidden(appName, !game.hidden)}>
+      <Item icon={game.hidden ? <Eye size={14} /> : <EyeOff size={14} />} onSelect={() => void actions.setHidden(appName, !game.hidden)}>
         {game.hidden ? "Show in library" : "Hide from library"}
       </Item>
       {installed && (
         <>
           <Separator />
-          <Item icon={<Wrench size={15} />} disabled={busy || !signedIn || offline} onSelect={() => void actions.verify(appName)}>
+          <Item icon={<Wrench size={14} />} disabled={busy || !signedIn || offline} onSelect={() => void actions.verify(appName)}>
             Verify files
           </Item>
-          <Item icon={<FolderInput size={15} />} disabled={busy} onSelect={() => openDialog({ kind: "move", appName })}>
+          <Item icon={<FolderInput size={14} />} disabled={busy} onSelect={() => openDialog({ kind: "move", appName })}>
             Move…
           </Item>
-          <Item icon={<FolderOpen size={15} />} onSelect={() => void actions.openInstallFolder(appName)}>
+          <Item icon={<FolderOpen size={14} />} onSelect={() => void actions.openInstallFolder(appName)}>
             Open install folder
           </Item>
           <Separator />
-          <Item icon={<Trash2 size={15} />} destructive disabled={busy} onSelect={() => openDialog({ kind: "uninstall", appName })}>
+          <Item icon={<Trash2 size={14} />} destructive disabled={busy} onSelect={() => openDialog({ kind: "uninstall", appName })}>
             Uninstall…
           </Item>
         </>
@@ -135,7 +135,7 @@ export function MoreButton({ game, className, tone = "glass" }: { game: GameSumm
         className,
       )}
     >
-      <MoreHorizontal size={15} />
+      <MoreHorizontal size={16} />
     </button>
   );
 }

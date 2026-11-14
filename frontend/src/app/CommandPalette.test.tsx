@@ -9,6 +9,14 @@ import { CommandPalette } from "./CommandPalette";
 installCleanStores();
 
 const open = () => act(() => useUi.getState().setPalette(true));
+const escapeRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Typing filters asynchronously: wait until the game's row is the highlighted one, so a key press cannot land on the previous results. */
+async function activeRow(title: string) {
+  const row = await screen.findByRole("option", { name: new RegExp(`^${escapeRe(title)}`) });
+  await waitFor(() => expect(row).toHaveAttribute("aria-selected", "true"));
+  return row;
+}
 
 describe("Command palette", () => {
   it("opens empty with suggestions and the pages; Escape closes it", async () => {
@@ -39,10 +47,10 @@ describe("Command palette", () => {
     const game = booted.find((g) => g.kind === "game" && g.installStatus === "installed" && !g.updateAvailable && g.runState === "idle" && g.thirdParty === "none");
     open();
     await user.keyboard(game.title);
-    await screen.findByRole("option");
+    await activeRow(game.title);
     await user.keyboard("{Control>}{Enter}{/Control}");
     const { useRouter } = await import("../state/router");
-    expect(useRouter.getState().route).toEqual({ page: "game", appName: game.appName });
+    await waitFor(() => expect(useRouter.getState().route).toEqual({ page: "game", appName: game.appName }));
   });
 
   it("every Settings section is reachable by name", async () => {

@@ -19,7 +19,7 @@ public static class Errors
         "Sign-in failed", "Epic didn't accept the sign-in. Try again.", FixAction.SignIn, detail);
 
     public static GliderError AuthCancelled() => new(ErrorCode.AuthCancelled,
-        "Sign-in was cancelled", "The sign-in window was closed before you finished. If Epic showed an error, copy the diagnostic logs so it can be looked into.", null, null);
+        "Sign-in was canceled", "The sign-in window was closed before you finished. If Epic showed an error, copy the diagnostic logs so it can be looked into.", null, null);
 
     public static GliderError InsufficientSpace(long requiredBytes, long freeBytes, string? detail = null) => new(ErrorCode.InsufficientSpace,
         "Not enough disk space",
@@ -27,13 +27,13 @@ public static class Errors
         FixAction.FreeSpace, detail);
 
     public static GliderError Network(string? detail = null) => new(ErrorCode.Network,
-        "Can't reach Epic", "Check your internet connection, then retry. Progress is kept.", FixAction.Retry, detail);
+        "Can't reach Epic", "Check your internet connection, then try again. Progress is kept.", FixAction.Retry, detail);
 
     public static GliderError CdnUnavailable(string? detail = null) => new(ErrorCode.CdnUnavailable,
-        "Download server unavailable", "Epic's download servers didn't respond. Retry, or pick another CDN in Settings.", FixAction.Retry, detail);
+        "Download server unavailable", "Epic's download servers didn't respond. Try again, or pick another CDN in Settings.", FixAction.Retry, detail);
 
     public static GliderError FilesLocked(string? detail = null) => new(ErrorCode.FilesLocked,
-        "Game files are in use", "Close the game and any program using its files, then retry.", FixAction.Retry, detail);
+        "Game files are in use", "Close the game and any program using its files, then try again.", FixAction.Retry, detail);
 
     public static GliderError PermissionDenied(string? detail = null) => new(ErrorCode.PermissionDenied,
         "Access denied", "Glider can't write to this folder. Choose a different location.", FixAction.ChooseFolder, detail);
@@ -43,7 +43,7 @@ public static class Errors
 
     public static GliderError EglFileLocked(string? detail = null) => new(ErrorCode.FilesLocked,
         "Epic Games Launcher files are in use",
-        "Glider couldn't update Epic Games Launcher's record of the game because the file is in use. Close Epic Games Launcher, then retry.",
+        "Glider couldn't update Epic Games Launcher's record of the game because the file is in use. Close Epic Games Launcher, then try again.",
         FixAction.Retry, detail);
 
     public static GliderError EglAccessDenied(string? detail = null) => new(ErrorCode.PermissionDenied,
@@ -92,24 +92,24 @@ public static class Errors
     /// <summary>The game is linked to another store's account, and that link hasn't been made (or confirmed) through Glider yet.</summary>
     public static GliderError ActivationRequired(string store, string? title = null, string? appName = null) => new(ErrorCode.ActivationRequired,
         $"Link your {store} account",
-        $"{Name(title)} needs your Epic account linked with {store} before it can start. Activate it once; Glider asks Epic to unlock the game on {store}.",
+        $"{Name(title)} needs your Epic account linked with {store} before it can start. Link it once; Glider asks Epic to unlock the game on {store}.",
         FixAction.Activate, null, appName);
 
     /// <summary>Epic reports no linked account for the store: the activation page was opened in the browser.</summary>
     public static GliderError AccountNotLinked(string store, string? title = null, string? appName = null) => new(ErrorCode.ActivationRequired,
         $"No {store} account is linked",
-        $"Epic doesn't know your {store} account yet. Link it in the page that just opened in your browser, then activate again.",
+        $"Epic doesn't know your {store} account yet. Link it in the page that just opened in your browser, then try again.",
         FixAction.Activate, null, appName);
 
     public static GliderError ActivationFailed(string store, string? detail = null, string? title = null, string? appName = null) => new(ErrorCode.ActivationRequired,
-        $"Couldn't activate on {store}",
+        $"Couldn't link {store}",
         $"Epic didn't unlock {NameLower(title)} on {store}. Try again in a moment.",
         FixAction.Activate, detail, appName);
 
     /// <summary>A prerequisite (redistributable) installer failed or was declined; the game may still run, so the user can go on.</summary>
     public static GliderError PrerequisiteFailed(string what, string? detail = null, string? title = null, string? appName = null) => new(ErrorCode.PrerequisiteFailed,
         "Game components didn't install",
-        $"{Name(title)} needs {what}, but its installer didn't finish. Retry and accept the Windows prompt, or play anyway if the game starts without it.",
+        $"{Name(title)} needs {what}, but its installer didn't finish. Try again and accept the Windows prompt, or play anyway if the game starts without it.",
         FixAction.Retry, detail, appName);
 
     public static GliderError OverlayNotInstalled() => new(ErrorCode.OverlayFailed,
@@ -117,7 +117,7 @@ public static class Errors
 
     public static GliderError OverlayFailed(string? detail = null) => new(ErrorCode.OverlayFailed,
         "Epic overlay didn't install",
-        "The overlay download or setup stopped. Retry; nothing else is affected.",
+        "The overlay download or setup stopped. Try again; nothing else is affected.",
         FixAction.Retry, detail);
 
     /// <summary>A contract method whose feature lands in a later phase.</summary>
@@ -134,15 +134,15 @@ public static class Errors
         "Glider is damaged", "A required component is missing. Reinstall Glider to fix it.", FixAction.OpenLogs, detail);
 
     public static GliderError LegendaryFailed(string? detail = null) => new(ErrorCode.LegendaryFailed,
-        "The task failed", "The operation stopped unexpectedly. Retry; progress is kept.", FixAction.Retry, detail);
+        "The task failed", "The operation stopped unexpectedly. Try again; progress is kept.", FixAction.Retry, detail);
 
     public static GliderError EacSetupFailed(string? detail = null) => new(ErrorCode.EacSetupFailed,
-        "Anti-cheat setup failed", "Easy Anti-Cheat must be installed to play. Retry and accept the Windows prompt.", FixAction.Retry, detail);
+        "Anti-cheat setup failed", "Easy Anti-Cheat must be installed to play. Try again and accept the Windows prompt.", FixAction.Retry, detail);
 
     public static GliderError LaunchFailed(string? detail = null, string? title = null, string? appName = null) => new(ErrorCode.LaunchFailed,
-        $"Couldn't start {NameLower(title)}", "The game didn't start. Retry, or repair the install if it keeps happening.", FixAction.Repair, detail, appName);
+        $"Couldn't start {NameLower(title)}", "The game didn't start. Try again, or repair the install if it keeps happening.", FixAction.Repair, detail, appName);
 
-    public static GliderError Cancelled() => new(ErrorCode.Cancelled, "Cancelled", "The task was cancelled.", null, null);
+    public static GliderError Cancelled() => new(ErrorCode.Cancelled, "Canceled", "The task was canceled.", null, null);
 
     private static string Name(string? title) => string.IsNullOrWhiteSpace(title) ? "The game" : title;
 

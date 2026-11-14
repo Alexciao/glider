@@ -209,7 +209,6 @@ export function InstallDialog({ appName, open }: { appName: string; open: boolea
           stats={[
             { label: "Download", value: plan ? formatBytes(plan.downloadSizeBytes) : null },
             { label: "On disk", value: plan ? formatBytes(plan.installSizeBytes) : null },
-            { label: drive ? `Free on ${drive}` : "Free space", value: plan ? formatBytes(plan.freeBytes) : null },
           ]}
         />
 

@@ -9,7 +9,7 @@ export const JOB_VERB: Record<JobKind, string> = {
   repair: "Repairing",
   verify: "Verifying",
   move: "Moving",
-  uninstall: "Removing",
+  uninstall: "Uninstalling",
   import: "Importing",
   modify: "Changing",
   overlay: "Installing overlay",

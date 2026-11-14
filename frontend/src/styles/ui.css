@@ -318,4 +318,11 @@
   * {
     scroll-behavior: auto !important;
   }
+  /* Press-squeeze and hover-lift are movement: colour changes still say "this is pressed" without it. */
+  :active {
+    scale: none !important;
+  }
+  .group\/tile:hover {
+    translate: none !important;
+  }
 }

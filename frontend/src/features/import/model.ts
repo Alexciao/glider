@@ -58,7 +58,7 @@ export function rowResult(job: JobInfo | null | undefined): RowResult {
       if (job.outcome?.kind === "needsRepair") return { state: "needsRepair", message: job.outcome.message, error: null };
       return { state: "imported", message: job.outcome?.message ?? null, error: null };
     case "failed":
-      return { state: "failed", message: job.error?.message ?? job.outcome?.message ?? "Glider couldn't link this install.", error: job.error };
+      return { state: "failed", message: job.error?.message ?? job.outcome?.message ?? "Glider couldn't import this install.", error: job.error };
     case "cancelled":
       return { state: "cancelled", message: null, error: null };
   }
@@ -105,7 +105,7 @@ export function unavailableLabel(status: EglInstallStatus): string {
     case "stale":
       return "Folder missing";
     case "busy":
-      return "Epic is busy";
+      return "Launcher is busy";
     case "notOwned":
       return "Not in your library";
     case "importable":
@@ -130,7 +130,7 @@ export function shortFailure(error: GliderError | null, message: string | null):
     case "invalidFolder":
       return "folder missing";
     case "eglBusy":
-      return "Epic is busy";
+      return "Launcher is busy";
     case "insufficientSpace":
       return "not enough space";
     case "gameRunning":

@@ -90,7 +90,6 @@ export function MoveDialog({ appName, open }: { appName: string; open: boolean }
           verdict={verdict}
           stats={[
             { label: "To move", value: formatBytes(size) },
-            { label: drive ? `Free on ${drive}` : "Free space", value: base ? (free == null ? null : formatBytes(free)) : "—" },
           ]}
         />
 

@@ -31,7 +31,7 @@ export function CoverProgress({ jobId }: { jobId: string }) {
         value={indeterminate ? null : s.waiting ? 0 : s.percent}
         label={`${s.text}, ${formatPercent(s.percent)}`}
       >
-        {s.waiting ? <Clock size={15} className="text-white/85" /> : <span className="text-xs font-medium tabular-nums text-white">{Math.floor(s.percent)}</span>}
+        {s.waiting ? <Clock size={16} className="text-white/85" /> : <span className="text-xs font-medium tabular-nums text-white">{Math.floor(s.percent)}</span>}
       </ProgressRing>
     </div>
   );

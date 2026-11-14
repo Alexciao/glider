@@ -14,7 +14,7 @@ import type {
   ShortcutState,
   ThirdPartyStore,
 } from "../contract.gen";
-import { FORTNITE_ART, generatedArt } from "./art";
+import { FORTNITE_ART, generatedArt, worstArt, type WorstArt } from "./art";
 import { DAY, FORTNITE, GiB, HOUR, LATEST_VERSION, MiB, OLD_VERSION, iso } from "./constants";
 import { between, chance, hashString, mulberry32, pick, shuffled, type Rand } from "./rng";
 
@@ -65,6 +65,8 @@ export interface CatalogOptions {
   now: number;
   /** false → every GameArt is all-null (the no-art fallback). */
   art: boolean;
+  /** Replaces every game's art (Fortnite's too) with the worst case for text legibility. */
+  artVariant?: WorstArt;
 }
 
 /** Library folders of the mock PC; installs are spread over them. */
@@ -167,7 +169,7 @@ export function generateCatalog(opts: CatalogOptions): MockGame[] {
   const used = new Set<string>(["Fortnite"]);
   const apps = new Set<string>([FORTNITE]);
   const artFor = (key: string, art?: { tall?: boolean; wide?: boolean }): GameArt =>
-    opts.art ? generatedArt(key, art) : { tall: null, tallThumb: null, wide: null, logo: null, placeholder: null };
+    !opts.art ? { tall: null, tallThumb: null, wide: null, logo: null, placeholder: null } : opts.artVariant ? worstArt(opts.artVariant) : generatedArt(key, art);
 
   // ---- decide who gets which trait (indices into 1..count-1; index 0 is Fortnite) ----
   const order = shuffled(rand, Array.from({ length: Math.max(0, count - 1) }, (_, i) => i + 1));
@@ -256,7 +258,9 @@ export function generateCatalog(opts: CatalogOptions): MockGame[] {
     const wideMissing = missingWide.has(i);
     const art = isFortnite
       ? opts.art
-        ? FORTNITE_ART
+        ? opts.artVariant
+          ? worstArt(opts.artVariant)
+          : FORTNITE_ART
         : { tall: null, tallThumb: null, wide: null, logo: null, placeholder: null }
       : artFor(appName, { tall: !tallMissing, wide: !wideMissing });
 

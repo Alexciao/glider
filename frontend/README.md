@@ -23,7 +23,7 @@ and options by URL:
 | `theme` / `backdrop` | `dark` `light` `system` / `solid` `mica` |
 | `seek` `timescale` `freeze` | start a running job at 0..1 of its phase / simulation speed (default 12, `1` = realistic ETAs) / hold the clock |
 | `fail` | fail the next mutating call with an `ErrorCode` |
-| `art` | `none` strips all art (the no-art fallback) |
+| `art` | `none` strips all art (the no-art fallback); `busy` `bright` `white` replace every game's art with the worst key art for text legibility (`e2e/hero-legibility.spec.ts`) |
 | `games` | library size override (base games), e.g. `games=1000` |
 | `seed` | catalog seed (same seed, same library) |
 | `eac` | `0` leaves Fortnite's anti-cheat prerequisite uninstalled |
@@ -65,5 +65,4 @@ monotonic and ~1 Hz `JobSample` history is served by `jobs.getHistory`.
 
 `src/ui` design system · `src/state` stores, actions, formatters · `src/app` shell ·
 `src/features` Home / Library list / game page / Downloads / Settings (12 sections + search) / Onboarding / import (the shared "bring existing installs in" list) / dialogs ·
-`src/ipc` typed client + mock · `e2e` Playwright (screenshots, a11y, focus, break-UI; the screenshot states still
-carry v0.1 setups, see the note in `e2e/states.ts`).
+`src/ipc` typed client + mock · `e2e` Playwright (screenshots, a11y, focus, hero legibility, surfaces, break-UI; every state in `e2e/states.ts` drives the v0.2 screens; `e2e/tools` has the contact-sheet, control-audit and film helpers).

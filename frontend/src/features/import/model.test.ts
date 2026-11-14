@@ -79,6 +79,6 @@ describe("summarize and batchHeadline", () => {
   });
 
   it("labels the unavailable statuses in a few words", () => {
-    expect(["imported", "stale", "busy", "notOwned"].map((s) => unavailableLabel(s as EglInstall["status"]))).toEqual(["Already in Glider", "Folder missing", "Epic is busy", "Not in your library"]);
+    expect(["imported", "stale", "busy", "notOwned"].map((s) => unavailableLabel(s as EglInstall["status"]))).toEqual(["Already in Glider", "Folder missing", "Launcher is busy", "Not in your library"]);
   });
 });

@@ -33,6 +33,8 @@ export interface StatusModel {
   text: string;
   sub?: string;
   spinner?: boolean;
+  /** The button already says it ("Play" under "Ready to play"): the line is shown only during the one-off ready moment. */
+  quiet?: boolean;
   /** Set while the game runs: the component renders "Playing for …" and keeps it ticking. */
   since?: string | null;
 }
@@ -193,7 +195,7 @@ export function deriveGameAction(snap: AppSnapshot, game: GameSummary, ctx: Acti
   switch (game.installStatus) {
     case "installed": {
       if (offline && !game.canRunOffline) {
-        return inert("unavailable", "Play", { tone: "warning", text: "Needs an internet connection", sub: `${game.title} can't run offline` });
+        return inert("unavailable", "Play", { tone: "warning", text: "Needs an internet connection" });
       }
       if (game.updateAvailable && !offline) {
         const pending = ctx.pending.update ?? false;
@@ -219,7 +221,7 @@ export function deriveGameAction(snap: AppSnapshot, game: GameSummary, ctx: Acti
         intent: "launch",
         status: offline
           ? { tone: "warning", text: "You're offline", sub: "Playing without Epic's services" }
-          : { tone: "success", text: "Ready to play" },
+          : { tone: "success", text: "Ready to play", quiet: true },
       };
     }
     case "broken": {
@@ -258,7 +260,8 @@ export function deriveGameAction(snap: AppSnapshot, game: GameSummary, ctx: Acti
         disabled: false,
         faceKey: "install",
         intent: "install",
-        status: { tone: "neutral", text: "Not installed", sub: game.downloadSizeBytes ? `${formatBytes(game.downloadSizeBytes)} download` : undefined },
+        // The Install button says what to do; the line only adds what it can't (how much it downloads).
+        status: game.downloadSizeBytes ? { tone: "neutral", text: `${formatBytes(game.downloadSizeBytes)} download` } : { tone: "neutral", text: "Not installed", quiet: true },
       };
   }
 }

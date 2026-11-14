@@ -1,9 +1,9 @@
-import type { GameDetail, GameSettings, GameSummary, SaveSyncStatus } from "../../../ipc/contract.gen";
+import type { GameDetail, GameSummary, SaveSyncStatus } from "../../../ipc/contract.gen";
 import { actions, pendingKey } from "../../../state/actions";
 import { formatRelativeTime } from "../../../state/format";
 import { useSnap } from "../../../state/store";
 import { usePending, useUi } from "../../../state/ui";
-import { Button, Spinner, Switch, Tooltip, cx, type BadgeTone } from "../../../ui";
+import { Button, Spinner, cx, type BadgeTone } from "../../../ui";
 import { formatDateTime } from "../format";
 
 export interface SaveStatusModel {
@@ -50,7 +50,7 @@ const toneText: Record<BadgeTone, string> = {
  * and its Resolve button opens the comparison dialog: this row is the conflict's only surface on the page.
  * Games without cloud saves show nothing at all.
  */
-export function SavesSection({ game, detail, onSettings }: { game: GameSummary; detail: GameDetail; onSettings: (patch: Partial<GameSettings>) => void }) {
+export function SavesSection({ game, detail }: { game: GameSummary; detail: GameDetail }) {
   const saves = detail.saves;
   const offline = useSnap((s) => s.connectivity === "offline");
   const globalOn = useSnap((s) => s.settings.cloudSaves);
@@ -103,11 +103,6 @@ export function SavesSection({ game, detail, onSettings }: { game: GameSummary; 
             Backups
           </Button>
         )}
-        <Tooltip content={globalOn ? "Cloud saves for this game" : "Turned off for every game in Settings"}>
-          <span>
-            <Switch aria-label="Cloud saves for this game" checked={saves.enabled && globalOn} disabled={!globalOn || syncing} onCheckedChange={(v) => onSettings({ cloudSaves: v })} />
-          </span>
-        </Tooltip>
       </div>
     </section>
   );

@@ -201,6 +201,34 @@ function svgArt(p: Palette, w: number, h: number, seed: number, detail: number):
   return toDataUri(svg);
 }
 
+/** Key art a catalog could really serve that is hardest on text laid over it (the hero legibility spec). */
+export type WorstArt = "busy" | "bright" | "white";
+
+/**
+ * `busy`: saturated, high-frequency cells in every lightness, so no single text colour is safe anywhere. `bright`: a pale warm
+ * gradient with a white glow where the title sits. `white`: a flat white plate. One image for every game and shape.
+ */
+export function worstArt(kind: WorstArt): GameArt {
+  const make = (w: number, h: number): string => {
+    let body = "";
+    if (kind === "white") body = `<rect width="${w}" height="${h}" fill="#fff"/>`;
+    else if (kind === "bright") {
+      body =
+        `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff6c8"/><stop offset="1" stop-color="#ffe27a"/></linearGradient>` +
+        `<radialGradient id="r" cx=".3" cy=".7" r=".6"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs>` +
+        `<rect width="${w}" height="${h}" fill="url(#g)"/><rect width="${w}" height="${h}" fill="url(#r)"/>`;
+    } else {
+      const rand = mulberry32(0xb05c);
+      const cell = Math.max(6, Math.round(w / 48));
+      for (let y = 0; y < h; y += cell) {
+        for (let x = 0; x < w; x += cell) body += `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" fill="${hsl(rand() * 360, 85 + rand() * 15, 12 + rand() * 80)}"/>`;
+      }
+    }
+    return toDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid slice">${body}</svg>`);
+  };
+  return { tall: make(360, 480), tallThumb: make(90, 120), wide: make(640, 360), logo: null, placeholder: kind === "busy" ? "#808080" : "#ffffff" };
+}
+
 const artCache = new Map<string, GameArt>();
 
 /**
