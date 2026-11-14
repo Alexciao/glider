@@ -254,14 +254,23 @@ public sealed class EndToEndTests
         await h.Rpc.CancelJob(new JobRef(download.Id));
     }
 
-    /// <summary>Completed files in Legendary's resume list (0 while the fake is mid-append).</summary>
+    /// <summary>Completed files in Legendary's resume list (0 until it exists).</summary>
     private static int ResumeLines(string path)
     {
         try
         {
-            return File.Exists(path) ? File.ReadAllLines(path).Length : 0;
+            // Share-write: the fake appends to this file every millisecond; a read that excludes writers would crash it.
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            var n = 0;
+            while (reader.ReadLine() is { Length: > 0 })
+            {
+                n++;
+            }
+
+            return n;
         }
-        catch (IOException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             return 0;
         }
