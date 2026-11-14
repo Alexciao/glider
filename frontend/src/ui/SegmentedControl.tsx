@@ -5,6 +5,8 @@ import { cx } from "./cx";
 export interface SegmentedOption<T extends string> {
   value: T;
   label: ReactNode;
+  /** Accessible name when `label` is only an icon. */
+  ariaLabel?: string;
 }
 
 export interface SegmentedControlProps<T extends string> {
@@ -52,6 +54,7 @@ export function SegmentedControl<T extends string>({
         <RadioGroup.Item
           key={o.value}
           value={o.value}
+          aria-label={o.ariaLabel}
           className={cx(
             "relative z-10 whitespace-nowrap rounded-md px-3 text-center font-medium transition-colors duration-150 ease-out",
             size === "sm" ? "text-xs" : "text-sm",
