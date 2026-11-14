@@ -60,8 +60,8 @@ export function DlcSection({ game, detail }: { game: GameSummary; detail: GameDe
   const states = new Map(items.map((d) => [d.appName, stateOf(d)] as const));
   const toggle = (appName: string, on: boolean) => {
     const dlc = items.filter((d) => (d.appName === appName ? on : states.get(d.appName) === "installed")).map((d) => d.appName);
-    const components = detail.components.filter((c) => c.selected || c.required).map((c) => c.id);
-    void actions.modifyInstall(game.appName, components, dlc);
+    // Core can't change an installed game's components yet ("not available yet"), so only DLC is ever sent.
+    void actions.modifyInstall(game.appName, [], dlc);
   };
   const visible = all ? items : items.slice(0, FOLD_AT);
   return (

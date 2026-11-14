@@ -79,7 +79,7 @@ export interface MockController {
   /** Simulate a game exiting (runState → closing → idle). Without an argument, the first running one. */
   endGame(appName?: string): void;
   /** Toggle "Epic Games Launcher is busy with a game": waiting job ⇄ running. */
-  setEglBusy(busy: boolean): void;
+  setEglBusy(busy: boolean, appName?: string): void;
   /** Flip connectivity (the offline scenario starts offline). */
   setConnectivity(c: "online" | "offline"): void;
   /** Swallow the next `library` delta on the wire (its revision is still consumed), so the next one shows a gap. */

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Checkbox } from "radix-ui";
-import { Check, Lock, PackageCheck } from "lucide-react";
+import { Check, PackageCheck } from "lucide-react";
 import type { InstallPlan } from "../../../ipc/contract.gen";
 import { actions, pendingKey } from "../../../state/actions";
 import { driveOf, formatBytes } from "../../../state/format";
@@ -11,36 +11,20 @@ import { ErrorView } from "../../common/ErrorView";
 import { NoticeCard } from "../Notices";
 import { FolderChooser, SpaceMeter, useFolderOptions } from "./FolderChooser";
 
-/** One selectable line: a checkbox, a name with an optional description, a size. Required lines are locked on. */
-function ChoiceRow({
-  label,
-  size,
-  checked,
-  locked,
-  disabled,
-  onChange,
-}: {
-  label: string;
-  size: number | null;
-  checked: boolean;
-  locked?: boolean;
-  disabled?: boolean;
-  onChange: (v: boolean) => void;
-}) {
+/** One selectable line: a checkbox, a name, a size. */
+function ChoiceRow({ label, size, checked, disabled, onChange }: { label: string; size: number | null; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
   return (
-    <label className={cx("flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors duration-150", locked || disabled ? "cursor-default" : "hover:bg-surface-hover", disabled && "opacity-45")}>
+    <label className={cx("flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors duration-150", disabled ? "cursor-default" : "hover:bg-surface-hover", disabled && "opacity-45")}>
       <Checkbox.Root
-        aria-label={locked ? `${label} (required)` : label}
+        aria-label={label}
         checked={checked}
-        disabled={locked || disabled}
+        disabled={disabled}
         onCheckedChange={(v) => onChange(v === true)}
-        className={cx(
-          "grid size-4 shrink-0 place-items-center rounded-[5px] border transition-colors duration-150",
-          checked ? "border-accent bg-accent text-accent-fg" : "border-border-strong bg-surface-2",
-          locked && "opacity-70",
-        )}
+        className={cx("grid size-4 shrink-0 place-items-center rounded-[5px] border transition-colors duration-150", checked ? "border-accent bg-accent text-accent-fg" : "border-border-strong bg-surface-2")}
       >
-        <Checkbox.Indicator>{locked ? <Lock size={10} strokeWidth={2.5} /> : <Check size={12} strokeWidth={3} />}</Checkbox.Indicator>
+        <Checkbox.Indicator>
+          <Check size={12} strokeWidth={3} />
+        </Checkbox.Indicator>
       </Checkbox.Root>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium text-fg">{label}</span>
@@ -62,8 +46,9 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
 const sameFolder = (a: string, b: string) => a.replace(/[\\/]+$/, "").toLowerCase() === b.replace(/[\\/]+$/, "").toLowerCase();
 
 /**
- * Install: where, what and whether it fits, planned live by Core. Every change (folder, component, DLC) re-plans, so
+ * Install: where, what and whether it fits, planned live by Core. Every change (folder, DLC) re-plans, so
  * the totals are always Core's numbers, never the UI's arithmetic; the previous numbers stay (dimmed) until the new ones land.
+ * Components aren't offered: Core plans none and can't change them yet ("not available yet").
  */
 export function InstallDialog({ appName, open }: { appName: string; open: boolean }) {
   const close = useUi((s) => s.closeDialog);
@@ -73,18 +58,17 @@ export function InstallDialog({ appName, open }: { appName: string; open: boolea
   const starting = usePending(pendingKey("install", appName));
 
   const [base, setBase] = useState<string | null>(null);
-  const [comps, setComps] = useState<string[] | null>(null);
   const [dlc, setDlc] = useState<string[] | null>(null);
   const [answer, setAnswer] = useState<{ key: string; plan: InstallPlan | null } | null>(null);
   const requested = useRef(false);
 
-  const key = JSON.stringify([base, comps, dlc]);
+  const key = JSON.stringify([base, dlc]);
   useEffect(() => {
     let alive = true;
     // The first plan goes out at once; later ones wait a beat so a run of ticks makes one request.
     const t = setTimeout(
       () => {
-        void actions.planInstall(appName, base, comps, dlc).then((p) => {
+        void actions.planInstall(appName, base, null, dlc).then((p) => {
           if (alive) setAnswer({ key, plan: p ?? null });
         });
       },
@@ -95,7 +79,7 @@ export function InstallDialog({ appName, open }: { appName: string; open: boolea
       alive = false;
       clearTimeout(t);
     };
-    // `key` encodes base/comps/dlc.
+    // `key` encodes base/dlc.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appName, key]);
   useEffect(() => () => useUi.getState().setError("install", undefined), []);
@@ -107,12 +91,7 @@ export function InstallDialog({ appName, open }: { appName: string; open: boolea
   // The listed folders report their own free space; the plan's drive figure is authoritative for the chosen one.
   const optionsWithPlan = options.map((o) => (plan && chosen && sameFolder(o.path, plan.basePath) && !planning ? { ...o, freeBytes: plan.freeBytes } : o));
 
-  const isComp = (c: InstallPlan["components"][number]) => c.required || (comps ? comps.includes(c.id) : c.selected);
   const isDlc = (d: InstallPlan["dlc"][number]) => (dlc ? dlc.includes(d.appName) : d.selected);
-  const toggleComp = (id: string, on: boolean) => {
-    if (!plan) return;
-    setComps(plan.components.filter((c) => (c.id === id ? on : isComp(c))).map((c) => c.id));
-  };
   const toggleDlc = (id: string, on: boolean) => {
     if (!plan) return;
     setDlc(plan.dlc.filter((d) => (d.appName === id ? on : isDlc(d))).map((d) => d.appName));
@@ -142,7 +121,7 @@ export function InstallDialog({ appName, open }: { appName: string; open: boolea
   const go = () => useUi.getState().go("downloads");
   const install = async () => {
     if (!plan) return;
-    const job = await actions.install(appName, plan.basePath, "install", { components: comps, dlc });
+    const job = await actions.install(appName, plan.basePath, "install", { dlc });
     if (job) {
       close();
       go();
@@ -215,14 +194,6 @@ export function InstallDialog({ appName, open }: { appName: string; open: boolea
         <section aria-label="Install to">
           <FolderChooser label="Install to" options={optionsWithPlan} value={chosen} neededBytes={needed} onChange={(p) => setBase(p)} onChooseOther={() => void chooseOther()} disabled={starting} />
         </section>
-
-        {plan && plan.components.length > 0 && (
-          <Group title="Components">
-            {plan.components.map((c) => (
-              <ChoiceRow key={c.id} label={c.name} size={c.sizeBytes} checked={isComp(c)} locked={c.required} disabled={starting} onChange={(v) => toggleComp(c.id, v)} />
-            ))}
-          </Group>
-        )}
 
         {installable.length > 0 && (
           <Group title="DLC">

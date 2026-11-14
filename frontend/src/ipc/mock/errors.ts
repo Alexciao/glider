@@ -78,11 +78,11 @@ export const Errors = {
     err("eglBusy", "Epic Games Launcher is busy", `Epic Games Launcher is updating ${game(title)}, so Glider will wait and continue automatically.`, "waitForEgl", detail, appName),
   gameRunning: (title?: string, appName: string | null = null) =>
     err("gameRunning", `${title ?? "The game"} is running`, "Close the game first, then try again.", "closeGame", null, appName),
-  gameBusy: (title?: string, appName: string | null = null) =>
-    err("gameBusy", "Another task is using this game", `${game(title)} is being installed, updated or repaired. Wait for it to finish, or cancel it first.`, null, null, appName),
+  gameBusy: (title?: string, appName: string | null = null, what = "the current task") =>
+    err("gameBusy", `${title ?? "The game"} is busy`, `Wait for ${what} to finish, or cancel it first.`, null, null, appName),
   notFound: (what = "That game") => err("notFound", "Not found", `${what} isn't in your library.`, null),
   notOwned: (title?: string, appName: string | null = null) =>
-    err("notOwned", "Not in your library", `${game(title)} isn't owned by this Epic account.`, null, null, appName),
+    err("notOwned", "Not on this account", `${title ?? "The game"} isn't available on this Epic account.`, null, null, appName),
   notInstalled: (title?: string, appName: string | null = null) =>
     err("notInstalled", `${title ?? "The game"} isn't installed`, "Install it or locate an existing install first.", null, null, appName),
   alreadyInstalled: (title?: string, appName: string | null = null) =>
@@ -103,8 +103,10 @@ export const Errors = {
     err("prerequisiteFailed", "Setup didn't finish", `${game(title)} needs a one-time setup (runtimes) before it can start. Try again and accept the Windows prompt.`, "installPrerequisites", detail, appName),
   launchFailed: (title?: string, detail: string | null = null, appName: string | null = null) =>
     err("launchFailed", `Couldn't start ${title ?? "the game"}`, "The game didn't start. Try again, or repair the install if it keeps happening.", "repair", detail, appName),
-  thirdPartyRequired: (store: string, appName: string | null = null) =>
-    err("thirdPartyRequired", `${store} is required`, `This game starts through ${store}. Install it, then try again.`, null, null, appName),
+  thirdPartyRequired: (store: string, appName: string | null = null, title?: string) =>
+    err("thirdPartyRequired", `Install through ${store}`, `${title ?? "The game"} is installed and launched by ${store}, not by Epic.`, null, null, appName),
+  /** A contract method whose feature lands in a later phase (Core: `Errors.NotAvailableYet`). */
+  notAvailableYet: (detail: string | null = null) => err("unknown", "Not available yet", "Not available yet", null, detail),
   activationRequired: (store: string, appName: string | null = null) =>
     err("activationRequired", "Link your account first", `Link this game with ${store} once, then Play will start it.`, "activate", null, appName),
   saveConflict: (title?: string, appName: string | null = null) =>
