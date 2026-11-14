@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { FixAction, GliderError } from "../ipc/contract.gen";
+import type { FixAction, GliderError, SaveConflict } from "../ipc/contract.gen";
 import { navigate, type Page } from "./router";
 
 /** How long the "ready to play" flourish stays on screen. */
@@ -12,6 +12,8 @@ export type DialogState =
   | { kind: "install"; appName: string }
   | { kind: "uninstall"; appName: string }
   | { kind: "move"; appName: string }
+  /** Cloud and local saves both changed. `conflict` is what a failed launch returned; without it the dialog reads the saves itself. `thenPlay` = it came from Play. */
+  | { kind: "saveConflict"; appName: string; conflict?: SaveConflict | null; thenPlay?: boolean }
   | { kind: "cancelJob"; jobId: string }
   | { kind: "error"; error: GliderError; retry?: () => void };
 

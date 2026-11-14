@@ -1,4 +1,4 @@
-import type { ComponentProps, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { AnimatePresence, m } from "motion/react";
 import { ChevronDown } from "lucide-react";
 import { cx } from "./cx";
@@ -27,6 +27,8 @@ export interface SplitButtonProps {
   /** The click was heard and the system is catching up: spinner, no further presses, still focusable. */
   busy?: boolean;
   disabled?: boolean;
+  /** Play the one-off "it is ready" flourish: a single sheen across the face and a success ring. */
+  moment?: boolean;
   /** Menu items (`DropdownMenuItem`s). Omit for a plain button with every corner rounded. */
   menu?: ReactNode;
   /** Accessible name of the menu segment. */
@@ -38,7 +40,7 @@ export interface SplitButtonProps {
    */
   faceKey?: string;
   /** Extra props for the primary segment (e.g. hover/focus prefetch handlers, data attributes). */
-  primaryProps?: Omit<ComponentProps<"button">, "children" | "onClick" | "disabled" | "type" | "className">;
+  primaryProps?: { onPointerEnter?: () => void; onFocus?: () => void; "data-kind"?: string };
   "aria-label"?: string;
   className?: string;
 }
@@ -57,6 +59,7 @@ export function SplitButton({
   tone = "primary",
   busy,
   disabled,
+  moment,
   menu,
   menuLabel = "More actions",
   menuDisabled,
@@ -76,7 +79,7 @@ export function SplitButton({
       data-tone={tone}
       data-split=""
       style={{ borderRadius: s.radius }}
-      className={cx("g-split", s.height, className)}
+      className={cx("g-split", s.height, moment && "g-sheen", className)}
     >
       <m.button
         layout="position"
@@ -101,6 +104,7 @@ export function SplitButton({
           </m.span>
         </AnimatePresence>
       </m.button>
+      {moment && <span className="g-ready-ring" aria-hidden />}
       {menu && (
         <DropdownMenu>
           <m.span aria-hidden layout="position" className="g-split-divider" />
