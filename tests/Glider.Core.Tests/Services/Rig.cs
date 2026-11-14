@@ -57,6 +57,9 @@ public sealed class Rig : IDisposable
 
     public TimeSpan SizeMinInterval { get; set; } = TimeSpan.Zero;
 
+    /// <summary>Library delta coalescing window (zero = rebuild at once; with a value, deltas wait for <see cref="Time"/>).</summary>
+    public TimeSpan LibraryCoalesce { get; set; } = TimeSpan.Zero;
+
     public GliderService Service
     {
         get
@@ -77,7 +80,7 @@ public sealed class Rig : IDisposable
                         IdleSignal = Idle,
                         MeasureDirectory = Measure,
                         SizeMeasureMinInterval = SizeMinInterval,
-                        LibraryCoalesceInterval = TimeSpan.Zero,
+                        LibraryCoalesceInterval = LibraryCoalesce,
                         LibraryCacheDelay = TimeSpan.Zero,
                         LibraryRetryDelay = TimeSpan.FromMilliseconds(5),
                         AppVersion = "0.2.0-test",
