@@ -710,6 +710,80 @@ const RAW_STATES: ShotState[] = [
       await wait(300);
     },
   },
+
+  // ------------------------------------------- game page variants (v0.2 UI review)
+  { name: "game-installed", query: "scenario=returning", setup: async (p) => void (await goPicked(p, PLAYABLE)) },
+  { name: "game-not-installed", query: "scenario=returning", setup: async (p) => void (await goPicked(p, FRESH)) },
+  { name: "game-update", query: "scenario=returning", setup: async (p) => void (await goPicked(p, "g.installStatus==='installed'&&g.updateAvailable&&g.thirdParty==='none'")) },
+  { name: "game-broken", query: "scenario=returning", setup: async (p) => void (await goPicked(p, "g.installStatus==='broken'")) },
+  { name: "game-running", query: "scenario=playing", setup: async (p) => goGame(p) },
+  { name: "game-third-party", query: "scenario=returning", setup: async (p) => void (await goPicked(p, "g.installStatus==='installed'&&g.thirdParty!=='none'")) },
+  { name: "game-needs-activation", query: "scenario=returning", setup: async (p) => void (await goPicked(p, "g.installStatus==='installed'&&g.thirdParty==='ubisoft'")) },
+  { name: "game-save-conflict", query: "scenario=returning", setup: async (p) => void (await goPicked(p, "g.saveStatus==='conflict'")) },
+  { name: "game-dlc", query: "scenario=returning", setup: async (p) => void (await goPicked(p, "g.kind==='game'&&g.installStatus==='installed'&&g.dlcCount>0&&g.thirdParty==='none'")) },
+  { name: "game-loading", query: "scenario=returning&latency=40", setup: async (p) => goGame(p, "Fortnite"), settle: 120 },
+  { name: "game-not-found", query: "scenario=returning", setup: async (p) => goGame(p, "NoSuchGame") },
+  {
+    name: "dialog-save-conflict",
+    query: "scenario=returning",
+    setup: async (p) => {
+      const app = await goPicked(p, "g.saveStatus==='conflict'");
+      await wait(400);
+      await p.evaluate((a) => (window as unknown as { __glider: G }).__glider.ui.getState().openDialog({ kind: "saveConflict", appName: a }), app);
+      await wait(600);
+    },
+  },
+  {
+    name: "dialog-collection-new",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await go(p, "library");
+      await p.locator("[data-tile-index='3']").click({ button: "right" });
+      await wait(300);
+      await p.getByRole("menuitem", { name: /collection/i }).first().click();
+      await wait(400);
+    },
+  },
+
+  // ---------------------------------------------------------- library states
+  { name: "lib-loading", query: "scenario=returning&latency=60", setup: async (p) => go(p, "library"), settle: 60 },
+  { name: "lib-offline", query: "scenario=offline", setup: async (p) => go(p, "library") },
+  {
+    name: "lib-filter-menu",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await go(p, "library");
+      await p.getByRole("combobox", { name: "Filter" }).click();
+      await wait(350);
+    },
+  },
+  {
+    name: "lib-filter-updates",
+    query: "scenario=updates",
+    setup: async (p) => {
+      await go(p, "library");
+      await p.getByRole("combobox", { name: "Filter" }).click();
+      await p.getByRole("option", { name: /Updates available/ }).click();
+      await wait(400);
+    },
+  },
+  {
+    name: "lib-list-installed",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await go(p, "library");
+      await p.getByRole("radio", { name: "List view" }).click();
+      await p.getByRole("combobox", { name: "Filter" }).click();
+      await p.getByRole("option", { name: /^Installed/ }).click();
+      await wait(400);
+    },
+  },
+
+  // ----------------------------------------------------------------- store
+  { name: "store-opening", query: "scenario=returning&latency=40", setup: async (p) => go(p, "store"), settle: 150 },
+  { name: "store-loaded", query: "scenario=returning", setup: async (p) => go(p, "store"), settle: 1200 },
+  { name: "store-offline", query: "scenario=offline", setup: async (p) => go(p, "store"), settle: 900 },
+  { name: "store-signed-out", query: "scenario=authExpired", setup: async (p) => go(p, "store"), settle: 1200 },
 ];
 
 const NEEDS_GAME_PAGE = /^(library-|focus-library|focus-rail|toasts|dialog-(uninstall|move|error))/;
