@@ -141,7 +141,7 @@ public class CdnProbeTests
     [Fact]
     public async Task NeedsAChoiceAndEnoughChunks()
     {
-        var probe = new CdnProbe(new TestLog(), () => new FakeCdn(new Dictionary<string, Host>()));
+        var probe = new CdnProbe(new TestLog(), () => new FakeCdn(new Dictionary<string, Host>(), new ManualTimeProvider()));
         var ct = TestContext.Current.CancellationToken;
         Assert.Null(await probe.ProbeAsync(["https://only.example/x"], Paths, ct));
         Assert.Null(await probe.ProbeAsync(Epic(EpicHosts), [Paths[0]], ct));
@@ -179,18 +179,22 @@ public class CdnProbeTests
         Assert.Null(CdnProbe.FindManifest(dir.Path, "Nothing"));
     }
 
-    /// <summary>Cached manifest + CDN list on disk, fake CDN hosts and a fake Legendary whose first run stalls: the job restarts once on the next good CDN.</summary>
-    private static (FakeLegendaryEnv Env, LegendaryCli Cli) CliWithManifest(Dictionary<string, Host> hosts)
+    /// <summary>
+    /// Cached manifest + CDN list on disk, fake CDN hosts and a fake Legendary. With a <paramref name="clock"/> the CLI (stall
+    /// watchdog, probe) and the fake CDN run on virtual time that only moves when the test or a fake response moves it; without
+    /// one the stall timeout is a day, so a loaded machine can never read slow process start-up as a stall.
+    /// </summary>
+    private static (FakeLegendaryEnv Env, LegendaryCli Cli) CliWithManifest(Dictionary<string, Host> hosts, ManualTimeProvider? clock = null)
     {
         var env = new FakeLegendaryEnv();
         File.Copy(Path.Combine(Fixture.Dir, "manifest", "glider-test.manifest"), Path.Combine(env.Config, "manifests", "Game_Windows_1.0.manifest"));
         File.WriteAllText(Path.Combine(env.Config, "metadata", "Game.json"), "{\"app_name\":\"Game\",\"base_urls\":[" + string.Join(',', EpicHosts.Select(h => $"\"https://{h}/Builds/Fortnite/CloudDir\"")) + "]}");
         var cli = new LegendaryCli(env.Paths, env.Log, new LegendaryOptions
         {
-            StallTimeout = TimeSpan.FromSeconds(2),
+            StallTimeout = clock is null ? TimeSpan.FromDays(1) : TimeSpan.FromHours(2),
             Fork = false, // the stock exe fails over by restarting; the fork switches in place
-            CdnProbeHandler = () => new FakeCdn(hosts),
-        });
+            CdnProbeHandler = () => new FakeCdn(hosts, clock ?? new ManualTimeProvider()),
+        }, clock);
         return (env, cli);
     }
 
@@ -199,18 +203,34 @@ public class CdnProbeTests
     [Fact]
     public async Task AStalledDownloadRestartsOnceOnTheNextCdn()
     {
-        var (env, cli) = CliWithManifest(GoodHosts);
+        var clock = new ManualTimeProvider();
+        var (env, cli) = CliWithManifest(GoodHosts, clock);
         using var _ = env;
         using var __ = cli;
-        env.Script("install", "download chunks=100 files=10 mib=20 interval=10 stallat=50 spam", invocation: 1);
+        // The first run writes 5 of 10 files, then the "network drops": silence until the watchdog kills it.
+        env.Script("install", "download chunks=100 files=10 mib=20 interval=1 hangat=5", invocation: 1);
         env.Script("install", $$"""
             writefile {basepath}/Game/marker.txt x
-            download chunks=100 files=10 mib=20 interval=10
+            download chunks=100 files=10 mib=20 interval=1
             installed app=Game version=1.0 path={basepath}/Game
             err [cli] INFO: Finished installation process in 0.20 seconds.
             """, invocation: 2);
 
-        var outcome = await cli.InstallAsync(new InstallArgs("Game", InstallMode.Install, env.Root, 4, 1024, null), new Progress<LegendaryProgress>(), TestContext.Current.CancellationToken);
+        var atStall = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var progress = new Progress<LegendaryProgress>(p =>
+        {
+            if (p.Percent >= 50)
+            {
+                atStall.TrySetResult();
+            }
+        });
+        var install = cli.InstallAsync(new InstallArgs("Game", InstallMode.Install, env.Root, 4, 1024, null), progress, TestContext.Current.CancellationToken);
+
+        // Only now (5 files recorded, the last progress block seen, nothing more will ever arrive) does time move, once, past the
+        // stall timeout. The first run is killed and restarted; the single jump can't land on the second run.
+        await atStall.Task.WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
+        VirtualTime.Pass(clock, TimeSpan.FromHours(3));
+        var outcome = await install.WaitAsync(TimeSpan.FromSeconds(60), TestContext.Current.CancellationToken);
 
         Assert.True(outcome.Success, outcome.Error?.Detail);
         var installs = env.Invocations().Where(i => i.Command == "install").Select(i => i.Args).ToList();
@@ -218,6 +238,7 @@ public class CdnProbeTests
         Assert.Equal("egdownload.fastly-edge.com", installs[0][Array.IndexOf(installs[0], "--preferred-cdn") + 1]);
         Assert.Equal("epicgames-download1.akamaized.net", installs[1][Array.IndexOf(installs[1], "--preferred-cdn") + 1]);
         Assert.True(env.Log.Contains("cdn probe: pick=egdownload.fastly-edge.com"));
+        Assert.True(env.Log.Contains("No progress for"));
     }
 
     [Fact]
@@ -253,29 +274,38 @@ public class CdnProbeTests
         Assert.DoesNotContain("--base-url", LegendaryCli.InstallArguments(args with { BaseUrl = "file:///etc" }, true, 1024, false));
     }
 
-    private static Task<CdnPlan?> ProbeAsync(Dictionary<string, Host> hosts) =>
-        new CdnProbe(new TestLog(), () => new FakeCdn(hosts)) { TotalBudget = TimeSpan.FromSeconds(60), HostTimeout = TimeSpan.FromSeconds(30), BadTtfbMs = 800, WarmTimeout = TimeSpan.FromSeconds(20) }
+    /// <summary>The probe on virtual time: the fake CDN's latencies advance the clock, so real scheduling jitter can't change a verdict.</summary>
+    private static Task<CdnPlan?> ProbeAsync(Dictionary<string, Host> hosts)
+    {
+        var clock = new ManualTimeProvider();
+        return new CdnProbe(new TestLog(), () => new FakeCdn(hosts, clock), clock) { TotalBudget = TimeSpan.FromHours(1), HostTimeout = TimeSpan.FromMinutes(30), BadTtfbMs = 800, WarmTimeout = TimeSpan.FromMinutes(20) }
             .ProbeAsync(Epic(EpicHosts), Paths, TestContext.Current.CancellationToken);
+    }
 
     /// <summary>A CDN host: time to first byte, then a 1 MB body that arrives after <see cref="ReadDelayMs"/>; or an error.</summary>
     private sealed record Host(int Ttfb, int ReadDelayMs = 0, bool Fail = false);
 
-    private sealed class FakeCdn(Dictionary<string, Host> hosts) : HttpMessageHandler
+    /// <summary>
+    /// Latency is virtual: a response moves the shared clock by its time to first byte and its body by its read delay (no real
+    /// waiting). Parallel requests add up in a fixed way, so what the probe measures depends on the hosts, never on the machine.
+    /// </summary>
+    private sealed class FakeCdn(Dictionary<string, Host> hosts, ManualTimeProvider clock) : HttpMessageHandler
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            await Task.Yield();
             if (!hosts.TryGetValue(request.RequestUri!.Host, out var host) || host.Fail)
             {
-                await Task.Delay(5, cancellationToken);
+                VirtualTime.Pass(clock, TimeSpan.FromMilliseconds(5));
                 throw new HttpRequestException("connection refused");
             }
 
-            await Task.Delay(host.Ttfb, cancellationToken);
-            return new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StreamContent(new SlowStream(host.ReadDelayMs)) };
+            VirtualTime.Pass(clock, TimeSpan.FromMilliseconds(host.Ttfb));
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StreamContent(new SlowStream(host.ReadDelayMs, clock)) };
         }
     }
 
-    private sealed class SlowStream(int delayMs) : Stream
+    private sealed class SlowStream(int delayMs, ManualTimeProvider clock) : Stream
     {
         private int _reads;
 
@@ -297,7 +327,8 @@ public class CdnProbeTests
                 return 0;
             }
 
-            await Task.Delay(delayMs, cancellationToken);
+            await Task.Yield();
+            VirtualTime.Pass(clock, TimeSpan.FromMilliseconds(delayMs));
             var n = Math.Min(buffer.Length, 1_000_000);
             buffer.Span[..n].Clear();
             return n;
@@ -305,14 +336,40 @@ public class CdnProbeTests
     }
 }
 
+/// <summary>Virtual time shared by the fake CDNs and the tests that drive them (<see cref="ManualTimeProvider.Advance"/> is not thread-safe on its own).</summary>
+file static class VirtualTime
+{
+    public static void Pass(ManualTimeProvider clock, TimeSpan by)
+    {
+        lock (clock)
+        {
+            clock.Advance(by);
+        }
+    }
+}
+
 /// <summary>A host too slow to finish the warm-up is cut short, so one bad CDN can't eat the probe's whole time budget.</summary>
 public class CdnProbeWarmTimeoutTests
 {
-    private sealed class Handler(Dictionary<string, int> delayMs) : HttpMessageHandler
+    /// <summary>The slow host never answers: its requests wait until cancelled. Every other host answers after 5 virtual ms.</summary>
+    private sealed class Handler(ManualTimeProvider clock, string slowHost, TaskCompletionSource warmUpsInFlight) : HttpMessageHandler
     {
+        private int _slowRequests;
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            await Task.Delay(delayMs.GetValueOrDefault(request.RequestUri!.Host, 5), cancellationToken);
+            if (request.RequestUri!.Host == slowHost)
+            {
+                if (Interlocked.Increment(ref _slowRequests) == 4)
+                {
+                    warmUpsInFlight.TrySetResult(); // the whole warm-up (4 connections) is now stuck on this host
+                }
+
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+
+            await Task.Yield();
+            VirtualTime.Pass(clock, TimeSpan.FromMilliseconds(5));
             return new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new ByteArrayContent(new byte[100_000]) };
         }
     }
@@ -321,13 +378,20 @@ public class CdnProbeWarmTimeoutTests
     public async Task ASlowHostIsCutAtTheWarmTimeoutAndLeavesTimeForTheNext()
     {
         string[] paths = [.. Enumerable.Range(0, 8).Select(i => $"ChunksV4/00/{i:X16}_0000.chunk")];
-        var probe = new CdnProbe(new TestLog(), () => new Handler(new Dictionary<string, int> { ["slow.example"] = 5000 })) { WarmTimeout = TimeSpan.FromMilliseconds(300) };
+        var clock = new ManualTimeProvider();
+        var stuck = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var warm = TimeSpan.FromMilliseconds(300);
+        var probe = new CdnProbe(new TestLog(), () => new Handler(clock, "slow.example", stuck), clock) { WarmTimeout = warm };
+        var ct = TestContext.Current.CancellationToken;
+        var start = clock.GetTimestamp();
 
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        var plan = await probe.ProbeAsync(["https://slow.example/Builds/G/CloudDir", "https://fast.example/Builds/G/CloudDir"], paths, TestContext.Current.CancellationToken);
+        var run = probe.ProbeAsync(["https://slow.example/Builds/G/CloudDir", "https://fast.example/Builds/G/CloudDir"], paths, ct);
+        await stuck.Task.WaitAsync(TimeSpan.FromSeconds(60), ct); // the whole warm-up is waiting on the slow host
+        VirtualTime.Pass(clock, warm + TimeSpan.FromMilliseconds(1)); // exactly past the warm-up limit, well inside the 3 s host limit
+        var plan = await run.WaitAsync(TimeSpan.FromSeconds(60), ct);
 
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3), $"took {sw.Elapsed}");
-        Assert.Equal("slow", plan!.Find("slow.example")!.Verdict);
-        Assert.Equal("fast.example", plan.Pick?.Host);
+        Assert.Equal("slow", plan!.Find("slow.example")!.Verdict); // cut by the warm timeout (the host limit would say "failed")
+        Assert.Equal("fast.example", plan.Pick?.Host); // and the budget was still there for the next host
+        Assert.True(clock.GetElapsedTime(start) < TimeSpan.FromSeconds(1), $"virtual time spent: {clock.GetElapsedTime(start)}");
     }
 }
