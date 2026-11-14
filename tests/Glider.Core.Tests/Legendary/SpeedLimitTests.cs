@@ -114,7 +114,7 @@ public class SpeedLimitTests
             hang
             """);
         using var runner = new LegendaryProcessRunner(env.Paths, env.Log);
-        var control = new RunControl(DownloadMode.Full, speedLimitBytesPerSecond: 10_000_000);
+        var control = new RunControl(DownloadMode.Full); // starts unlimited: the machine's own capacity is measured first
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var run = runner.RunAsync(new LegendaryCommand(LegendaryCommandKind.Install, ["install", "Fortnite"])
         {
@@ -142,15 +142,22 @@ public class SpeedLimitTests
 
         try
         {
-            await MeasureAsync(3); // workers start, the writer is identified, the loop engages
-            await MeasureAsync(8); // settle
+            await MeasureAsync(3); // workers start, the writer is identified
+            // What this machine can move right now (about 40 MB/s when idle; less when it is busy running other tests). The limit
+            // is a quarter of it, so the claim "the limiter holds the rate at the limit" is the same on a fast and a loaded box.
+            var capacity = await MeasureAsync(3);
+            var limit = (long)Math.Min(10e6, capacity / 4);
+            Assert.True(limit > 500_000, $"capacity {capacity / 1e6:0.0} MB/s is too low to say anything | {env.Log.Tail(30)}");
+
+            control.Update(DownloadMode.Full, limit);
+            await MeasureAsync(8); // settle: the loop engages and converges
             var limited = await MeasureAsync(6);
-            Assert.True(limited is > 5e6 and < 16e6, $"limited {limited / 1e6:0.0} MB/s | {env.Log.Tail(30)}"); // 10 MB/s target; loopback unthrottled would be hundreds of MB/s
+            Assert.True(limited > 0.5 * limit && limited < 1.6 * limit, $"limited {limited / 1e6:0.0} MB/s, target {limit / 1e6:0.0} (capacity {capacity / 1e6:0.0}) | {env.Log.Tail(30)}");
 
             control.Update(DownloadMode.Full, null);
             await MeasureAsync(3);
             var free = await MeasureAsync(3);
-            Assert.True(free > 2 * limited, $"released rate {free / 1e6:0} MB/s should be far above the limited {limited / 1e6:0} MB/s");
+            Assert.True(free > 2 * limited, $"released rate {free / 1e6:0.0} MB/s should be far above the limited {limited / 1e6:0.0} MB/s");
         }
         finally
         {
