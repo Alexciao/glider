@@ -20,6 +20,7 @@ namespace FakeLegendary;
 ///   download chunks=N files=F mib=M interval=MS [app=A] [stallat=PCT] [spam] [writefail=K [diskfull|locked]]
 ///   verify files=N interval=MS [app=A] [corrupt=K] [missing=K] [locked=K]
 ///   installed version=V path=P [app=A] [tags=a,b] [needsverify]   |   uninstalled [app=A]
+///   refuseifinstalled [app=A]    "Game is already installed!" and exit 0 when installed.json has the app (real `import`)
 ///   writefile RELPATH TEXT | deletefile RELPATH
 /// </summary>
 internal static class Program
@@ -103,6 +104,15 @@ internal static class Program
                 case "verify": Verify(KeyValues(rest)); break;
                 case "installed": Installed(KeyValues(rest)); break;
                 case "uninstalled": Uninstalled(KeyValues(rest)); break;
+                case "refuseifinstalled":
+                    // real Legendary: `import` of a game it already has logs this and exits 0 (cli.py:1357)
+                    if (IsInstalled(App(KeyValues(rest))))
+                    {
+                        Err("[cli] ERROR: Game is already installed!");
+                        return 0;
+                    }
+
+                    break;
                 case "writefile":
                 {
                     var s2 = rest.IndexOf(' ');
@@ -333,6 +343,12 @@ internal static class Program
         Err("EOFError: EOF when reading a line");
         Err($"[PYI-{Environment.ProcessId}:ERROR] Failed to execute script 'cli' due to unhandled exception!");
         return 1;
+    }
+
+    private static bool IsInstalled(string app)
+    {
+        var file = Path.Combine(_config, "installed.json");
+        return File.Exists(file) && JsonNode.Parse(File.ReadAllText(file))!.AsObject().ContainsKey(app);
     }
 
     private static string App(Dictionary<string, string> kv) => kv.GetValueOrDefault("app", "Fortnite");
