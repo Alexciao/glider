@@ -1,15 +1,27 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook, screen, waitFor, within } from "@testing-library/react";
 import type { JobInfo } from "../../ipc/contract.gen";
 import { rpc } from "../../ipc/rpc";
 import { useRouter } from "../../state/router";
 import { useApp } from "../../state/store";
-import { installCleanStores, mount } from "../../test/harness";
+import { installCleanStores, mount as mountBase } from "../../test/harness";
 import { Dialogs } from "../dialogs/Dialogs";
 import { ActiveJobCard } from "./ActiveJobCard";
 import { Downloads, READY_MS, useReadyJob } from "./Downloads";
 
 installCleanStores();
+
+// Each mock keeps emitting progress for its jobs after its test ends; into the shared progress store that would
+// leak one scenario's phase into the next test's card (job ids repeat across scenarios). So every mount is stopped.
+const mounted: { controller: { dispose(): void } }[] = [];
+const mount: typeof mountBase = async (...args) => {
+  const m = await mountBase(...args);
+  mounted.push(m);
+  return m;
+};
+afterEach(() => {
+  for (const m of mounted.splice(0)) m.controller.dispose();
+});
 
 /** The card of the running job: a labelled region whose heading is the game's title. */
 const page = (
@@ -18,8 +30,10 @@ const page = (
     <Dialogs />
   </>
 );
+/** Under a loaded test run the mock's progress events can take a while to reach a freshly mounted card. */
+const SLOW = { timeout: 5000 };
 const card = async () => {
-  const bar = await screen.findByRole("progressbar", { name: /^(Preparing|Downloading|Installing|Checking|Verifying|Repairing|Moving|Finalizing|Removing|Importing|Starting)/ });
+  const bar = await screen.findByRole("progressbar", { name: /^(Preparing|Downloading|Installing|Checking|Verifying|Repairing|Moving|Finalizing|Removing|Importing|Starting)/ }, SLOW);
   return bar.closest("section") as HTMLElement;
 };
 
@@ -126,18 +140,18 @@ describe("the card, running", () => {
   it("a repair names how many files and keeps the download chart", async () => {
     const { user } = await mount("frozenRepairing", <Downloads />);
     const region = await card();
-    expect(region).toHaveTextContent(/Repairing \d+ files? · /);
+    await waitFor(() => expect(region).toHaveTextContent(/Repairing \d+ files? · /), SLOW);
     await user.click(within(region).getByRole("button", { name: /show details$/ }));
-    expect(within(region).getByRole("group", { name: /Download speed over time/ })).toBeInTheDocument();
+    expect(await within(region).findByRole("group", { name: /Download speed over time/ }, SLOW)).toBeInTheDocument();
   });
 
   it("installing still has a time left and a disk chart", async () => {
     const { user } = await mount("frozenInstalling", <Downloads />);
     const region = await card();
+    await waitFor(() => expect(region).toHaveTextContent(/Installing · /), SLOW);
     expect(within(region).getByText(/^left$/)).toBeInTheDocument();
-    expect(region).toHaveTextContent(/Installing · /);
     await user.click(within(region).getByRole("button", { name: /show details$/ }));
-    expect(within(region).getByRole("group", { name: /Disk write speed over time/ })).toBeInTheDocument();
+    expect(await within(region).findByRole("group", { name: /Disk write speed over time/ }, SLOW)).toBeInTheDocument();
   });
 
   it.each([
@@ -147,7 +161,7 @@ describe("the card, running", () => {
   ] as const)("%s says it in the headline, with no step line", async (scenario, text) => {
     await mount(scenario, <Downloads />);
     const region = await card();
-    expect(within(region).getByText(text)).toBeInTheDocument();
+    expect(await within(region).findByText(text, undefined, SLOW)).toBeInTheDocument();
     expect(region.textContent).not.toMatch(/ · /);
   });
 
