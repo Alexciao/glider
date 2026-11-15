@@ -201,6 +201,45 @@ describe("scenarios", () => {
     expect(s.library.syncError).not.toBeNull();
   });
 
+  it("errors: the space failure names its need and drive, and that drive really is short, so the row can compare", async () => {
+    const h = setup({ scenario: "errors" });
+    const s = await h.snapshot();
+    const space = jobsOf(s).find((j) => j.error?.code === "insufficientSpace")!;
+    expect(space.error!.requiredBytes).toBeGreaterThan(0);
+    expect(space.error!.drive).toMatch(/^[A-Z]:$/);
+    const drive = s.storage.drives.find((d) => d.root.startsWith(space.error!.drive!))!;
+    expect(drive.freeBytes).toBeLessThan(space.error!.requiredBytes!);
+    // Freeing space outside Glider shows up in the next snapshot.
+    h.controller.setFreeSpace(space.error!.drive![0]!, space.error!.requiredBytes! * 3);
+    expect((await h.snapshot()).storage.drives.find((d) => d.root.startsWith(space.error!.drive!))!.freeBytes).toBe(space.error!.requiredBytes! * 3);
+  });
+
+  it("retrying a space failure that still doesn't fit fails again at once with the numbers as they are now; once it fits, it runs", async () => {
+    const h = setup({ scenario: "errors", freeze: true });
+    const space = jobsOf(await h.snapshot()).find((j) => j.error?.code === "insufficientSpace")!;
+    const again = await h.call("jobs.resume", { jobId: space.id });
+    expect(again.status).toBe("failed");
+    expect(again.error!.code).toBe("insufficientSpace");
+    expect(again.error!.requiredBytes).toBe(space.error!.requiredBytes);
+    expect(jobsOf(await h.snapshot()).filter((j) => j.id === space.id)).toHaveLength(1);
+    h.controller.setFreeSpace(space.error!.drive![0]!, space.error!.requiredBytes! * 3);
+    const ok = await h.call("jobs.resume", { jobId: space.id });
+    expect(["queued", "running"]).toContain(ok.status);
+  });
+
+  it("a new task for the same game and kind replaces its failure; Update all leaves a failed update to its own retry", async () => {
+    const h = setup({ scenario: "errors", freeze: true });
+    const s = await h.snapshot();
+    const failedUpdate = jobsOf(s).find((j) => j.status === "failed" && j.kind === "update")!;
+    const all = await h.call("library.updateAll");
+    expect(all.jobs.some((j) => j.appName === failedUpdate.appName)).toBe(false);
+    // Starting the same update by hand replaces the failure.
+    await h.call("game.update", { appName: failedUpdate.appName });
+    const after = jobsOf(await h.snapshot());
+    expect(after.some((j) => j.id === failedUpdate.id)).toBe(false);
+    expect(after.filter((j) => j.appName === failedUpdate.appName && j.kind === "update")).toHaveLength(1);
+  });
+
   it.each([
     ["frozenPreparing", "preparing"],
     ["frozenVerifying", "verifying"],
@@ -889,7 +928,8 @@ describe("jobs: lifecycle and queue", () => {
     await h.call("jobs.dismiss", { jobId: active(s)[0]!.id }); // an unfinished job is ignored, not an error
     expect(active(await h.snapshot()).some((j) => j.id === active(s)[0]!.id)).toBe(true);
     const cleared = await h.call("queue.clearFinished");
-    expect(cleared.jobs.every((j) => ["running", "queued", "paused", "waiting"].includes(j.status))).toBe(true);
+    // Clear all clears finished work, but a failure stays until it succeeds or is dismissed on its own.
+    expect(cleared.jobs.every((j) => ["running", "queued", "paused", "waiting", "failed"].includes(j.status))).toBe(true);
   });
 
   it("cancellable follows Core: a running move is cancellable only while it copies across volumes; an uninstall never", async () => {
