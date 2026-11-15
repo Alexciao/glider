@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import type { JobInfo, QueueState } from "../../ipc/contract.gen";
 import { rpc } from "../../ipc/rpc";
@@ -69,6 +69,30 @@ describe("Downloads while a game runs, and offline", () => {
     expect(status).toHaveTextContent("You're offline. Downloads continue when you're back.");
     expect(within(status).queryByRole("button")).toBeNull();
     expect(useApp.getState().snapshot!.queue.holdReason).toBe("Waiting for an internet connection");
+  });
+});
+
+describe("free space after coming back from Explorer", () => {
+  it("is read on focus and once more right after Core's 10 s drive cache expires", async () => {
+    await mount("errors", <Downloads />);
+    await screen.findByRole("region", { name: "Couldn't finish" });
+    const call = vi.spyOn(rpc(), "call");
+    const reads = () => call.mock.calls.filter((c) => c[0] === "app.getSnapshot").length;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      act(() => void window.dispatchEvent(new Event("focus")));
+      expect(reads()).toBe(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(9_000);
+      });
+      expect(reads()).toBe(1); // the cache still holds the old number
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(reads()).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -363,6 +363,20 @@ const RAW_STATES: ShotState[] = [
     },
     settle: 0,
   },
+  {
+    // A queue failing for one reason says it once: three identical failures are one toast that counts them.
+    name: "toasts-merged",
+    query: "scenario=returning",
+    live: true,
+    setup: async (p) => {
+      await wait(700);
+      await g(p, (h) => {
+        for (const id of ["job-a", "job-b", "job-c"]) h.mock.emitNotice({ level: "error", title: "Can't reach Epic", message: "Check your internet connection. Progress is kept.", action: "retry", jobId: id });
+      });
+      await wait(900);
+    },
+    settle: 0,
+  },
 
   {
     name: "focus-library-play",
