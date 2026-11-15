@@ -72,8 +72,9 @@ re-downloads), then install, update, repair and play without opening the Epic Ga
 2. **SmartScreen**: the build isn't code-signed, so Windows may say "Windows protected your PC". Click **More info →
    Run anyway**. Glider installs per-user (no admin) into `%LocalAppData%\Glider` and adds a Start menu shortcut. If the
    WebView2 runtime is missing, the installer fetches it.
-3. **Upgrading from v0.1**: run the v0.2 `Setup.exe`; it installs over v0.1 in place. This repository is private, so the
-   built-in updater of v0.1 probably can't see the release. Your sign-in, Fortnite install, settings and playtime carry
+3. **Updates are automatic**: Glider checks this repository's releases about a minute after it starts and every 12
+   hours, downloads quietly and installs when you close it. To upgrade right away, run the new `Setup.exe` and choose
+   **Update**. From v0.1, your sign-in, Fortnite install, settings and playtime carry
    over, and your v0.1 files are copied to `%LocalAppData%\GliderData\backups\migration\` first. See the
    [v0.2.0 release notes](docs/release-notes-v0.2.0.md).
 

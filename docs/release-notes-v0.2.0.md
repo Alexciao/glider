@@ -5,15 +5,17 @@ have (nothing re-downloads), then install, update, repair, launch and keep saves
 
 ## Upgrade from v0.1
 
-The repository is private, so v0.1's built-in updater most likely can't see this release. Update by hand:
+**Automatic:** a running v0.1 finds this release by itself (about a minute after it starts, then every 12 hours),
+downloads it quietly and installs it the next time you close Glider. Nothing to click.
 
-1. Download `Glider-win-Setup.exe` from the v0.2.0 release and run it. It installs **in place** over v0.1 (per-user, no
-   admin). Windows SmartScreen may warn because the build isn't code-signed: **More info → Run anyway**.
-2. Start Glider. On the first start it moves its data from `%LocalAppData%\Glider` to `%LocalAppData%\GliderData`, then
-   converts your v0.1 files. You stay signed in, Fortnite stays installed, and your settings, playtime and launch
-   arguments carry over.
-3. Backups are kept: the v0.1 files are copied to `%LocalAppData%\GliderData\backups\migration\v0.1-<timestamp>\` before
-   anything is converted, and the v0.1 files themselves are never deleted.
+**Right now, by hand:** download `Glider-win-Setup.exe` from this release and run it. Glider's installer sees v0.1 and
+asks once; choose **Update**. It installs in place (per-user, no admin). Windows SmartScreen may warn because the build
+isn't code-signed: **More info → Run anyway**.
+
+Either way, on the first start v0.2 moves its data from `%LocalAppData%\Glider` to `%LocalAppData%\GliderData`, then
+converts your v0.1 files. You stay signed in, Fortnite stays installed, and your settings, playtime and launch arguments
+carry over. The v0.1 files are copied to `%LocalAppData%\GliderData\backups\migration\v0.1-<timestamp>\` before anything
+is converted and are never deleted.
 
 If the data folder can't be moved at the first start (a leftover process still holds a file), Glider runs on the old
 folder and tries again at the next start. Nothing is half moved.

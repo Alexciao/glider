@@ -58,5 +58,8 @@ jobs:
           if (-not ($files | Where-Object { $_ -like '*releases.win.json' })) { throw 'releases.win.json missing' }
           $flags = @()
           if ($env:VERSION -match '-') { $flags += '--prerelease' }
-          gh release create $env:REF_NAME @files --title "Glider $env:VERSION" --generate-notes --verify-tag @flags
+          # Hand-written notes when docs/release-notes-<version>.md exists, GitHub's generated list otherwise.
+          $notesFile = "docs/release-notes-v$env:VERSION.md"
+          if (Test-Path $notesFile) { $flags += @('--notes-file', $notesFile) } else { $flags += '--generate-notes' }
+          gh release create $env:REF_NAME @files --title "Glider $env:VERSION" --verify-tag @flags
           if ($LASTEXITCODE -ne 0) { throw "gh release create failed ($LASTEXITCODE)" }
