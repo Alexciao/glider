@@ -95,6 +95,52 @@ internal sealed class StoreService : IDisposable
         Error = Errors.NotAvailableYet("The Store view isn't available in this build. Use \"Open in browser\"."),
     };
 
+    // ------------------------------------------------------------------ warm-up
+
+    /// <summary>The Store is warmed this long after sign-in is seen, so it never competes with the first library paint.</summary>
+    internal static readonly TimeSpan WarmDelay = TimeSpan.FromSeconds(6);
+
+    private int _warmArmed;
+
+    /// <summary>
+    /// Once the account is signed in (now or later), asks the host to create its hidden Store view and load the Store a few seconds
+    /// on. Fire-and-forget at low priority: a failure is logged by the host and the tab simply opens the way it always did.
+    /// </summary>
+    public void WarmWhenSignedIn()
+    {
+        void Check()
+        {
+            if (_c.Hub.State.Auth.Status != AuthStatus.SignedIn || Interlocked.Exchange(ref _warmArmed, 1) == 1)
+            {
+                return;
+            }
+
+            _c.Hub.StateChanged -= OnHub;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(WarmDelay, _c.Time, _cts.Token).ConfigureAwait(false);
+                    if (Host is { } host && _c.Hub.State.Auth.Status == AuthStatus.SignedIn)
+                    {
+                        await host.WarmAsync().ConfigureAwait(false);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                catch (Exception e)
+                {
+                    _c.Log.Warn(Category, "warming the Store failed", e);
+                }
+            });
+        }
+
+        void OnHub(HubState _) => Check();
+        _c.Hub.StateChanged += OnHub;
+        Check();
+    }
+
     // ------------------------------------------------------------------ RPCs
 
     public async Task<StoreState> ShowAsync(StoreShowRequest request)
@@ -259,26 +305,41 @@ internal sealed class StoreService : IDisposable
 
     private DateTimeOffset _lastMint = DateTimeOffset.MinValue;
 
+    /// <summary>Epic throttles the exchange call: mints are at least this far apart.</summary>
+    internal static readonly TimeSpan MintSpacing = TimeSpan.FromSeconds(10);
+
     /// <summary>
-    /// A fresh web exchange code for the Store's single sign-on. Rate-limited (one per 10 s: Epic throttles this call), never
-    /// logged, never kept. Null when signed out or when Legendary/Epic refuse.
+    /// A fresh web exchange code for the Store's single sign-on. Spaced (one per 10 s: Epic throttles this call): a mint that comes
+    /// sooner waits out the gap instead of failing, so a second sign-in attempt right after the warm-up's is not a guaranteed
+    /// miss. Never logged, never kept. Null when signed out, cancelled, or when Legendary/Epic refuse.
     /// </summary>
     private async Task<string?> MintExchangeCodeAsync(CancellationToken ct)
     {
-        lock (_lock)
-        {
-            var now = _c.Time.GetUtcNow();
-            if (now - _lastMint < TimeSpan.FromSeconds(10))
-            {
-                return null;
-            }
-
-            _lastMint = now;
-        }
-
         if (_c.Hub.State.Auth.Status != AuthStatus.SignedIn)
         {
             return null;
+        }
+
+        TimeSpan wait;
+        lock (_lock)
+        {
+            var now = _c.Time.GetUtcNow();
+            var earliest = _lastMint + MintSpacing;
+            wait = earliest > now ? earliest - now : TimeSpan.Zero;
+            _lastMint = now + wait; // reserved: a concurrent mint queues behind this one
+        }
+
+        if (wait > TimeSpan.Zero)
+        {
+            _c.Log.Info(Category, $"web exchange code: waiting {wait.TotalSeconds:0.#} s (Epic spaces these calls)");
+            try
+            {
+                await Task.Delay(wait, _c.Time, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return null;
+            }
         }
 
         try

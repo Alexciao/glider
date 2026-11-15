@@ -212,6 +212,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _c.Art.PlaceholdersChanged += () => _c.Library.Invalidate();
         _c.Hub.Mutate(s => s with { Loaded = true });
         _c.Hub.PublishNow();
+        _store.WarmWhenSignedIn();
 
         var ct = _shutdown.Token;
         if (_c.Options.WarmSerializers)

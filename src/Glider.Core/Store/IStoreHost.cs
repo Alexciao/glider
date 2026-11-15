@@ -47,6 +47,13 @@ public interface IStoreHost
     /// <summary>Hide under an HTML modal (a snapshot stands in) or restore.</summary>
     Task<StoreState> SetCoveredAsync(bool covered);
 
+    /// <summary>
+    /// Creates the view hidden and loads the Store (restoring the web session first when it is missing) in the background, so the
+    /// first <see cref="ShowAsync"/> finds a page that is already there. Idempotent; failures are logged, never shown. Core calls it
+    /// once, a few seconds after sign-in, at low priority.
+    /// </summary>
+    Task WarmAsync() => Task.CompletedTask;
+
     /// <summary>Opens the current sanitized Store URL in the default browser.</summary>
     void OpenInBrowser();
 
