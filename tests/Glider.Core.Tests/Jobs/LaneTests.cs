@@ -351,6 +351,24 @@ public class LaneTests
     }
 
     [Fact]
+    public async Task ClearFinished_KeepsAJobWhoseOutcomeSaysItFailed()
+    {
+        var (h, l) = Harness();
+        await using var _ = h;
+        var q = await h.StartAsync(Options());
+        var ok = q.Enqueue(Repair("A"));
+        var reported = q.Enqueue(Repair("B"));
+        await QueueHarness.WaitForStatus(q, ok.Id, JobStatus.Completed);
+        await QueueHarness.WaitForStatus(q, reported.Id, JobStatus.Completed);
+        q.SetOutcome(reported.Id, new JobOutcome(OutcomeKind.Failed, "Legendary didn't register the install."));
+
+        q.ClearFinished();
+
+        var left = Assert.Single(q.Snapshot());
+        Assert.Equal(reported.Id, left.Id); // Completed, but still something the person has to look at
+    }
+
+    [Fact]
     public async Task DlcJobs_InstallIntoTheBaseFolder_AndEveryRunIsSpawnedThroughTheResourcePolicy()
     {
         var resources = new RecordingResources();

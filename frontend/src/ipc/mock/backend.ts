@@ -2000,8 +2000,8 @@ export class MockBackend {
       return this.queueState();
     },
     "queue.clearFinished": async () => {
-      // Failures stay: they leave by succeeding or by being dismissed on their own.
-      this.finished = this.finished.filter((j) => j.status === "failed");
+      // Failures stay: they leave by succeeding or by being dismissed on their own (an outcome that says failed counts, like Core's).
+      this.finished = this.finished.filter((j) => j.status === "failed" || j.outcome?.kind === "failed");
       this.emitState();
       return this.queueState();
     },
