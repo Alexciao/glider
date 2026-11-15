@@ -260,8 +260,11 @@ internal sealed class ConnectivityMonitor : IDisposable
         }
     }
 
-    private void OnHubChanged(HubState state)
+    private void OnHubChanged(HubState _)
     {
+        // Notifications from concurrent Mutate calls can arrive out of order, each carrying its own snapshot: a stale one could
+        // undo a transition and swallow CameOnline (leaving held downloads waiting). Always judge the hub's current state.
+        var state = _c.Hub.State;
         bool cameOnline;
         lock (_gate)
         {
