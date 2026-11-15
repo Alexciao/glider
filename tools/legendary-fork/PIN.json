@@ -4,5 +4,5 @@
   "commit": "42f6bdeadde3a9526dc8eb713763476999ac217b",
   "patch": "tools/bench/legendary-0.21.1-glider.patch",
   "patchSha256": "733840607c372ea2c5b0e6c7cc48675baa224217874360f91a06810f6d9eea1a",
-  "forkVersion": "0.21.1-glider.2"
+  "forkVersion": "0.21.1-glider.3"
 }

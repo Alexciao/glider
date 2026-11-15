@@ -1,0 +1,35 @@
+# UTF-8
+#
+# Windows version resource for the Glider fork of Legendary (PyInstaller --version-file).
+# Placeholders are filled in by .github/workflows/legendary-fork.yml from PIN.json: @VERSION_TUPLE@ is "0, 21, 1, 3" and
+# @VERSION_STRING@ is "0.21.1.3". Real company/product/copyright metadata keeps Defender's ML heuristics from scoring the exe as an
+# anonymous, unidentified self-extractor.
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(@VERSION_TUPLE@),
+    prodvers=(@VERSION_TUPLE@),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+      StringTable(
+        '040904B0',
+        [StringStruct('CompanyName', 'Glider (fork of Legendary)'),
+        StringStruct('FileDescription', 'Legendary - open source Epic Games Launcher alternative (Glider fork)'),
+        StringStruct('FileVersion', '@VERSION_STRING@'),
+        StringStruct('InternalName', 'legendary'),
+        StringStruct('LegalCopyright', 'GPLv3. Copyright (C) Legendary contributors and Glider contributors.'),
+        StringStruct('OriginalFilename', 'legendary.exe'),
+        StringStruct('ProductName', 'Legendary (Glider fork)'),
+        StringStruct('ProductVersion', '@VERSION_STRING@'),
+        StringStruct('Comments', 'https://github.com/Alexciao/glider - corresponding source and patch are published with each release')])
+      ]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)
