@@ -1,8 +1,8 @@
 {
   "version": "0.21.1-glider.3",
   "url": "https://github.com/Alexciao/glider/releases/download/legendary-fork-0.21.1-glider.3/legendary-0.21.1-glider.3-win64.zip",
-  "sha256": "b0411c62b42f0474f93ad8c2b7e5082d64de7f79ea21d8594a266a9046e3bd3d",
-  "exeSha256": "43278dcd79fadf1c7856375f919427494c59e229b455fff971062696ff1f1abb",
+  "sha256": "3fc94567f88b704c7096c3bd4ce39b28c0000a81bd48af7fc1e0b8524f29b3f8",
+  "exeSha256": "97c43dfcf1cc304f4218d7906767986b7644b7981f19edef8436e32de7cb27ab",
   "license": "GPL-3.0",
   "source": "https://github.com/Alexciao/glider/releases/download/legendary-fork-0.21.1-glider.3/legendary-0.21.1-glider.3-source.tar.gz",
   "licenseUrl": "https://raw.githubusercontent.com/legendary-gl/legendary/0.21.1/LICENSE",

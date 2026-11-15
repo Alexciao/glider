@@ -73,7 +73,7 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
     /// SHA-256 of the bundled legendary.exe 0.21.1-glider.3, the Glider fork (build/legendary.json "exeSha256"; a test keeps them equal).
     /// Only the exe is hashed: it is PyInstaller's bootloader, and the onedir folder's <c>_internal/</c> next to it is covered by the zip's hash at build time.
     /// </summary>
-    public const string PinnedSha256 = "43278dcd79fadf1c7856375f919427494c59e229b455fff971062696ff1f1abb";
+    public const string PinnedSha256 = "97c43dfcf1cc304f4218d7906767986b7644b7981f19edef8436e32de7cb27ab";
 
     private readonly AppPaths _paths;
     private readonly ILog _log;
