@@ -40,7 +40,7 @@ describe("rowResult and resultPhrase", () => {
 
   it("reads the outcome: ready, a failure with a short reason", () => {
     const ok = job({ outcome: { kind: "success", message: "x" } });
-    expect(resultPhrase(rowResult(ok))).toBe("Ready");
+    expect(resultPhrase(rowResult(ok))).toBe(""); // the headline says ready; rows only label exceptions
 
     const failed = job({ status: "failed", error: err("filesLocked") });
     expect(resultPhrase(rowResult(failed))).toBe("Failed · folder in use");
@@ -58,7 +58,7 @@ describe("rowResult and resultPhrase", () => {
     });
 
     it("passed: Ready; repaired on its own: Repaired · n files", () => {
-      expect(resultPhrase(rowResult(verifying, verifyJob({ verify: report(0, 0, true) })))).toBe("Ready");
+      expect(resultPhrase(rowResult(verifying, verifyJob({ verify: report(0, 0, true) })))).toBe("");
       expect(resultPhrase(rowResult(verifying, verifyJob({ verify: report(12, 12, true) })))).toBe("Repaired · 12 files");
       expect(resultPhrase(rowResult(verifying, verifyJob({ verify: report(1, 1, true) })))).toBe("Repaired · 1 file");
     });

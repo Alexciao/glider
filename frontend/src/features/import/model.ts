@@ -183,7 +183,7 @@ export function shortFailure(error: GliderError | null, message: string | null):
   return t.length > 0 && t.length <= 28 ? t.charAt(0).toLowerCase() + t.slice(1) : "see logs";
 }
 
-/** The short phrase beside a game in the results: "Ready", "Checking files", "Repaired · 12 files", "Needs repair · 12 files", "Failed · folder in use". */
+/** The short phrase beside a game in the results: nothing when it is simply ready (the headline says so), "Checking files", "Repaired · 12 files", "Needs repair · 12 files", "Failed · folder in use". */
 export function resultPhrase(result: RowResult): string {
   const files = `${result.files} ${result.files === 1 ? "file" : "files"}`;
   switch (result.state) {
@@ -194,7 +194,7 @@ export function resultPhrase(result: RowResult): string {
     case "checking":
       return "Checking files";
     case "imported":
-      return result.files > 0 ? `Repaired · ${files}` : "Ready";
+      return result.files > 0 ? `Repaired · ${files}` : ""; // "8 games ready" above already says it; only exceptions get a label
     case "needsRepair":
       return result.files > 0 ? `Needs repair · ${files}` : "Needs repair";
     case "failed":

@@ -98,7 +98,7 @@ function Result({ row, onRetry }: { row: ImportRowModel; onRetry: () => void }) 
         </span>
       );
     case "imported":
-      return <span className="shrink-0 text-xs text-fg-muted">{phrase}</span>;
+      return phrase ? <span className="shrink-0 text-xs text-fg-muted">{phrase}</span> : <span className="sr-only">Ready</span>;
     case "needsRepair":
       return <RepairResult appName={row.install.appName} title={row.install.title} phrase={phrase} />;
     case "failed":
