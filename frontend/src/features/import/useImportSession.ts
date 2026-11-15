@@ -5,7 +5,7 @@ import { useLibrary } from "../../state/library";
 import { useApp } from "../../state/store";
 import { useUi, usePending, type ErrorSurface } from "../../state/ui";
 import { useImportBatch, wireImportBatch, type BatchItem } from "./batch";
-import { groupInstalls, rowResult, summarize, sumBytes, type BatchSummary, type InstallGroups, type RowResult } from "./model";
+import { groupInstalls, rowResult, summarize, sumBytes, verifyJobFor, type BatchSummary, type InstallGroups, type RowResult } from "./model";
 
 export type ImportPhase =
   /** Library sync or the scan is still running: nothing honest to list yet. */
@@ -22,6 +22,8 @@ export type ImportPhase =
 export interface ImportRowModel {
   install: EglInstall;
   job: JobInfo | null;
+  /** The check Core queued after this import (null until it exists, or when none was needed). */
+  verify: JobInfo | null;
   result: RowResult;
 }
 
@@ -67,6 +69,7 @@ export function useImportSession(surface: ErrorSurface = "onboarding"): ImportSe
   const libraryReady = useLibrary((s) => s.loaded);
   const items = useImportBatch((s) => s.items);
   const finished = useImportBatch((s) => s.finished);
+  const verified = useImportBatch((s) => s.verified);
   const starting = usePending("import");
   const picking = usePending("pick");
   const validating = usePending("validate");
@@ -81,10 +84,12 @@ export function useImportSession(surface: ErrorSurface = "onboarding"): ImportSe
     () =>
       items.map((item) => {
         const job = item.jobId ? (finished[item.jobId] ?? jobs.find((j) => j.id === item.jobId) ?? null) : null;
-        const result: RowResult = item.jobId === null ? { state: "failed", message: "Glider couldn't start this import.", error: null } : rowResult(job);
-        return { install: item.install, job, result };
+        // The snapshot's copy of a job is the freshest; the batch store remembers the ones it has already dropped.
+        const verify = verifyJobFor(job, [...Object.values(verified), ...jobs]);
+        const result: RowResult = item.jobId === null ? { state: "failed", message: "Glider couldn't start this import.", error: null, files: 0 } : rowResult(job, verify);
+        return { install: item.install, job, verify, result };
       }),
-    [items, finished, jobs],
+    [items, finished, verified, jobs],
   );
   const summary = useMemo(() => summarize(rows.map((r) => r.result.state)), [rows]);
 

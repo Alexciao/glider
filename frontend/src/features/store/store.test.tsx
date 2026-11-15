@@ -13,10 +13,11 @@ import { roundBounds, sameBounds, useNativeBounds } from "./useNativeBounds";
 
 let stop: (() => void) | undefined;
 
-async function mountStore(hold = false) {
+async function mountStore(hold = false, signedOut = false) {
   const { client, controller } = mockClient("returning");
   setRpcForTests(client, controller);
   stop = await startBridge();
+  if (signedOut) await rpc().call("auth.signOut");
   const original = rpc().call.bind(rpc()) as (m: string, p: unknown) => Promise<unknown>;
   const call = vi.spyOn(rpc(), "call");
   let release = () => {};
@@ -153,6 +154,12 @@ describe("StorePage", () => {
     await waitFor(() => expect(callsTo(call, "store.setCovered").at(-1)![1]).toEqual({ covered: false }));
   });
 
+  it("signed out: one Open in browser (the fallback's), not a second one in the toolbar", async () => {
+    await mountStore(false, true);
+    expect(await screen.findByText("Sign in to use the Store")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Open in browser" })).toHaveLength(1);
+  });
+
   it("offers retry and the browser when the page can't load", async () => {
     const { call, original } = await mountStore();
     await screen.findByText("store.epicgames.com", {}, { timeout: 4000 });
@@ -160,6 +167,6 @@ describe("StorePage", () => {
       method === "store.show" ? Promise.reject(new Error("boom")) : original(method, p)) as never);
     act(() => navigate(storeRoute({ kind: "wishlist", slug: null })));
     expect(await screen.findByText("The Store didn't load")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /Open in browser/ }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /Open in browser/ })).toHaveLength(1); // the fallback's; the toolbar's steps aside
   });
 });

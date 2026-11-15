@@ -100,10 +100,12 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _saves.Launcher = (r, ct) => _launch.LaunchAsync(r, ct);
         _launch.Saves = _saves;
         _c.WhenSavesIdle = _saves.WhenIdleAsync;
+        _network.Changed += () => _c.Jobs.Reevaluate(); // offline holds the queue, online releases it (QueuePolicy.HoldReason)
         _network.CameOnline += () =>
         {
             _updates.OnCameOnline();
             _saves.ReplayPending();
+            ResumeNetworkCasualties();
         };
         _freeGames = new Store.FreeGamesService(paths, log, time, () => _c.Library.Games.Values.ToList(), events, options.FreeGames);
         _store = new Store.StoreService(_c, events, (r, ct) => _launch.LaunchAsync(r, ct));
@@ -228,6 +230,63 @@ public sealed class GliderService : IGliderRpc, IDisposable
             _freeGames.Start();
         }
         return Task.CompletedTask;
+    }
+
+    private readonly Dictionary<string, int> _networkResumes = [];
+
+    /// <summary>A job that failed for lack of a connection is resumed at most this many times by "Epic is back".</summary>
+    internal const int MaxNetworkResumes = 3;
+
+    /// <summary>A download usually fails a little before Glider notices it is offline.</summary>
+    private static readonly TimeSpan OfflineSpellSlack = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// Epic is reachable again: resume the jobs the outage itself failed (a network or download-server error that ended during the
+    /// offline spell), each at most <see cref="MaxNetworkResumes"/> times. A job the user dismissed is gone from the queue; one that
+    /// failed for any other reason, or before the spell, stays in "Couldn't finish" for the user to retry. A queue the user paused
+    /// stays paused (resuming one job would resume the queue).
+    /// </summary>
+    private void ResumeNetworkCasualties()
+    {
+        if (_network.OfflineSince is not { } since || _c.Jobs.Paused)
+        {
+            return;
+        }
+
+        var from = since - OfflineSpellSlack;
+        foreach (var job in _c.Jobs.Snapshot())
+        {
+            if (job.Status != JobStatus.Failed || job.Error?.Code is not (ErrorCode.Network or ErrorCode.CdnUnavailable) || job.FinishedAt is not { } finished || finished < from)
+            {
+                continue;
+            }
+
+            lock (_networkResumes)
+            {
+                _networkResumes.TryGetValue(job.Id, out var n);
+                if (n >= MaxNetworkResumes)
+                {
+                    continue;
+                }
+
+                _networkResumes[job.Id] = n + 1;
+            }
+
+            _c.Log.Info("connectivity", $"resuming {job.Kind} {job.AppName} ({job.Id}), which failed while offline");
+            _ = ResumeAfterOutageAsync(job.Id);
+        }
+    }
+
+    private async Task ResumeAfterOutageAsync(string jobId)
+    {
+        try
+        {
+            await _c.Jobs.ResumeAsync(jobId);
+        }
+        catch (Exception e)
+        {
+            _c.Log.Debug("connectivity", $"job {jobId} was not resumed: {e.Message}"); // dismissed or already running again
+        }
     }
 
     /// <summary>

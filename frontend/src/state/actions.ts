@@ -438,6 +438,8 @@ export const actions = {
         return job.targetPath ? actions.move(job.appName, dirname(job.targetPath)) : Promise.resolve();
       case "overlay":
         return run("overlay", () => rpc().call("overlay.install"), asToast());
+      case "import":
+        return job.targetPath ? actions.importFolder(job.targetPath, "auto", "downloads") : Promise.resolve();
       default:
         return actions.checkForUpdates();
     }

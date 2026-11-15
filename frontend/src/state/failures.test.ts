@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GliderError, JobInfo, StorageState } from "../ipc/contract.gen";
-import { failedJobsOf, failedMeta, failureActions, failureMessage, freeOnDrive, hasSpaceFailure, pastJobsOf, spaceNeedOf, updatesToOffer } from "./failures";
+import { failedJobsOf, failedMeta, isFailed, failureActions, failureMessage, freeOnDrive, hasSpaceFailure, pastJobsOf, spaceNeedOf, updatesToOffer } from "./failures";
 import { FIX_LABELS } from "./ui";
 
 const GB = 1024 ** 3;
@@ -54,10 +54,24 @@ const storage = (freeD: number | null): Pick<StorageState, "drives" | "folders">
 const actionsOf = (job: JobInfo, st = storage(0.9 * GB)) => failureActions(job, spaceNeedOf(job, st), FIX_LABELS);
 
 describe("failed jobs and history", () => {
-  const jobs = [failed({ id: "a" }), failed({ id: "b", status: "completed", error: null }), failed({ id: "c", status: "cancelled", error: null }), failed({ id: "d", status: "running", error: null })];
+  const jobs = [
+    failed({ id: "a" }),
+    failed({ id: "b", status: "completed", error: null, outcome: null }),
+    failed({ id: "c", status: "cancelled", error: null, outcome: null }),
+    failed({ id: "d", status: "running", error: null, outcome: null }),
+  ];
   it("failures leave History: it lists only completed and canceled jobs", () => {
     expect(failedJobsOf(jobs).map((j) => j.id)).toEqual(["a"]);
     expect(pastJobsOf(jobs).map((j) => j.id)).toEqual(["b", "c"]);
+  });
+
+  it("a job that ran to the end but whose outcome says it failed counts as a failure, not as history", () => {
+    // An import Legendary didn't register: status stays `completed`, the outcome is `failed`.
+    const notRegistered = failed({ id: "e", kind: "import", status: "completed", error: null, outcome: { kind: "failed", message: "Legendary didn't register the install." } });
+    expect(isFailed(notRegistered)).toBe(true);
+    expect(failedJobsOf([notRegistered, ...jobs]).map((j) => j.id)).toEqual(["e", "a"]);
+    expect(pastJobsOf([notRegistered, ...jobs]).map((j) => j.id)).toEqual(["b", "c"]);
+    expect(failureMessage(notRegistered, null)).toBe("Legendary didn't register the install.");
   });
 });
 

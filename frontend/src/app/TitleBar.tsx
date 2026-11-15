@@ -2,6 +2,7 @@ import { useState } from "react";
 import { LogIn, LogOut, Settings as SettingsIcon, WifiOff } from "lucide-react";
 import { rpc } from "../ipc/rpc";
 import { useApp, useSnap, type MaxButtonState } from "../state/store";
+import { usePage } from "../state/router";
 import { useUi } from "../state/ui";
 import { actions } from "../state/actions";
 import {
@@ -105,8 +106,11 @@ function AccountMenu() {
   const auth = useSnap((s) => s.auth);
   const go = useUi((s) => s.go);
   const [open, setOpen] = useState(false);
+  const page = usePage();
 
   if (auth.status !== "signedIn" && auth.status !== "expired") {
+    // Home, Library and a game page already carry their own Sign in right below: one on screen, not two.
+    if (page === "home" || page === "library" || page === "game") return null;
     return (
       <Button size="sm" variant="ghost" icon={<LogIn size={14} />} className="app-no-drag" onClick={() => void actions.signIn("settings")}>
         Sign in

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EglInstall, GliderError, JobInfo } from "../../ipc/contract.gen";
-import { batchHeadline, batchNote, groupInstalls, resultPhrase, rowResult, shortFailure, summarize, unavailableLabel } from "./model";
+import { batchHeadline, batchNote, groupInstalls, resultPhrase, rowResult, shortFailure, summarize, unavailableLabel, verifyJobFor } from "./model";
 
 const install = (id: string, status: EglInstall["status"], title = id): EglInstall => ({
   id,
@@ -18,7 +18,7 @@ const install = (id: string, status: EglInstall["status"], title = id): EglInsta
 });
 
 const job = (patch: Partial<JobInfo>): JobInfo =>
-  ({ id: "j", appName: "a", title: "A", kind: "import", status: "completed", phases: [], phase: null, progress: null, error: null, createdAt: "", startedAt: null, finishedAt: null, targetPath: null, fromVersion: null, toVersion: null, blockedReason: null, verify: null, outcome: null, ...patch }) as JobInfo;
+  ({ id: "j", appName: "a", title: "A", kind: "import", status: "completed", phases: [], phase: null, progress: null, error: null, createdAt: "2026-01-01T10:00:00Z", startedAt: null, finishedAt: null, targetPath: null, fromVersion: null, toVersion: null, blockedReason: null, verify: null, outcome: null, ...patch }) as JobInfo;
 
 const err = (code: GliderError["code"], title = "Title"): GliderError => ({ code, title, message: "m", fix: null, detail: null, appName: null, requiredBytes: null, drive: null });
 
@@ -38,23 +38,51 @@ describe("rowResult and resultPhrase", () => {
     expect(rowResult(job({ status: "running" })).state).toBe("running");
   });
 
-  it("reads the outcome: imported, needs repair (with files when known), failed with a short reason", () => {
+  it("reads the outcome: ready, a failure with a short reason", () => {
     const ok = job({ outcome: { kind: "success", message: "x" } });
-    expect(resultPhrase(rowResult(ok), ok)).toBe("Imported");
-
-    const repair = job({ outcome: { kind: "needsRepair", message: "older" } });
-    expect(resultPhrase(rowResult(repair), repair)).toBe("Needs repair");
-    const withFiles = job({ outcome: { kind: "needsRepair", message: "older" }, verify: { filesChecked: 100, filesBad: 12, filesFixed: 0, verified: false, bytesToFix: 1 } });
-    expect(resultPhrase(rowResult(withFiles), withFiles)).toBe("Needs repair · 12 files");
+    expect(resultPhrase(rowResult(ok))).toBe("Ready");
 
     const failed = job({ status: "failed", error: err("filesLocked") });
-    expect(resultPhrase(rowResult(failed), failed)).toBe("Failed · folder in use");
+    expect(resultPhrase(rowResult(failed))).toBe("Failed · folder in use");
+  });
+
+  describe("an import Core is verifying (outcome needsRepair) says what the verify job says", () => {
+    const verifying = job({ outcome: { kind: "needsRepair", message: "Imported; verifying the files." } });
+    const report = (filesBad: number, filesFixed: number, verified: boolean) => ({ filesChecked: 100, filesBad, filesFixed, verified, bytesToFix: 1 });
+    const verifyJob = (patch: Partial<JobInfo>) => job({ id: "v", kind: "verify", createdAt: "2026-01-01T10:00:05Z", ...patch });
+
+    it("no verify job yet, or one queued or running: Checking files", () => {
+      expect(resultPhrase(rowResult(verifying, null))).toBe("Checking files");
+      expect(rowResult(verifying, verifyJob({ status: "queued" })).state).toBe("checking");
+      expect(rowResult(verifying, verifyJob({ status: "running" })).state).toBe("checking");
+    });
+
+    it("passed: Ready; repaired on its own: Repaired · n files", () => {
+      expect(resultPhrase(rowResult(verifying, verifyJob({ verify: report(0, 0, true) })))).toBe("Ready");
+      expect(resultPhrase(rowResult(verifying, verifyJob({ verify: report(12, 12, true) })))).toBe("Repaired · 12 files");
+      expect(resultPhrase(rowResult(verifying, verifyJob({ verify: report(1, 1, true) })))).toBe("Repaired · 1 file");
+    });
+
+    it("left damage: Needs repair · n files (the ones still bad)", () => {
+      const failedCheck = verifyJob({ status: "failed", error: err("corrupted"), verify: report(14, 2, false) });
+      expect(rowResult(verifying, failedCheck).state).toBe("needsRepair");
+      expect(resultPhrase(rowResult(verifying, failedCheck))).toBe("Needs repair · 12 files");
+      expect(resultPhrase(rowResult(verifying, verifyJob({ status: "failed", error: err("network") })))).toBe("Needs repair");
+    });
+
+    it("finds the game's newest verify job created at or after the import, and no older one", () => {
+      const old = verifyJob({ id: "old", createdAt: "2025-12-31T10:00:00Z" });
+      const mine = verifyJob({ id: "mine" });
+      const other = verifyJob({ id: "other", appName: "b" });
+      expect(verifyJobFor(verifying, [old, other])).toBeNull();
+      expect(verifyJobFor(verifying, [old, other, mine])?.id).toBe("mine");
+    });
   });
 
   it("a completed job whose outcome failed is a failure", () => {
     const j = job({ outcome: { kind: "failed", message: "boom" }, error: err("permissionDenied") });
     expect(rowResult(j).state).toBe("failed");
-    expect(resultPhrase(rowResult(j), j)).toBe("Failed · no permission");
+    expect(resultPhrase(rowResult(j))).toBe("Failed · no permission");
   });
 });
 
@@ -71,16 +99,19 @@ describe("shortFailure", () => {
 describe("summarize and batchHeadline", () => {
   it("counts and words a running and a finished batch", () => {
     expect(batchHeadline(summarize(["imported", "running", "waiting"]))).toBe("Importing 1 of 3");
-    expect(batchHeadline(summarize(["imported"]))).toBe("1 game imported");
+    expect(batchHeadline(summarize(["imported"]))).toBe("1 game ready");
+    expect(batchHeadline(summarize(["imported", "imported", "checking"]))).toBe("2 games added, 1 being checked");
+    expect(batchHeadline(summarize(["checking", "checking"]))).toBe("2 games being checked");
     expect(batchHeadline(summarize(["imported", "imported", "needsRepair"]))).toBe("2 games ready, 1 needs a repair");
     expect(batchHeadline(summarize(["needsRepair", "needsRepair"]))).toBe("2 games need a repair");
     expect(batchHeadline(summarize(["imported", "needsRepair", "failed"]))).toBe("1 game ready, 1 needs a repair, 1 failed");
-    expect(batchHeadline(summarize(["imported", "failed"]))).toBe("1 of 2 imported");
+    expect(batchHeadline(summarize(["imported", "failed"]))).toBe("1 game ready, 1 failed");
     expect(batchHeadline(summarize(["failed"]))).toBe("Nothing was imported");
     expect(summarize([]).settled).toBe(false);
   });
   it("adds the repair note only once something needs one", () => {
     expect(batchNote(summarize(["imported"]))).toBe("Nothing was downloaded.");
+    expect(batchNote(summarize(["imported", "checking"]))).toBe("Nothing was downloaded.");
     expect(batchNote(summarize(["imported", "needsRepair"]))).toBe("Nothing was downloaded. Repairs re-download only damaged files.");
     expect(batchNote(summarize(["failed"]))).toBeNull();
     expect(batchNote(summarize(["imported", "running"]))).toBeNull();

@@ -689,13 +689,17 @@ describe("guards", () => {
     expect((await h.callError("game.verify", { appName: "nope" })).error.code).toBe("notFound");
   });
 
-  it("offline: installs are accepted and then fail with a network error, like Core (there is no offline gate); the cached library is still there", async () => {
+  it("offline: installs are accepted and held (the queue says why) until the connection is back; the cached library is still there", async () => {
     const h = setup({ scenario: "offline", ...fast });
     const lib = await library(h);
     const g = find(lib, (x) => x.kind === "game" && x.installStatus === "notInstalled" && x.thirdParty === "none");
     const job = await h.call("game.install", { appName: g.appName, basePath: "D:\\Games", components: null, dlc: [], priority: false });
-    await until(h, async () => (await h.job(job.id))?.status === "failed");
-    expect((await h.job(job.id))!.error?.code).toBe("network");
+    await h.advance(1500);
+    expect((await h.job(job.id))!.status).toBe("queued"); // not started, so it can't fail
+    expect((await h.snapshot()).queue.holdReason).toBe("Waiting for an internet connection");
+    h.controller.setConnectivity("online");
+    await until(h, async () => (await h.job(job.id))?.status === "running");
+    expect((await h.snapshot()).queue.holdReason).toBeNull();
   });
 
   it("blocks verify, move and uninstall while the game runs", async () => {
@@ -1063,6 +1067,7 @@ describe("EGL busy and while-playing policy", () => {
     expect(s.queue.jobs.find((x) => x.id === j.id)).toMatchObject({ status: "waiting" });
     expect(s.queue.jobs.find((x) => x.id === j.id)!.blockedReason).toMatch(/Paused while .* is running/);
     expect(s.queue.modeReason).toMatch(/Paused while/);
+    expect(s.queue.holdReason).toMatch(/^Paused while .* is running$/);
     h.controller.endGame(g.appName);
     await h.advance(1500);
     expect((await h.job(j.id))!.status).toBe("running");
@@ -1077,16 +1082,43 @@ describe("EGL busy and while-playing policy", () => {
     expect(q.modeReason).toMatch(/Throttled while Fortnite is running/);
   });
 
-  it("offline: a running network job fails with a network error (no offline gate in Core); Resume retries it once back online", async () => {
+  it("offline: a running job waits for the connection (Core's hold) and continues by itself when it is back", async () => {
     const h = setup({ scenario: "downloading" });
     const j = active(await h.snapshot())[0]!;
     h.controller.setConnectivity("offline");
     await h.advance(300);
-    expect((await h.job(j.id))!).toMatchObject({ status: "failed", error: { code: "network" } });
+    expect((await h.job(j.id))!).toMatchObject({ status: "waiting", blockedReason: "Waiting for an internet connection", error: null });
+    expect((await h.snapshot()).queue.holdReason).toBe("Waiting for an internet connection");
     h.controller.setConnectivity("online");
-    await h.call("jobs.resume", { jobId: j.id });
     await h.advance(300);
     expect((await h.job(j.id))!).toMatchObject({ status: "running", error: null });
+  });
+
+  it("when Epic is back, a job the outage failed resumes (a few times at most); other failures and a paused queue stay", async () => {
+    const h = setup({ scenario: "downloading" });
+    const j = active(await h.snapshot())[0]!;
+    h.controller.failActiveJob("network"); // it failed just before Glider noticed the outage
+    expect((await h.job(j.id))!.status).toBe("failed");
+    h.controller.setConnectivity("offline");
+    h.controller.setConnectivity("online");
+    await h.advance(300);
+    expect((await h.job(j.id))!.status).toBe("running");
+    // It keeps failing: after three resumes it stays in "Couldn't finish".
+    for (let i = 0; i < 4; i++) {
+      h.controller.failActiveJob("network");
+      h.controller.setConnectivity("offline");
+      h.controller.setConnectivity("online");
+      await h.advance(300);
+    }
+    expect((await h.job(j.id))!.status).toBe("failed");
+
+    const other = setup({ scenario: "downloading" });
+    const k = active(await other.snapshot())[0]!;
+    other.controller.failActiveJob("corrupted");
+    other.controller.setConnectivity("offline");
+    other.controller.setConnectivity("online");
+    await other.advance(300);
+    expect((await other.job(k.id))!.status).toBe("failed");
   });
 });
 
@@ -1368,7 +1400,10 @@ describe("EGL scan and import", () => {
     const full = setup({ scenario: "firstRunSignedIn", ...fast });
     const j = (await eglInstalls(full)).find((x) => x.status === "importable")!;
     const fr = await full.call("egl.import", { ids: [j.id], verify: "full" });
-    expect(fr.jobs[0]!.phases).toEqual(["importing", "verifying"]);
+    await until(full, async () => (await full.job(fr.jobs[0]!.id))?.status === "completed");
+    // Like Core: the import ends "verifying the files" and a verify job, not the import itself, does the check.
+    expect((await full.job(fr.jobs[0]!.id))!.outcome).toMatchObject({ kind: "needsRepair", message: "Imported; verifying the files." });
+    expect(active(await full.snapshot()).some((x) => x.kind === "verify" && x.appName === j.appName)).toBe(true);
   });
 
   it("stale, busy and not-owned installs are skipped, not errors; an empty selection is", async () => {

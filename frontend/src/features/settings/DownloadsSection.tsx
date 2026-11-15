@@ -3,6 +3,7 @@ import type { DownloadMode, Settings as SettingsT, WhilePlayingPolicy } from "..
 import { actions } from "../../state/actions";
 import { DOWNLOAD_MODES, modeSummary } from "../../state/downloadModes";
 import { formatBytes } from "../../state/format";
+import { useRoute } from "../../state/router";
 import { useSnap } from "../../state/store";
 import { Disclosure, SegmentedControl, Select, TextField } from "../../ui";
 import { AutoNumberRow, Block, Group, Line, Setting, SwitchRow, useSettingsQuery } from "./parts";
@@ -84,6 +85,16 @@ export function DownloadsSection({ s }: { s: SettingsT }) {
   const set = actions.updateSettings;
   const info = useSnap((x) => x.app);
   const searching = useSettingsQuery() !== "";
+  // "Download server" lives under Advanced, which unmounts its rows while closed: a link to it (`settings?focus=cdn`) opens it first.
+  const route = useRoute();
+  const wantsCdn = route.page === "settings" && route.focus === "cdn";
+  const [advanced, setAdvanced] = useState(wantsCdn);
+  const [seenCdn, setSeenCdn] = useState(wantsCdn);
+  if (wantsCdn !== seenCdn) {
+    // Already on Settings when the link arrives (the section stays mounted): open it then, too.
+    setSeenCdn(wantsCdn);
+    if (wantsCdn) setAdvanced(true);
+  }
   const def = sectionById("downloads");
   const limit = s.speedLimitBytesPerSecond === null ? "none" : String(s.speedLimitBytesPerSecond);
   const limitOptions = SPEED_LIMITS.some((l) => l.value === limit) ? SPEED_LIMITS : [...SPEED_LIMITS, { value: limit, label: `${formatBytes(Number(limit))}/s` }];
@@ -131,7 +142,7 @@ export function DownloadsSection({ s }: { s: SettingsT }) {
       </Group>
 
       <div data-group>
-        <Disclosure title="Advanced" open={searching ? true : undefined}>
+        <Disclosure title="Advanced" open={searching || advanced} onOpenChange={setAdvanced}>
           <CdnRow s={s} />
           <AutoNumberRow
             label="Download workers"

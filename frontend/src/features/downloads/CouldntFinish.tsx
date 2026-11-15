@@ -1,11 +1,11 @@
 import { memo, useState } from "react";
-import { ChevronRight, Ellipsis, X } from "lucide-react";
+import { ChevronRight, X } from "lucide-react";
 import type { JobInfo, StorageState } from "../../ipc/contract.gen";
 import { actions, runFix } from "../../state/actions";
 import { failedMeta, failureActions, failureMessage, spaceNeedOf, type FailureAction } from "../../state/failures";
 import { goGame } from "../../state/router";
 import { FIX_LABELS, usePending } from "../../state/ui";
-import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, cx } from "../../ui";
+import { Button, IconButton, cx } from "../../ui";
 import { JobArt } from "./JobArt";
 
 /**
@@ -32,7 +32,7 @@ const FailureRow = memo(function FailureRow({ job, storage, now }: { job: JobInf
   // space is back and the retry takes the lead.
   const tail = buttons.secondary ? [button(buttons.primary, "primary"), button(buttons.secondary, "secondary")] : [button(buttons.primary, space?.enough ? "primary" : "secondary")];
   return (
-    <div className="group py-3 pl-3 pr-2">
+    <div className="group px-3 py-3">
       <div className="flex items-start gap-3">
         <JobArt job={job} size="xs" />
         <div className="min-w-0 flex-1">
@@ -60,22 +60,14 @@ const FailureRow = memo(function FailureRow({ job, storage, now }: { job: JobInf
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {tail}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label={`More for ${job.title}`}
-                className="grid size-7 place-items-center rounded-md text-fg-subtle outline-none transition-colors duration-150 hover:bg-surface-hover hover:text-fg focus-visible:bg-surface-hover data-[state=open]:bg-surface-hover data-[state=open]:text-fg"
-              >
-                <Ellipsis size={16} aria-hidden />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="min-w-40">
-              <DropdownMenuItem icon={<X size={14} />} onSelect={() => void actions.dismissJob(job.id)}>
-                Dismiss
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <IconButton
+            label={`Dismiss ${job.title}`}
+            size="sm"
+            className="opacity-0 transition-opacity duration-150 focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100"
+            onClick={() => void actions.dismissJob(job.id)}
+          >
+            <X size={14} />
+          </IconButton>
         </div>
       </div>
     </div>
@@ -86,12 +78,12 @@ export function CouldntFinish({ jobs, storage, now }: { jobs: readonly JobInfo[]
   if (jobs.length === 0) return null;
   return (
     <section aria-label="Couldn't finish">
-      <div className="mb-1 flex min-h-7 items-center px-1">
+      <div className="mb-1 flex min-h-7 items-center">
         <h2 className="text-sm font-semibold text-fg">Couldn't finish</h2>
       </div>
       <ul>
         {jobs.map((j) => (
-          <li key={j.id} className="rounded-lg transition-colors hover:bg-surface-hover">
+          <li key={j.id} className="-mx-3 rounded-lg transition-colors hover:bg-surface-hover">
             <FailureRow job={j} storage={storage} now={now} />
           </li>
         ))}

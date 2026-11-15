@@ -256,6 +256,20 @@ describe("Game page: only what the game has", () => {
     await waitFor(() => expect(screen.getByText("Off")).toBeInTheDocument());
   });
 
+  it("Cloud saves: signed out or offline there is no Sync now to press; the status line says what to do", async () => {
+    const { controller } = await mount("returning", (b) => <GameView appName={b.find((g) => g.saveStatus === "localNewer").appName} />);
+    expect(await screen.findByRole("button", { name: "Sync now" })).toBeInTheDocument();
+    act(() => controller.setConnectivity("offline"));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Sync now" })).not.toBeInTheDocument());
+    act(() => controller.setConnectivity("online"));
+    await screen.findByRole("button", { name: "Sync now" });
+    await act(async () => {
+      await rpc().call("auth.signOut");
+    });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Sync now" })).not.toBeInTheDocument());
+    expect(screen.getByText("Sign in to sync")).toBeInTheDocument();
+  });
+
   it("Cloud saves: Sync now syncs and reports in sync", async () => {
     const { user } = await mount("returning", (b) => <GameView appName={b.find((g) => g.saveStatus === "localNewer").appName} />);
     expect(await screen.findByText("This PC is newer")).toBeInTheDocument();

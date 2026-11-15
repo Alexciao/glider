@@ -78,12 +78,27 @@ describe("Onboarding: Find games", () => {
     const first = screen.getAllByRole("checkbox").find((b) => b.getAttribute("aria-labelledby"))!;
     await user.click(first);
     await user.click(screen.getByRole("button", { name: "Import 1 game" }));
-    expect(await screen.findByText(/^1 game imported$/, undefined, { timeout: 8000 })).toBeInTheDocument();
+    expect(await screen.findByText(/^1 game ready$/, undefined, { timeout: 8000 })).toBeInTheDocument();
     expect(screen.getByText("Nothing was downloaded.")).toBeInTheDocument();
     expect(within(screen.getByRole("list", { name: "Import results" })).getAllByRole("listitem")).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: "Continue" }));
     expect(await screen.findByText("Where should games install?")).toBeInTheDocument();
   });
+
+  it("the result of each game is what Core's check found: no Repair button before a check says there is damage", async () => {
+    const { user } = await mount("firstRunSignedIn", <Onboarding />, FAST);
+    await screen.findByText(/Found \d+ games? on this PC/);
+    await user.click(screen.getByRole("checkbox", { name: "Deselect all" }));
+    for (const box of screen.getAllByRole("checkbox").filter((b) => b.getAttribute("aria-labelledby")).slice(0, 2)) await user.click(box);
+    await user.click(screen.getByRole("button", { name: "Import 2 games" }));
+    const list = await screen.findByRole("list", { name: "Import results" });
+    // Everything settles: each row reads Ready, Repaired · n files or Needs repair · n files, and the headline counts them.
+    await waitFor(() => expect(screen.getByText(/games? ready/)).toBeInTheDocument(), { timeout: 20000 });
+    for (const row of within(list).getAllByRole("listitem")) expect(row).toHaveTextContent(/Ready|Repaired · \d+ files?|Needs repair|Failed/);
+    expect(within(list).queryByText("Checking files")).toBeNull();
+    expect(within(list).queryByRole("button", { name: /^Repair / })).toBeNull();
+    expect(screen.getByText("Nothing was downloaded.")).toBeInTheDocument();
+  }, 40_000);
 
   it("a failed import says why in a few words and offers Try again", async () => {
     const { user, controller } = await mount("firstRunSignedIn", <Onboarding />, { timeScale: 1 });
@@ -118,7 +133,8 @@ describe("Onboarding: Find games", () => {
     await screen.findByText(/Found \d+ games? on this PC/);
     await user.click(screen.getByRole("button", { name: /Locate another folder/ })); // first pick = a valid game folder
     await waitFor(() => expect(screen.getByRole("list", { name: "Import results" })).toBeInTheDocument(), { timeout: 4000 });
-    await screen.findByText("Imported", undefined, { timeout: 8000 });
+    // The import ran: the row says what happens to the files now (Core queues a check for a folder it knows nothing about).
+    await within(screen.getByRole("list", { name: "Import results" })).findByText(/^(Ready|Checking files|Repaired)/, undefined, { timeout: 8000 });
     await user.click(screen.getByRole("button", { name: /Locate another folder/ })); // second pick = not a game
     expect(await screen.findByText("Not a game folder")).toBeInTheDocument();
   });

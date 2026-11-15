@@ -61,8 +61,8 @@ export function SavesSection({ game, detail }: { game: GameSummary; detail: Game
   const idle = game.runState === "idle" && game.installStatus === "installed";
 
   return (
-    <section aria-labelledby="saves-h" className={cx("flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg", conflict && "-mx-3 bg-warning-soft px-3 py-2.5")}>
-      <div className="min-w-0 flex-1">
+    <section aria-labelledby="saves-h" className={cx("flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg", conflict && "-mx-3 w-fit bg-warning-soft px-3 py-2.5")}>
+      <div className="min-w-0">
         <h2 id="saves-h" className="text-sm font-semibold text-fg">
           Cloud saves
         </h2>
@@ -78,6 +78,7 @@ export function SavesSection({ game, detail }: { game: GameSummary; detail: Game
             </span>
           )}
           {status === "error" && saves.lastError && <span>{saves.lastError.message}</span>}
+          {enabled && !signedIn && <span className="text-fg-subtle">Sign in to sync</span>}
         </p>
       </div>
       <div className="flex items-center gap-2">
@@ -86,8 +87,9 @@ export function SavesSection({ game, detail }: { game: GameSummary; detail: Game
             Resolve…
           </Button>
         ) : (
-          enabled && (
-            <Button size="sm" variant="ghost" loading={syncing} disabled={offline || !signedIn || !idle} onClick={() => void actions.syncSaves(game.appName)}>
+          // Only when it can act: a disabled "Sync now" is a button that explains nothing (signed out says so in the status line).
+          enabled && signedIn && !offline && idle && (
+            <Button size="sm" variant="ghost" loading={syncing} onClick={() => void actions.syncSaves(game.appName)}>
               Sync now
             </Button>
           )

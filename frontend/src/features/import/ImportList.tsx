@@ -1,5 +1,5 @@
 import { memo, useEffect, useId } from "react";
-import { CircleCheck, FolderSearch, Wrench } from "lucide-react";
+import { FolderSearch, Wrench } from "lucide-react";
 import type { EglInstall } from "../../ipc/contract.gen";
 import { actions, pendingKey } from "../../state/actions";
 import { driveOf, formatBytes, prettyVersion } from "../../state/format";
@@ -48,7 +48,7 @@ const StaticRow = memo(function StaticRow({ install }: { install: EglInstall }) 
   const imported = install.status === "imported";
   return (
     <li>
-      <div title={install.reason ?? install.installPath} className={cx("flex h-14 items-center gap-3 rounded-lg px-3", !imported && "opacity-80")}>
+      <div title={install.reason ?? install.installPath} className="flex h-14 items-center gap-3 rounded-lg px-3">
         <span className="size-4 shrink-0" aria-hidden />
         <ArtThumb src={install.artUrl} title={install.title} size="sm" className={imported ? undefined : "opacity-60"} />
         <span className={cx("min-w-0 flex-1 truncate text-sm font-medium", imported ? "text-fg" : "text-fg-muted")}>{install.title}</span>
@@ -60,7 +60,7 @@ const StaticRow = memo(function StaticRow({ install }: { install: EglInstall }) 
 
 /* ------------------------------------------------------------------ batch rows */
 
-/** "Needs repair · 12 files" with its one action. The repair queues in the background; the row says so once it has. */
+/** "Needs repair · 12 files" with its one action: the check Core queued ended with damage left. The repair queues in the background; the row says so once it has. */
 function RepairResult({ appName, title, phrase }: { appName: string; title: string; phrase: string }) {
   const game = useGame(appName);
   const starting = usePending(pendingKey("verify", appName));
@@ -85,17 +85,20 @@ function RepairResult({ appName, title, phrase }: { appName: string; title: stri
 function Result({ row, onRetry }: { row: ImportRowModel; onRetry: () => void }) {
   const { state } = row.result;
   const progress = useJobProgress(row.job?.id, row.job?.progress);
-  const phrase = resultPhrase(row.result, row.job);
+  const phrase = resultPhrase(row.result);
   switch (state) {
     case "running":
       return <span className="shrink-0 text-xs tabular-nums text-fg-muted">{Math.round(Math.max(0, Math.min(100, progress?.percent ?? 0)))}%</span>;
-    case "imported":
+    case "checking":
+      // Core is verifying what it adopted (and repairs on its own): working is accent, with the one spinner.
       return (
-        <span className="flex shrink-0 items-center gap-1.5 text-xs text-fg-muted">
-          <CircleCheck size={14} aria-hidden className="text-success" />
+        <span className="flex shrink-0 items-center gap-1.5 text-xs text-accent-text">
+          <Spinner size={12} />
           {phrase}
         </span>
       );
+    case "imported":
+      return <span className="shrink-0 text-xs text-fg-muted">{phrase}</span>;
     case "needsRepair":
       return <RepairResult appName={row.install.appName} title={row.install.title} phrase={phrase} />;
     case "failed":

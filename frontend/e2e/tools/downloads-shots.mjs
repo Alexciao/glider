@@ -78,7 +78,8 @@ const SCENES = [
       await wait(500);
     },
   },
-  { name: "empty", q: "scenario=firstRunSignedIn", settle: 600, setup: async (p) => { await p.evaluate(() => window.__glider.rpc("onboarding.complete")); await wait(400); } },
+  // "Nothing downloading": a returning user with History cleared (onboarding's "You're all set" is a different screen).
+  { name: "empty", q: "scenario=returning", settle: 600, setup: async (p) => { await p.evaluate(() => window.__glider.rpc("queue.clearFinished")); await wait(400); } },
   { name: "offline", q: "scenario=queue&freeze=1&seek=0.42&timescale=1", settle: 900, setup: async (p) => { await wait(400); await p.evaluate(() => window.__glider.mock.setConnectivity("offline")); await wait(600); } },
   { name: "paused", q: "scenario=downloading&freeze=1&seek=0.42&timescale=1", settle: 900, setup: async (p) => { await wait(500); await p.getByRole("button", { name: "Pause", exact: true }).click(); await wait(400); } },
   { name: "playing", q: "scenario=playing", settle: 600, setup: async (p) => { await p.evaluate(() => window.__glider.rpc("library.updateAll").catch(() => {})); await wait(600); } },
@@ -104,8 +105,13 @@ for (const theme of ["dark", "light"]) {
       const dir = `${out}/${theme}-${w}x${h}`;
       mkdirSync(dir, { recursive: true });
       await page.screenshot({ path: `${dir}/${s.name}.png`, fullPage: false, animations: "disabled" });
-      // A tall capture too, so everything below the fold is reviewable.
-      await page.evaluate(() => { const sc = document.querySelector("div.overflow-y-auto"); if (sc) { sc.style.height = "auto"; sc.style.overflow = "visible"; } });
+      // A tall capture too, so everything below the fold is reviewable: grow the window by what the page scrolls.
+      const extra = await page.evaluate(() => { const sc = document.querySelector("div.overflow-y-auto"); return sc ? Math.max(0, sc.scrollHeight - sc.clientHeight) : 0; });
+      if (extra > 0) {
+        await page.setViewportSize({ width: w, height: Math.min(4000, h + extra) });
+        await wait(300);
+        await page.screenshot({ path: `${dir}/${s.name}-tall.png`, fullPage: false, animations: "disabled" });
+      }
       if (errs.length) console.log(`[${theme} ${w}x${h}] ${s.name}: ${errs.slice(0, 3).join(" | ")}`);
       await page.close();
     }

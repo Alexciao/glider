@@ -67,13 +67,13 @@ export const Errors = {
       { requiredBytes, drive },
     ),
   network: (detail: string | null = null, appName: string | null = null) =>
-    err("network", "Can't reach Epic", "Check your internet connection, then try again. Progress is kept.", "retry", detail, appName),
+    err("network", "Can't reach Epic", "Check your internet connection. Progress is kept.", "retry", detail, appName),
   offline: (what = "This") =>
     err("offline", "You're offline", `${what} needs an internet connection. Glider will pick up again when you're back online.`, "retry"),
   cdnUnavailable: (detail: string | null = null, appName: string | null = null) =>
-    err("cdnUnavailable", "Download server unavailable", "Epic's download servers didn't respond. Try again, or pick another CDN in Settings.", "retry", detail, appName),
-  filesLocked: (title?: string, detail: string | null = null, appName: string | null = null) =>
-    err("filesLocked", "Game files are in use", `Close ${game(title)} and any program using its files, then try again.`, "retry", detail, appName),
+    err("cdnUnavailable", "Download server unavailable", "Epic's download servers didn't respond. You can choose another download server in Settings.", "retry", detail, appName),
+  filesLocked: (detail: string | null = null, appName: string | null = null) =>
+    err("filesLocked", "Game files are in use", "Close the game and any program using its files.", "retry", detail, appName),
   permissionDenied: (detail: string | null = null, appName: string | null = null) =>
     err("permissionDenied", "Access denied", "Glider can't write to this folder. Choose a different location.", "chooseFolder", detail, appName),
   eglBusy: (title?: string, detail: string | null = null, appName: string | null = null) =>
@@ -90,13 +90,13 @@ export const Errors = {
   alreadyInstalled: (title?: string, appName: string | null = null) =>
     err("alreadyInstalled", "Already installed", `${game(title)} is already installed in Glider.`, null, null, appName),
   invalidFolder: (reason: string) => err("invalidFolder", "Not a game folder", reason, "chooseFolder"),
-  corrupted: (title?: string, detail: string | null = null, appName: string | null = null) =>
-    err("corrupted", "Game files need repair", `Some files of ${game(title)} are missing or damaged. Repair downloads only what's broken.`, "repair", detail, appName),
+  corrupted: (detail: string | null = null, appName: string | null = null) =>
+    err("corrupted", "Game files need repair", "Some files are missing or damaged. Repair downloads only what's broken.", "repair", detail, appName),
   busy: (what: string) => err("busy", "Another task is running", `Wait for ${what} to finish, or cancel it first.`, null),
   legendaryMissing: (detail: string | null = null) =>
     err("legendaryMissing", "Glider is damaged", "A required component is missing. Reinstall Glider to fix it.", "openLogs", detail),
   legendaryFailed: (detail: string | null = null, appName: string | null = null) =>
-    err("legendaryFailed", "The task failed", "The operation stopped unexpectedly. Try again; progress is kept.", "retry", detail, appName),
+    err("legendaryFailed", "The task failed", "The operation stopped unexpectedly. Progress is kept.", "retry", detail, appName),
   legendaryLocked: () =>
     err("legendaryLocked", "Epic's data is busy", "Another Glider task is using Epic's account data. Glider will retry in a moment.", "retry"),
   eacSetupFailed: (detail: string | null = null, appName: string | null = null) =>
@@ -134,7 +134,7 @@ export function errorForCode(code: ErrorCode, title?: string, appName: string | 
     case "network": return Errors.network("HTTPSConnectionPool(host='download.epicgames.com', port=443): Max retries exceeded", appName);
     case "offline": return Errors.offline();
     case "cdnUnavailable": return Errors.cdnUnavailable("HTTP 503 from epicgames-download1.akamaized.net", appName);
-    case "filesLocked": return Errors.filesLocked(title, "PermissionError: [WinError 32] The process cannot access the file", appName);
+    case "filesLocked": return Errors.filesLocked("PermissionError: [WinError 32] The process cannot access the file", appName);
     case "permissionDenied": return Errors.permissionDenied("PermissionError: [WinError 5] Access is denied", appName);
     case "eglBusy": return Errors.eglBusy(title, null, appName);
     case "gameRunning": return Errors.gameRunning(title, appName);
@@ -144,7 +144,7 @@ export function errorForCode(code: ErrorCode, title?: string, appName: string | 
     case "notInstalled": return Errors.notInstalled(title, appName);
     case "alreadyInstalled": return Errors.alreadyInstalled(title, appName);
     case "invalidFolder": return Errors.invalidFolder("This folder doesn't contain a game Glider recognises. Choose the folder that holds the game's files.");
-    case "corrupted": return Errors.corrupted(title, "142 files failed verification", appName);
+    case "corrupted": return Errors.corrupted("142 files failed verification", appName);
     case "busy": return Errors.busy("the current task");
     case "legendaryMissing": return Errors.legendaryMissing("legendary.exe not found");
     case "legendaryFailed": return Errors.legendaryFailed("legendary exited unexpectedly", appName);

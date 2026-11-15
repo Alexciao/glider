@@ -117,6 +117,7 @@ internal sealed class ConnectivityMonitor : IDisposable
     private bool _reset;
     private Connectivity _seen;
     private DateTimeOffset? _nextProbe;
+    private DateTimeOffset? _offlineSince;
     private IDisposable? _subscription;
     private Task _loop = Task.CompletedTask;
     private int _started;
@@ -137,6 +138,21 @@ internal sealed class ConnectivityMonitor : IDisposable
 
     /// <summary>Raised (synchronously, on whichever thread flipped the state) when Offline becomes Online. Handlers must not block.</summary>
     public event Action? CameOnline;
+
+    /// <summary>Raised (synchronously, on the flipping thread) after every change between Offline and a reachable state. Handlers must not block.</summary>
+    public event Action? Changed;
+
+    /// <summary>When the latest offline spell began (kept after Epic is back, so a came-online handler can tell which failures belong to it); null before the first one.</summary>
+    public DateTimeOffset? OfflineSince
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _offlineSince;
+            }
+        }
+    }
 
     /// <summary>Probes started so far (diagnostics/tests).</summary>
     public int Probes => Volatile.Read(ref _probes);
@@ -161,6 +177,14 @@ internal sealed class ConnectivityMonitor : IDisposable
         }
 
         _seen = _c.Hub.State.Connectivity;
+        if (_seen == Connectivity.Offline)
+        {
+            lock (_gate)
+            {
+                _offlineSince ??= _c.Now;
+            }
+        }
+
         _c.Hub.StateChanged += OnHubChanged;
         try
         {
@@ -248,20 +272,29 @@ internal sealed class ConnectivityMonitor : IDisposable
             }
 
             _seen = state.Connectivity;
+            if (state.Connectivity == Connectivity.Offline)
+            {
+                _offlineSince = _c.Now;
+            }
         }
 
         Wake(reset: false);
         if (cameOnline)
         {
             _c.Log.Info(Category, "Epic is reachable again");
-            try
+        }
+
+        try
+        {
+            Changed?.Invoke();
+            if (cameOnline)
             {
                 CameOnline?.Invoke();
             }
-            catch (Exception e)
-            {
-                _c.Log.Warn(Category, "a came-online handler failed", e);
-            }
+        }
+        catch (Exception e)
+        {
+            _c.Log.Warn(Category, "a connectivity handler failed", e);
         }
     }
 

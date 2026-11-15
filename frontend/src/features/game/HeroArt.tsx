@@ -6,6 +6,9 @@ import { GliderMark, spring } from "../../ui";
 /** Corner radius of the hero card (radius-2xl). Passed as a style so a shared-element transition can correct it. */
 export const HERO_RADIUS = 20;
 
+/** When the wide art starts replacing the cover if no morph reports its end: the hero lands at about 330 ms, and the 150 ms crossfade must end with the motion, not after it. */
+const LAND_AFTER_MS = 320;
+
 /** A cached or already-decoded image is there at frame 1: only a real network load earns a fade. */
 function useLoaded(): [boolean, boolean, (el: HTMLImageElement | null) => void, () => void] {
   const [loaded, setLoaded] = useState(false);
@@ -38,7 +41,7 @@ export function HeroArt({ appName, art }: { appName: string; art: GameArt | null
   const [landed, setLanded] = useState(false);
   const timer = useRef<number>(0);
   useEffect(() => {
-    timer.current = window.setTimeout(() => setLanded(true), 520);
+    timer.current = window.setTimeout(() => setLanded(true), LAND_AFTER_MS);
     return () => window.clearTimeout(timer.current);
   }, []);
   // With no tall cover to start from, the wide art needs no waiting; without wide art, the tall one is the hero.

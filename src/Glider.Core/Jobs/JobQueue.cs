@@ -454,7 +454,8 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         lock (_lock)
         {
             // A failure stays until it succeeds or is dismissed on its own: one click must not hide work that still needs doing.
-            foreach (var j in _jobs.Where(j => IsTerminal(j.Info.Status) && j.Info.Status != JobStatus.Failed).ToList())
+            // That includes a job that ran to the end and reported a failure (an import Legendary didn't register).
+            foreach (var j in _jobs.Where(j => IsTerminal(j.Info.Status) && j.Info.Status != JobStatus.Failed && j.Info.Outcome?.Kind != OutcomeKind.Failed).ToList())
             {
                 _jobs.Remove(j);
                 _samples.Remove(j.Info.Id);

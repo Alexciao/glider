@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { runFix } from "../state/actions";
-import { useNotices } from "../state/notices";
+import { toastTitle, useNotices } from "../state/notices";
 import { FIX_LABELS } from "../state/ui";
 import { ToastRegion, type ToastItem } from "../ui";
 
@@ -15,7 +15,7 @@ export function Notices() {
         return {
           id: t.id,
           level: t.level,
-          title: t.title,
+          title: toastTitle(t),
           message: t.message,
           duration: t.duration,
           actionLabel: t.actionLabel ?? (fix ? FIX_LABELS[fix] : undefined),

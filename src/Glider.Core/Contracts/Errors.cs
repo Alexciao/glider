@@ -27,13 +27,13 @@ public static class Errors
         FixAction.FreeSpace, detail, RequiredBytes: requiredBytes);
 
     public static GliderError Network(string? detail = null) => new(ErrorCode.Network,
-        "Can't reach Epic", "Check your internet connection, then try again. Progress is kept.", FixAction.Retry, detail);
+        "Can't reach Epic", "Check your internet connection. Progress is kept.", FixAction.Retry, detail);
 
     public static GliderError CdnUnavailable(string? detail = null) => new(ErrorCode.CdnUnavailable,
-        "Download server unavailable", "Epic's download servers didn't respond. Try again, or pick another CDN in Settings.", FixAction.Retry, detail);
+        "Download server unavailable", "Epic's download servers didn't respond. You can choose another download server in Settings.", FixAction.Retry, detail);
 
     public static GliderError FilesLocked(string? detail = null) => new(ErrorCode.FilesLocked,
-        "Game files are in use", "Close the game and any program using its files, then try again.", FixAction.Retry, detail);
+        "Game files are in use", "Close the game and any program using its files.", FixAction.Retry, detail);
 
     public static GliderError PermissionDenied(string? detail = null) => new(ErrorCode.PermissionDenied,
         "Access denied", "Glider can't write to this folder. Choose a different location.", FixAction.ChooseFolder, detail);
@@ -134,7 +134,7 @@ public static class Errors
         "Glider is damaged", "A required component is missing. Reinstall Glider to fix it.", FixAction.OpenLogs, detail);
 
     public static GliderError LegendaryFailed(string? detail = null) => new(ErrorCode.LegendaryFailed,
-        "The task failed", "The operation stopped unexpectedly. Try again; progress is kept.", FixAction.Retry, detail);
+        "The task failed", "The operation stopped unexpectedly. Progress is kept.", FixAction.Retry, detail);
 
     public static GliderError EacSetupFailed(string? detail = null) => new(ErrorCode.EacSetupFailed,
         "Anti-cheat setup failed", "Easy Anti-Cheat must be installed to play. Try again and accept the Windows prompt.", FixAction.Retry, detail);

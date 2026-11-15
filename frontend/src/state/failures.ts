@@ -8,13 +8,17 @@ import { KIND_NOUN } from "./transfer";
  * now, so a user who has already freed space is not told to do it again, and is never locked out of "Try again".
  */
 
-export const isFailed = (j: JobInfo): boolean => j.status === "failed";
+/**
+ * A job that didn't do what was asked: it failed, or it ran to the end and its outcome says it failed (an import Legendary didn't
+ * register ends `completed` with outcome `failed`; the status stays so history keeps the job, but the person still has to look).
+ */
+export const isFailed = (j: JobInfo): boolean => j.status === "failed" || j.outcome?.kind === "failed";
 
 /** Failed jobs, newest first (the order `queue.jobs` already has). */
 export const failedJobsOf = (jobs: readonly JobInfo[]): JobInfo[] => jobs.filter(isFailed);
 
 /** Finished work that is not a failure: completed and canceled jobs, for History. */
-export const pastJobsOf = (jobs: readonly JobInfo[]): JobInfo[] => jobs.filter((j) => j.status === "completed" || j.status === "cancelled");
+export const pastJobsOf = (jobs: readonly JobInfo[]): JobInfo[] => jobs.filter((j) => (j.status === "completed" || j.status === "cancelled") && !isFailed(j));
 
 /** Free bytes on a drive ("D:") as the snapshot knows them; null when the snapshot doesn't list that drive. */
 export function freeOnDrive(storage: Pick<StorageState, "drives" | "folders">, drive: string): number | null {

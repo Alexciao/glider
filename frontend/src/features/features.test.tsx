@@ -407,15 +407,14 @@ describe("Downloads: Couldn't finish", () => {
     expect(within(li).queryByRole("button", { name: "Free up space" })).not.toBeInTheDocument();
   });
 
-  it("Dismiss in the row menu removes it; Clear all in History leaves the failures", async () => {
+  it("a row's × dismisses it; Clear all in History leaves the failures", async () => {
     const { user } = await mount("errors", <Downloads />);
     const section = (await screen.findByRole("region", { name: "Couldn't finish" })) as HTMLElement;
     const before = within(section).getAllByRole("listitem").length;
     await user.click(screen.getByRole("button", { name: "Clear all" }));
     await waitFor(() => expect(screen.queryByRole("heading", { name: "History" })).not.toBeInTheDocument());
     expect(within(screen.getByRole("region", { name: "Couldn't finish" })).getAllByRole("listitem")).toHaveLength(before);
-    await user.click(within(section).getAllByRole("button", { name: /^More for / })[0]!);
-    await user.click(await screen.findByRole("menuitem", { name: "Dismiss" }));
+    await user.click(within(section).getAllByRole("button", { name: /^Dismiss / })[0]!);
     await waitFor(() => expect(within(screen.getByRole("region", { name: "Couldn't finish" })).getAllByRole("listitem")).toHaveLength(before - 1));
   });
 
@@ -489,7 +488,7 @@ describe("Shell routing", () => {
     expect(await screen.findByRole("heading", { name: "Library" })).toBeInTheDocument();
     act(() => navigate("game/Fortnite"));
     expect(await screen.findByRole("heading", { name: "Fortnite" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Library" })).toHaveLength(2); // the rail item and the back link
+    expect(screen.getAllByRole("button", { name: /^Library/ })).toHaveLength(2); // the rail item (with its dot said in words) and the back link
     act(() => navigate("downloads"));
     expect(await screen.findByRole("heading", { name: "Downloads" })).toBeInTheDocument();
     act(() => navigate("store"));

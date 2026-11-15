@@ -130,7 +130,8 @@ export function Settings() {
       const row = body.current?.querySelector<HTMLElement>(`[data-setting-id="${focus}"]`);
       if (!row) return false;
       row.scrollIntoView({ block: "center", behavior: "instant" });
-      row.querySelector<HTMLElement>('button, [role="radio"], [role="combobox"], input')?.focus({ preventScroll: true });
+      // The selected segment of a segmented control (Space on the first one would change the setting), else the first control.
+      (row.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]') ?? row.querySelector<HTMLElement>('button, [role="combobox"], input'))?.focus({ preventScroll: true });
       row.setAttribute("data-flash", "");
       window.setTimeout(() => row.removeAttribute("data-flash"), 1900);
       return true;
@@ -170,7 +171,7 @@ export function Settings() {
                       }}
                       className={cx(
                         "flex h-9 items-center gap-2.5 rounded-lg px-3 text-left text-sm font-medium transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.985]",
-                        active ? "bg-surface-2 text-fg" : dim ? "text-fg-disabled hover:bg-surface-hover" : "text-fg-muted hover:bg-surface-hover hover:text-fg",
+                        active ? "bg-surface-2 text-fg" : dim ? "text-fg-subtle hover:bg-surface-hover" : "text-fg-muted hover:bg-surface-hover hover:text-fg",
                       )}
                     >
                       <span className={cx("transition-colors duration-150", active ? "text-accent-text" : dim ? "text-fg-disabled" : "text-fg-subtle")}>{s.icon}</span>

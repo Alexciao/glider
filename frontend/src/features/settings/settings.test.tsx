@@ -75,10 +75,22 @@ describe("Settings: focus hook for other pages", () => {
     await waitFor(() => expect(useRouter.getState().route).toEqual({ page: "settings" }));
   });
 
-  it("focuses the mode control for the mode row", async () => {
+  it("focuses the selected segment of the mode row, not the first one", async () => {
     await mount("returning", <Settings />);
     act(() => goToSetting("downloadMode"));
-    await waitFor(() => expect(within(screen.getByRole("radiogroup", { name: "Download mode" })).getAllByRole("radio").some((r) => r === document.activeElement)).toBe(true));
+    const group = await screen.findByRole("radiogroup", { name: "Download mode" });
+    await waitFor(() => expect(within(group).getAllByRole("radio").some((r) => r === document.activeElement)).toBe(true));
+    expect(document.activeElement).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("settings?focus=cdn opens Advanced first, since its rows are not mounted while it is closed", async () => {
+    await mount("returning", <Settings />);
+    expect(screen.queryByRole("radiogroup", { name: "Download server" })).toBeNull();
+    act(() => goToSetting("cdn"));
+    const group = await screen.findByRole("radiogroup", { name: "Download server" });
+    await waitFor(() => expect(document.activeElement).toHaveAttribute("aria-checked", "true"));
+    expect(group.closest("[data-setting-id='cdn']")).toHaveAttribute("data-flash");
+    expect(screen.getByRole("button", { name: "Advanced", expanded: true })).toBeInTheDocument();
   });
 });
 
