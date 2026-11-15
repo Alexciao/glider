@@ -46,6 +46,7 @@ export function saveStatusModel(status: SaveSyncStatus, opts: { enabled: boolean
 export function SavesSection({ game, detail }: { game: GameSummary; detail: GameDetail }) {
   const saves = detail.saves;
   const offline = useSnap((s) => s.connectivity === "offline");
+  const signedIn = useSnap((s) => s.auth.status === "signedIn");
   const globalOn = useSnap((s) => s.settings.cloudSaves);
   const openDialog = useUi((s) => s.openDialog);
   const syncing = usePending(pendingKey("sync", game.appName));
@@ -86,7 +87,7 @@ export function SavesSection({ game, detail }: { game: GameSummary; detail: Game
           </Button>
         ) : (
           enabled && (
-            <Button size="sm" variant="ghost" loading={syncing} disabled={offline || !idle} onClick={() => void actions.syncSaves(game.appName)}>
+            <Button size="sm" variant="ghost" loading={syncing} disabled={offline || !signedIn || !idle} onClick={() => void actions.syncSaves(game.appName)}>
               Sync now
             </Button>
           )

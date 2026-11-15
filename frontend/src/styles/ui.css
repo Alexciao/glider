@@ -42,7 +42,7 @@
   to { opacity: 1; transform: translateY(0); }
 }
 @keyframes g-rise {
-  from { opacity: 0; transform: translateY(10px); }
+  from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
 @keyframes g-spin {
@@ -136,9 +136,20 @@
 .g-page-in {
   animation: g-page-in 220ms var(--ease-out) both;
 }
+/* A page's content waits a beat for its container (the hero morphing in), then settles in 160 ms. */
 .g-rise {
-  animation: g-rise 420ms var(--ease-out) both;
-  animation-delay: calc(var(--g-i, 0) * 55ms);
+  animation: g-rise 160ms var(--ease-out) both;
+  animation-delay: calc(120ms + var(--g-i, 0) * 40ms);
+}
+
+/* A Settings row a link pointed at: a soft accent wash that fades out, nothing that moves. */
+@keyframes g-setting-flash {
+  from { background-color: var(--g-accent-soft); box-shadow: 0 0 0 10px var(--g-accent-soft); }
+  to { background-color: transparent; box-shadow: 0 0 0 10px transparent; }
+}
+[data-setting][data-flash] {
+  border-radius: 10px;
+  animation: g-setting-flash 1.8s var(--ease-out) both;
 }
 
 /* ---------- Indicators ---------- */

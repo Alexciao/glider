@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { ArrowLeft, SearchX } from "lucide-react";
+import { ArrowLeft, LogIn, SearchX } from "lucide-react";
 import type { AppSnapshot, GameDetail, GameSettings, GameSummary } from "../../ipc/contract.gen";
 import { actions, pendingKey } from "../../state/actions";
 import { useGame, useLibrary } from "../../state/library";
@@ -9,6 +9,8 @@ import { useApp } from "../../state/store";
 import { usePending, useUi } from "../../state/ui";
 import { Button, EmptyState, Skeleton } from "../../ui";
 import { ErrorView } from "../common/ErrorView";
+import { PageScroll } from "../common/Page";
+import { useNeedsSignIn } from "../common/SignInBanner";
 import { deriveGameAction } from "./actionModel";
 import { Hero } from "./Hero";
 import { GameNotices, ThirdPartyNotice, useFailedJob } from "./Notices";
@@ -28,19 +30,33 @@ import { useGameDetail } from "./useGameDetail";
 export function GameView({ appName }: { appName: string }) {
   const game = useGame(appName);
   const loaded = useLibrary((s) => s.loaded);
+  const needsSignIn = useNeedsSignIn();
   if (!game) {
     return loaded ? (
       <div className="grid h-full place-items-center">
-        <EmptyState
-          icon={<SearchX size={20} />}
-          title="That game isn't in your library"
-          description={`Nothing is called "${appName}" in your Epic library.`}
-          action={
-            <Button variant="secondary" onClick={() => navigate("library")}>
-              Back to library
-            </Button>
-          }
-        />
+        {needsSignIn ? (
+          <EmptyState
+            icon={<LogIn size={20} />}
+            title="Sign in to see this game"
+            description="Your library hasn't loaded on this account yet."
+            action={
+              <Button variant="primary" onClick={() => void actions.signIn("settings")}>
+                Sign in
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={<SearchX size={20} />}
+            title="That game isn't in your library"
+            description={`Nothing is called "${appName}" in your Epic library.`}
+            action={
+              <Button variant="secondary" onClick={() => navigate("library")}>
+                Back to library
+              </Button>
+            }
+          />
+        )}
       </div>
     ) : (
       <PageSkeleton />
@@ -61,9 +77,9 @@ function BackLink() {
 
 function Frame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="h-full overflow-y-auto [scrollbar-gutter:stable]">
-      <div className="mx-auto w-full max-w-[1120px] px-10 pb-16 pt-5 max-[1100px]:px-7">{children}</div>
-    </div>
+    <PageScroll game className="pb-16 pt-5">
+      {children}
+    </PageScroll>
   );
 }
 
@@ -94,12 +110,13 @@ function GamePage({ game }: { game: GameSummary }) {
   const pVerify = usePending(pendingKey("verify", appName));
   const pSignIn = usePending("signIn");
   const pClose = usePending(pendingKey("close", appName));
+  const pPlan = usePending(pendingKey("planning", appName));
 
   const jobId = game.activeJobId;
   const phase = useProgress((s) => (jobId ? s.latest[jobId]?.phase : undefined));
   const action = useMemo(
-    () => deriveGameAction(snap, game, { session, phase, pending: { launch: pLaunch, update: pUpdate, verify: pVerify, signIn: pSignIn, close: pClose } }),
-    [snap, game, session, phase, pLaunch, pUpdate, pVerify, pSignIn, pClose],
+    () => deriveGameAction(snap, game, { session, phase, pending: { launch: pLaunch, update: pUpdate, verify: pVerify, signIn: pSignIn, close: pClose, plan: pPlan } }),
+    [snap, game, session, phase, pLaunch, pUpdate, pVerify, pSignIn, pClose, pPlan],
   );
 
   // The "ready" flourish is store-owned and self-expiring; it only shows while this game is playable.
@@ -138,7 +155,8 @@ function GamePage({ game }: { game: GameSummary }) {
         <ThirdPartyNotice game={game} />
       </div>
 
-      <div className="mt-6">
+      {/* One 40 px line is reserved, so nothing below moves when the facts land under a hero that is still settling. */}
+      <div className="mt-6 min-h-10">
         <FactsRow game={game} detail={detail} />
       </div>
 

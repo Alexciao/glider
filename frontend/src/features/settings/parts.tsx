@@ -20,9 +20,13 @@ function useFound(...parts: (string | undefined)[]): boolean {
 }
 
 /** A row the search can find. `find` is every word it should match besides its label. */
-export function Setting({ label, find, children }: { label: string; find?: string; children: ReactNode }) {
+export function Setting({ label, find, id, children }: { label: string; find?: string; /** What `settings?focus=<id>` targets. */ id?: string; children: ReactNode }) {
   const found = useFound(label, find);
-  return found ? <div data-setting>{children}</div> : null;
+  return found ? (
+    <div data-setting data-setting-id={id}>
+      {children}
+    </div>
+  ) : null;
 }
 
 /** A run of rows. With a title it is a small subsection (Epic section); without, just spacing. */

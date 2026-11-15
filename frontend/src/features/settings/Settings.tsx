@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { Search, X } from "lucide-react";
 import type { Settings as SettingsT } from "../../ipc/contract.gen";
 import { useSnap } from "../../state/store";
+import { consumeSettingsFocus, useRoute } from "../../state/router";
 import { useUi } from "../../state/ui";
 import { EmptyState, IconButton, TextField, cx } from "../../ui";
 import { ErrorView } from "../common/ErrorView";
@@ -91,22 +92,57 @@ function SearchField({ value, onChange }: { value: string; onChange: (v: string)
 }
 
 export function Settings() {
-  const stored = useUi((s) => s.settingsSection);
+  const storedSection = useUi((s) => s.settingsSection);
   const go = useUi((s) => s.go);
   const settings = useSnap((s) => s.settings);
   const err = useUi((s) => s.errors.settings);
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<number | null>(null);
+  // Sections that still have a row after the filter; the rest of the nav steps back.
+  const [hits, setHits] = useState<ReadonlySet<string> | null>(null);
+  const route = useRoute();
+  const focus = route.page === "settings" ? route.focus : undefined;
   const body = useRef<HTMLDivElement>(null);
-  const q = query.trim();
+  // A link to a row shows its section at once (and no search), before the state catches up below.
+  const stored = focus ? "downloads" : storedSection;
+  const q = focus ? "" : query.trim();
   const current = sectionById(stored);
 
   // Count the rows that survived the filter once the DOM has settled; zero shows the empty state.
   useEffect(() => {
     if (!q) return;
-    const id = requestAnimationFrame(() => setMatches(body.current?.querySelectorAll("[data-setting]").length ?? 0));
+    const id = requestAnimationFrame(() => {
+      setMatches(body.current?.querySelectorAll("[data-setting]").length ?? 0);
+      const found = new Set<string>();
+      body.current?.querySelectorAll<HTMLElement>("[data-block]").forEach((b) => {
+        if (b.querySelector("[data-setting]")) found.add(b.id.replace(/^settings-/, ""));
+      });
+      setHits(found);
+    });
     return () => cancelAnimationFrame(id);
   }, [q, settings]);
+
+  // `settings?focus=downloadMode`: open that row's section, bring the row to the middle, focus its control, and flash it once.
+  useEffect(() => {
+    if (!focus) return;
+    // No cleanup on purpose: consuming the request below changes `focus`, and the flash must outlive that re-render.
+    const show = () => {
+      const row = body.current?.querySelector<HTMLElement>(`[data-setting-id="${focus}"]`);
+      if (!row) return false;
+      row.scrollIntoView({ block: "center", behavior: "instant" });
+      row.querySelector<HTMLElement>('button, [role="radio"], [role="combobox"], input')?.focus({ preventScroll: true });
+      row.setAttribute("data-flash", "");
+      window.setTimeout(() => row.removeAttribute("data-flash"), 1900);
+      return true;
+    };
+    // The section mounts on the next frame (it is keyed by section); try twice before giving up.
+    window.setTimeout(() => {
+      setQuery("");
+      useUi.setState({ settingsSection: "downloads" });
+      if (!show()) window.setTimeout(show, 120);
+      consumeSettingsFocus();
+    }, 60);
+  }, [focus]);
 
   return (
     <PageScroll wide>
@@ -121,6 +157,8 @@ export function Settings() {
               <div className="flex flex-col gap-0.5">
                 {group.map((s) => {
                   const active = !q && s.id === resolveSection(stored);
+                  // While searching, a section with no matching row steps back instead of competing with the ones that matched.
+                  const dim = !!q && hits !== null && !hits.has(s.id);
                   return (
                     <button
                       key={s.id}
@@ -132,10 +170,10 @@ export function Settings() {
                       }}
                       className={cx(
                         "flex h-9 items-center gap-2.5 rounded-lg px-3 text-left text-sm font-medium transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.985]",
-                        active ? "bg-surface-2 text-fg" : "text-fg-muted hover:bg-surface-hover hover:text-fg",
+                        active ? "bg-surface-2 text-fg" : dim ? "text-fg-disabled hover:bg-surface-hover" : "text-fg-muted hover:bg-surface-hover hover:text-fg",
                       )}
                     >
-                      <span className={cx("transition-colors duration-150", active ? "text-accent-text" : "text-fg-subtle")}>{s.icon}</span>
+                      <span className={cx("transition-colors duration-150", active ? "text-accent-text" : dim ? "text-fg-disabled" : "text-fg-subtle")}>{s.icon}</span>
                       <span className="truncate">{s.label}</span>
                     </button>
                   );

@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
 import {
-  ArrowDownToLine,
+  CircleArrowUp,
   Download,
   EyeOff,
   FolderInput,
   FolderOpen,
   Link2,
-  ListPlus,
+  Layers,
   LogIn,
   Pause,
   Play,
@@ -22,6 +22,7 @@ import {
 import type { AppSnapshot, GameDetail, GameSummary, ShortcutLocation } from "../../ipc/contract.gen";
 import { actions } from "../../state/actions";
 import { JOB_NOUN, isBusy } from "../../state/derive";
+import { openInstall, prefetchInstallPlan } from "../../state/installPlan";
 import { useUi } from "../../state/ui";
 import {
   DropdownMenuCheckboxItem,
@@ -37,7 +38,7 @@ import type { ActionKind, GameAction } from "./actionModel";
 const ICONS: Partial<Record<ActionKind, ReactNode>> = {
   signIn: <LogIn size={18} />,
   install: <Download size={18} />,
-  update: <ArrowDownToLine size={18} />,
+  update: <CircleArrowUp size={18} />,
   play: <Play size={16} fill="currentColor" strokeWidth={0} />,
   resume: <Play size={16} fill="currentColor" strokeWidth={0} />,
   repair: <Wrench size={16} />,
@@ -58,7 +59,7 @@ export function pressPrimary(action: GameAction, appName: string): void {
       void actions.signIn("hero");
       break;
     case "install":
-      ui.openDialog({ kind: "install", appName });
+      void openInstall(appName);
       break;
     case "update":
       void actions.update(appName);
@@ -104,7 +105,7 @@ export function GameActions({
   moment: boolean;
 }) {
   const { appName } = game;
-  const warm = action.intent === "launch" ? () => void actions.prepareLaunch(appName) : undefined;
+  const warm = action.intent === "launch" ? () => void actions.prepareLaunch(appName) : action.intent === "install" ? () => void prefetchInstallPlan(appName) : undefined;
   return (
     <SplitButton
       size="lg"
@@ -145,9 +146,19 @@ function GameMenuItems({ snap, game, detail, action }: { snap: AppSnapshot; game
     );
   }
 
+  // Signed out, the primary says Sign in; an installed game that can run without Epic's services still starts from here.
+  if (action.kind === "signIn" && game.installStatus === "installed" && game.canRunOffline) {
+    items.push(
+      <DropdownMenuItem key="offline" icon={<Play size={14} fill="currentColor" strokeWidth={0} />} onSelect={() => void actions.launch(appName, { mode: "offline" })}>
+        Play offline
+      </DropdownMenuItem>,
+      <DropdownMenuSeparator key="s-offline" />,
+    );
+  }
+
   if (job) {
     items.push(
-      <DropdownMenuItem key="downloads" icon={<ArrowDownToLine size={14} />} onSelect={() => go("downloads")}>
+      <DropdownMenuItem key="downloads" icon={<Download size={14} />} onSelect={() => go("downloads")}>
         Open downloads
       </DropdownMenuItem>,
     );
@@ -171,7 +182,7 @@ function GameMenuItems({ snap, game, detail, action }: { snap: AppSnapshot; game
   if (installed) {
     items.push(
       <DropdownMenuItem key="verify" icon={<ShieldCheck size={14} />} disabled={busy || !signedIn} onSelect={() => void actions.verify(appName)}>
-        Verify
+        Verify files
       </DropdownMenuItem>,
       <DropdownMenuItem key="move" icon={<FolderInput size={14} />} disabled={busy} onSelect={() => openDialog({ kind: "move", appName })}>
         Move…
@@ -182,7 +193,7 @@ function GameMenuItems({ snap, game, detail, action }: { snap: AppSnapshot; game
         </DropdownMenuItem>
       ) : null,
       <DropdownMenuItem key="open" icon={<FolderOpen size={14} />} onSelect={() => void actions.openInstallFolder(appName)}>
-        Open folder
+        Open install folder
       </DropdownMenuItem>,
       <DropdownMenuSub key="shortcut">
         <DropdownMenuSubTrigger icon={<Link2 size={14} />} disabled={!detail}>
@@ -203,7 +214,7 @@ function GameMenuItems({ snap, game, detail, action }: { snap: AppSnapshot; game
 
   items.push(
     <DropdownMenuSub key="collection">
-      <DropdownMenuSubTrigger icon={<ListPlus size={14} />}>Add to collection</DropdownMenuSubTrigger>
+      <DropdownMenuSubTrigger icon={<Layers size={14} />}>Add to collection</DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="w-56">
         {collections.length === 0 ? (
           <DropdownMenuItem disabled>No collections yet</DropdownMenuItem>

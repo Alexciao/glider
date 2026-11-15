@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { ArrowDownToLine, Download, Eye, EyeOff, FolderInput, FolderOpen, FolderPlus, Layers, MoreHorizontal, Play, Star, Trash2, Wrench } from "lucide-react";
+import { CircleArrowUp, Download, Eye, EyeOff, FolderInput, FolderOpen, Layers, MoreHorizontal, Play, Plus, ShieldCheck, Star, Trash2, Wrench } from "lucide-react";
 import type { GameSummary } from "../../ipc/contract.gen";
 import { actions } from "../../state/actions";
 import { collectionActions } from "../../state/collections";
@@ -32,7 +32,7 @@ export function GameMenuItems({ kit, game }: { kit: MenuKit; game: GameSummary }
     <>
       {quick && (
         <Item
-          icon={quick.kind === "play" ? <Play size={14} className="fill-current" /> : quick.kind === "install" ? <Download size={16} /> : <Wrench size={16} />}
+          icon={quick.kind === "play" ? <Play size={14} className="fill-current" /> : quick.kind === "install" ? <Download size={14} /> : <Wrench size={14} />}
           disabled={quick.kind === "install" && offline}
           onSelect={() => void runQuick(quick.kind, appName)}
         >
@@ -40,7 +40,7 @@ export function GameMenuItems({ kit, game }: { kit: MenuKit; game: GameSummary }
         </Item>
       )}
       {canUpdate && (
-        <Item icon={<ArrowDownToLine size={14} />} disabled={!signedIn || offline} onSelect={() => void runUpdate(appName)}>
+        <Item icon={<CircleArrowUp size={14} />} disabled={!signedIn || offline} onSelect={() => void runUpdate(appName)}>
           Update
         </Item>
       )}
@@ -55,7 +55,7 @@ export function GameMenuItems({ kit, game }: { kit: MenuKit; game: GameSummary }
           </CheckItem>
         ))}
         {collections.length > 0 && <Separator />}
-        <Item icon={<FolderPlus size={14} />} onSelect={() => askNewCollection(appName)}>
+        <Item icon={<Plus size={14} />} onSelect={() => askNewCollection(appName)}>
           New collection…
         </Item>
       </Sub>
@@ -65,7 +65,7 @@ export function GameMenuItems({ kit, game }: { kit: MenuKit; game: GameSummary }
       {installed && (
         <>
           <Separator />
-          <Item icon={<Wrench size={14} />} disabled={busy || !signedIn || offline} onSelect={() => void actions.verify(appName)}>
+          <Item icon={<ShieldCheck size={14} />} disabled={busy || !signedIn || offline} onSelect={() => void actions.verify(appName)}>
             Verify files
           </Item>
           <Item icon={<FolderInput size={14} />} disabled={busy} onSelect={() => openDialog({ kind: "move", appName })}>

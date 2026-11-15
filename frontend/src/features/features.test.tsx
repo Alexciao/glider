@@ -164,7 +164,8 @@ describe("Library page", () => {
 describe("Home", () => {
   it("shows continue playing and updates, and nothing else that is empty", async () => {
     const { user } = await mount("returning", <Home />);
-    expect(screen.getByRole("heading", { name: /Welcome back, Marlowe/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Home" })).toBeInTheDocument(); // screen readers only: no greeting
+    expect(screen.queryByText(/Welcome back/)).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Continue playing" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Updates" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Downloads" })).not.toBeInTheDocument();
@@ -343,7 +344,7 @@ describe("Downloads", () => {
 describe("Shell routing", () => {
   it("renders the page for the route, including a game, and follows navigate()", async () => {
     await mount("returning", <Shell />);
-    expect(screen.getByRole("heading", { name: /Welcome back/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Home" })).toBeInTheDocument();
     act(() => navigate("library"));
     expect(await screen.findByRole("heading", { name: "Library" })).toBeInTheDocument();
     act(() => navigate("game/Fortnite"));

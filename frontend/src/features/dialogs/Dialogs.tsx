@@ -38,9 +38,14 @@ function CancelJobDialog({ jobId, open }: { jobId: string; open: boolean }) {
 
 /* ------------------------------------------------------------------- error */
 
+const RELEASES_URL = "https://github.com/Alexciao/glider/releases/latest";
+
 function ErrorDialog({ dialog, open }: { dialog: Extract<DialogState, { kind: "error" }>; open: boolean }) {
   const close = useUi((s) => s.closeDialog);
   const { error, retry } = dialog;
+  // A damaged install can only be fixed by installing again: that is the primary, and the logs are the way to see why.
+  const damaged = error.code === "legendaryMissing";
+  const fix = error.fix && !(damaged && error.fix === "openLogs") ? error.fix : null;
   return (
     <Modal
       open={open}
@@ -52,16 +57,39 @@ function ErrorDialog({ dialog, open }: { dialog: Extract<DialogState, { kind: "e
           <Button variant="ghost" onClick={close}>
             Close
           </Button>
-          {error.fix && (
+          {damaged && (
+            <Button
+              variant="secondary"
+              onClick={() => {
+                close();
+                runFix("openLogs", { appName: error.appName });
+              }}
+            >
+              Open logs
+            </Button>
+          )}
+          {damaged ? (
             <Button
               variant="primary"
               onClick={() => {
                 close();
-                runFix(error.fix!, { retry, appName: error.appName });
+                void actions.openExternal(RELEASES_URL);
               }}
             >
-              {FIX_LABELS[error.fix]}
+              Download Glider
             </Button>
+          ) : (
+            fix && (
+              <Button
+                variant="primary"
+                onClick={() => {
+                  close();
+                  runFix(fix, { retry, appName: error.appName });
+                }}
+              >
+                {FIX_LABELS[fix]}
+              </Button>
+            )
           )}
         </>
       }

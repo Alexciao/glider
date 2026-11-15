@@ -118,7 +118,7 @@ const RAW_STATES: ShotState[] = [
     setup: async (p) => {
       await wait(1100);
       await btn(p, /^Import \d+ games$/).click();
-      await p.getByText(/games imported|of \d+ imported/).waitFor({ timeout: 20_000 });
+      await p.getByText(/games? imported|of \d+ imported|games? ready|need a repair|needs a repair/).waitFor({ timeout: 20_000 });
       await wait(300);
     },
   },
@@ -163,7 +163,7 @@ const RAW_STATES: ShotState[] = [
       await wait(700);
       await g(p, (h) => h.rpc("onboarding.setStep", { step: "folders", skipped: false }));
       await wait(600);
-      await btn(p, "Add a library folder").click();
+      await btn(p, "Add folder…").click();
       await wait(500);
       await btn(p, "Add folder…").click();
       await wait(500);
@@ -780,6 +780,115 @@ const RAW_STATES: ShotState[] = [
   { name: "store-loaded", query: "scenario=returning", setup: async (p) => go(p, "store"), settle: 1200 },
   { name: "store-offline", query: "scenario=offline", setup: async (p) => go(p, "store"), settle: 900 },
   { name: "store-signed-out", query: "scenario=authExpired", setup: async (p) => go(p, "store"), settle: 1200 },
+
+  // ------------------------------------ signed out (Core keeps the library; the session is what ends)
+  {
+    name: "home-signed-out",
+    query: "scenario=returning&timescale=1",
+    setup: async (p) => {
+      await g(p, (h) => h.rpc("auth.signOut"));
+      await wait(300);
+      await go(p, "home");
+    },
+    settle: 700,
+  },
+  {
+    name: "lib-signed-out",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await g(p, (h) => h.rpc("auth.signOut"));
+      await wait(300);
+      await go(p, "library");
+    },
+  },
+  {
+    name: "game-signed-out",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await g(p, (h) => h.rpc("auth.signOut"));
+      await wait(300);
+      await goPicked(p, PLAYABLE);
+    },
+  },
+  {
+    name: "home-signed-out-empty",
+    query: "scenario=emptyLibrary",
+    setup: async (p) => {
+      await g(p, (h) => h.rpc("auth.signOut"));
+      await wait(300);
+      await go(p, "home");
+    },
+  },
+  {
+    name: "lib-signed-out-empty",
+    query: "scenario=emptyLibrary",
+    setup: async (p) => {
+      await g(p, (h) => h.rpc("auth.signOut"));
+      await wait(300);
+      await go(p, "library");
+    },
+  },
+
+  // -------------------------------------------------------- hover and search states
+  {
+    name: "home-card-hover",
+    query: "scenario=returning&timescale=1",
+    setup: async (p) => {
+      await go(p, "home");
+      await wait(500);
+      await p.getByRole("region", { name: "Continue playing" }).getByRole("button").first().hover();
+      await wait(350);
+    },
+  },
+  {
+    name: "lib-tile-hover",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await go(p, "library");
+      await wait(500);
+      await p.locator("[data-tile-index='2']").hover();
+      await wait(350);
+    },
+  },
+  {
+    name: "lib-row-hover",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await go(p, "library");
+      await p.getByRole("radio", { name: "List view" }).click();
+      await wait(400);
+      await p.locator("[data-tile-index='2']").hover();
+      await wait(350);
+    },
+  },
+  {
+    name: "lib-search-results",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await go(p, "library");
+      await p.getByRole("textbox", { name: "Search your library" }).fill("the");
+      await wait(450);
+    },
+  },
+  {
+    name: "lib-search-results-list",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await go(p, "library");
+      await p.getByRole("radio", { name: "List view" }).click();
+      await p.getByRole("textbox", { name: "Search your library" }).fill("the");
+      await wait(450);
+    },
+  },
+  {
+    name: "settings-focus-speed-limit",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await g(p, (h) => h.router.getState().go("settings?focus=speedLimit"));
+      await wait(500);
+    },
+    live: true,
+  },
 ];
 
 const NEEDS_GAME_PAGE = /^(library-|focus-library|focus-rail|toasts|dialog-(uninstall|move|error))/;

@@ -13,7 +13,8 @@ const SHOWN = 3;
 /** Installed games with an update waiting: three rows (cover, title, Update) and one button for all of them. */
 export function UpdatesPanel({ updates }: { updates: readonly GameSummary[] }) {
   const updatingAll = usePending("updateAll");
-  const offline = useSnap((s) => s.connectivity === "offline");
+  // Updates talk to Epic: offline or signed out, they wait.
+  const offline = useSnap((s) => s.connectivity === "offline" || s.auth.status !== "signedIn");
   const shown = updates.slice(0, SHOWN);
   const more = updates.length - shown.length;
   return (

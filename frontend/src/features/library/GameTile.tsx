@@ -1,7 +1,8 @@
 import { memo, useState, type ReactNode } from "react";
-import { ArrowDownToLine, Check, Download, Play, Wrench } from "lucide-react";
+import { ArrowUp, Check, Download, Play, Wrench } from "lucide-react";
 import type { GameSummary } from "../../ipc/contract.gen";
 import { Button, GameCover, cx } from "../../ui";
+import { TILE_TEXT } from "./gridLayout";
 import { SharedCover } from "./SharedCover";
 import { CoverProgress } from "./CoverProgress";
 import { MoreButton } from "./GameMenu";
@@ -26,7 +27,7 @@ function badgeFor(g: GameSummary): Badge | null {
   if (g.activeJobId) return null;
   if (g.runState !== "idle") return { label: "Playing", node: <span className={cx(disc, glass)}><span className="size-2 animate-[g-breathe_1.8s_ease-in-out_infinite] rounded-full bg-[oklch(0.82_0.15_155)]" /></span> };
   if (g.installStatus === "broken") return { label: "Needs repair", node: <span className={cx(disc, glass, "text-[oklch(0.84_0.13_80)]")}><Wrench size={12} strokeWidth={2.5} /></span> };
-  if (g.installStatus === "installed" && g.updateAvailable) return { label: "Update available", node: <span className={cx(disc, "bg-accent text-accent-fg ring-1 ring-inset ring-white/20")}><ArrowDownToLine size={12} strokeWidth={2.5} /></span> };
+  if (g.installStatus === "installed" && g.updateAvailable) return { label: "Update available", node: <span className={cx(disc, "bg-accent text-accent-fg ring-1 ring-inset ring-white/20")}><ArrowUp size={12} strokeWidth={2.75} /></span> };
   if (g.installStatus === "installed") return { label: "Installed", node: <span className={cx(disc, glass, "text-white/90")}><Check size={12} strokeWidth={2.75} /></span> };
   if (g.thirdParty !== "none" && g.thirdPartyName) return { label: g.thirdPartyName, node: <span className={cx("inline-flex h-[22px] items-center rounded-full px-2 text-2xs font-medium text-white/90", glass)}>{g.thirdPartyName}</span> };
   return null;
@@ -63,7 +64,7 @@ export const GameTile = memo(function GameTile({ game, index, count, x, y, width
       aria-posinset={index + 1}
       aria-setsize={count}
       className="absolute left-0 top-0 list-none"
-      style={{ width, height: coverH + 28, transform: `translate(${x}px, ${y}px)` }}
+      style={{ width, height: coverH + TILE_TEXT, transform: `translate(${x}px, ${y}px)` }}
     >
       <div
         onPointerEnter={() => setHot(true)}
@@ -95,8 +96,10 @@ export const GameTile = memo(function GameTile({ game, index, count, x, y, width
                 </span>
               )}
             </span>
-            <span className="mt-2 flex h-5 items-center text-sm font-medium text-fg">
-              <span className="truncate" title={game.title}>{game.title}</span>
+            <span className="mt-2 block h-9 text-sm font-medium leading-[18px] text-fg">
+              <span className="line-clamp-2 [overflow-wrap:anywhere]" title={game.title}>
+                {game.title}
+              </span>
               <span className="sr-only">. {describeState(game)}</span>
             </span>
           </button>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { TriangleAlert } from "lucide-react";
 import type { InstallPlan } from "../../../ipc/contract.gen";
 import { actions, pendingKey } from "../../../state/actions";
 import { dirname, driveOf, formatBytes } from "../../../state/format";
@@ -8,7 +9,6 @@ import { usePending, useUi } from "../../../state/ui";
 import { Button, Modal, Switch } from "../../../ui";
 import { ErrorView } from "../../common/ErrorView";
 import { PathText } from "../../common/PathText";
-import { NoticeCard } from "../Notices";
 import { FolderChooser, SpaceMeter, useFolderOptions } from "./FolderChooser";
 
 const same = (a: string, b: string) => a.replace(/[\\/]+$/, "").toLowerCase() === b.replace(/[\\/]+$/, "").toLowerCase();
@@ -50,7 +50,7 @@ export function MoveDialog({ appName, open }: { appName: string; open: boolean }
   const free = plan?.freeBytes ?? options.find((o) => base && same(o.path, base))?.freeBytes ?? null;
   const fits = free == null || free >= size;
   const drive = driveOf(base);
-  const egl = game.sharedWithEgl && !eglSync;
+  const egl = game.sharedWithEgl;
   const pick = async () => {
     const p = await actions.pickFolder(base ?? dirname(current), `Choose where to move ${game.title}`);
     if (p) setBase(p);
@@ -68,6 +68,7 @@ export function MoveDialog({ appName, open }: { appName: string; open: boolean }
       open={open}
       onOpenChange={(o) => !o && !moving && close()}
       size="lg"
+      anchor="top"
       title={`Move ${game.title}`}
       description="You can't play while the files move."
       footer={
@@ -106,18 +107,18 @@ export function MoveDialog({ appName, open }: { appName: string; open: boolean }
         </section>
 
         {egl && (
-          <NoticeCard
-            tone="warning"
-            title="Epic Games Launcher will lose track of this install"
-            actions={
-              <label className="inline-flex items-center gap-2 text-xs text-fg">
-                <Switch aria-label="Keep Epic Games Launcher in sync" checked={eglSync} onCheckedChange={(v) => void actions.updateSettings({ eglSync: v })} />
-                Keep Epic Games Launcher in sync
-              </label>
-            }
-          >
-            Keeping it in sync updates Epic Games Launcher with the new location after the move.
-          </NoticeCard>
+          <div className="flex flex-col gap-2.5">
+            <label className="flex items-center gap-3 text-sm font-medium text-fg">
+              <Switch aria-label="Keep Epic Games Launcher in sync" checked={eglSync} onCheckedChange={(v) => void actions.updateSettings({ eglSync: v })} />
+              Keep Epic Games Launcher in sync
+            </label>
+            {!eglSync && (
+              <p className="flex items-center gap-2 text-xs text-warning-text" role="status">
+                <TriangleAlert size={14} aria-hidden className="shrink-0" />
+                Epic Games Launcher will lose track of this install.
+              </p>
+            )}
+          </div>
         )}
         {error && <ErrorView error={error.error} retry={error.retry} />}
       </div>

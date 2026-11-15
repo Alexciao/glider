@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, m } from "motion/react";
 import { ArrowLeft, Check, FolderPlus, FolderSearch, KeyRound, Minus } from "lucide-react";
 import type { DownloadMode, OnboardingStep } from "../../ipc/contract.gen";
@@ -12,7 +12,7 @@ import { Badge, Button, Callout, ChoiceGroup, GliderMark, cx, ease, spring, type
 import { ErrorView } from "../common/ErrorView";
 import { FolderList } from "../common/FolderList";
 import { ImportList } from "../import/ImportList";
-import { batchHeadline } from "../import/model";
+import { batchHeadline, batchNote, emptyBody } from "../import/model";
 import { useImportSession } from "../import/useImportSession";
 
 /**
@@ -71,9 +71,15 @@ function Stepper({ step, skipped }: { step: Walk; skipped: readonly OnboardingSt
 
 /** A task step: a scrolling body and a footer pinned below it (Back on the left, Skip and the primary action on the right). */
 function StepLayout({ children, footer, narrow }: { children: ReactNode; footer: ReactNode; narrow?: boolean }) {
+  // Once the body has scrolled, its top edge fades over 16 px instead of cutting rows against the stepper.
+  const [scrolled, setScrolled] = useState(false);
   return (
     <>
-      <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+      <div
+        onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 2)}
+        className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]"
+        style={scrolled ? { maskImage: "linear-gradient(to bottom, transparent, black 16px)" } : undefined}
+      >
         <div className={cx("mx-auto flex min-h-full w-full flex-col px-6 pb-6 pt-4", narrow ? "max-w-[520px]" : "max-w-[680px]")}>{children}</div>
       </div>
       <footer className="relative shrink-0 border-t border-border bg-bg-elevated">
@@ -119,7 +125,10 @@ function Welcome() {
           <GliderMark size={64} />
         </div>
       </div>
-      <h1 className="text-balance text-center text-3xl font-semibold tracking-tighter text-fg max-[1100px]:text-2xl">Your whole Epic library, one launcher.</h1>
+      <h1 className="text-center text-3xl font-semibold tracking-tighter text-fg max-[1100px]:text-2xl">
+        <span className="block">Your whole Epic library,</span>
+        <span className="block">one launcher.</span>
+      </h1>
       <p className="mx-auto mt-3 max-w-[44ch] text-balance text-center text-md leading-[1.5] text-fg-muted">Sign in, bring over the games you already have, and play.</p>
       <Button size="xl" variant="primary" className="mt-9 min-w-44" onClick={() => void go("signIn")}>
         Get started
@@ -160,12 +169,12 @@ function SignIn() {
         <div className="mb-6 grid size-14 place-items-center rounded-2xl bg-surface-2 text-fg ring-1 ring-inset ring-border-strong [box-shadow:inset_0_1px_0_var(--g-highlight),var(--g-shadow-sm)]">
           <KeyRound size={24} strokeWidth={1.75} />
         </div>
-        <Heading center title="Sign in with Epic">
+        <Heading center title="Connect your Epic account">
           A secure Epic window opens. Glider never sees your password.
         </Heading>
         <div className="mt-8 flex w-full max-w-sm flex-col gap-3">
           {offline && <Callout tone="offline" title="You're offline. Connect to sign in." />}
-          {error && <ErrorView error={error.error} retry={error.retry} onDismiss={() => useUi.getState().setError("onboarding", undefined)} />}
+          {error && <ErrorView noFix error={error.error} retry={error.retry} onDismiss={() => useUi.getState().setError("onboarding", undefined)} />}
           <Button
             size="xl"
             variant="primary"
@@ -188,14 +197,18 @@ function Scan() {
   const nothingToImport = groups.ready.length === 0;
 
   const title =
-    phase === "scanning" || phase === "empty"
+    phase === "scanning"
       ? "Finding your installed games"
+      : phase === "empty"
+        ? "No games found on this PC"
       : phase === "importing" || phase === "done"
         ? batchHeadline(summary)
         : groups.ready.length > 0
           ? `Found ${plural(groups.ready.length, "game")} on this PC`
           : "Your installed games are already here";
 
+  // With nothing found, Skip and Continue would do the same thing: there is only Continue.
+  const lonely = phase === "empty" || (phase === "list" && nothingToImport);
   const next = (skipped: boolean) => {
     session.reset();
     void go("folders", skipped);
@@ -214,7 +227,7 @@ function Scan() {
         Locate another folder…
       </Button>
       <Spacer />
-      {phase !== "importing" && phase !== "done" && (
+      {phase !== "importing" && phase !== "done" && !lonely && (
         <Button variant="ghost" size="lg" onClick={() => next(true)}>
           Skip
         </Button>
@@ -224,7 +237,7 @@ function Scan() {
           {session.selectedCount === 0 ? "Import" : `Import ${plural(session.selectedCount, "game")}`}
         </Button>
       ) : (
-        <Button size="lg" variant="primary" className="min-w-40" loading={phase === "scanning" || phase === "importing"} onClick={() => next(false)}>
+        <Button size="lg" variant="primary" className="min-w-40" loading={phase === "scanning" || phase === "importing"} onClick={() => next(phase === "empty")}>
           {phase === "importing" ? "Importing…" : "Continue"}
         </Button>
       )}
@@ -239,13 +252,13 @@ function Scan() {
           {phase === "importing"
             ? undefined
             : phase === "done"
-              ? summary.imported + summary.needsRepair > 0
-                ? "Nothing was downloaded."
-                : undefined
-              : "Importing keeps them where they are, so nothing is downloaded again."}
+              ? batchNote(summary)
+              : phase === "empty"
+                ? emptyBody(launcherInstalled)
+                : "Importing keeps them where they are, so nothing is downloaded again."}
         </Heading>
         <div className="mt-5" aria-live="polite">
-          <ImportList session={session} launcherInstalled={launcherInstalled} />
+          <ImportList session={session} launcherInstalled={launcherInstalled} untitled />
         </div>
       </div>
     </StepLayout>
@@ -295,7 +308,7 @@ function Folders() {
             )}
           >
             <FolderPlus size={none ? 24 : 16} strokeWidth={none ? 1.5 : 2} />
-            {none ? "Add a library folder" : "Add folder…"}
+            Add folder…
           </button>
         </div>
       </div>
@@ -351,8 +364,8 @@ function Done() {
       <Heading center title="You're all set">
         {games > 0 ? `${plural(games, "game")} in your library.` : "Your library appears after the first sync."}
       </Heading>
-      <Button size="xl" variant="primary" className="mt-8 min-w-48" loading={finishing} onClick={() => void actions.completeOnboarding().then(() => useUi.getState().go("home"))}>
-        Open Glider
+      <Button size="xl" variant="primary" className="mt-8 min-w-48" loading={finishing} onClick={() => void actions.completeOnboarding().then(() => useUi.getState().go("library"))}>
+        Go to your library
       </Button>
     </div>
   );

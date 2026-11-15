@@ -1,13 +1,13 @@
 import { useMemo } from "react";
-import { Gamepad2 } from "lucide-react";
-import { actions } from "../../state/actions";
 import { useLibrary } from "../../state/library";
 import { useLibraryCounts, useLibraryIndex, useRecentlyPlayed } from "../../state/libraryIndex";
 import { goGame } from "../../state/router";
 import { useSnap } from "../../state/store";
 import { usePending } from "../../state/ui";
-import { Button, EmptyState, GameCover, Skeleton } from "../../ui";
+import { GameCover, Skeleton } from "../../ui";
 import { PageScroll } from "../common/Page";
+import { LibraryEmpty } from "../common/LibraryEmpty";
+import { SignInBanner } from "../common/SignInBanner";
 import { ContinueCard } from "./ContinuePlaying";
 import { DownloadsStrip } from "./DownloadsStrip";
 import { FreeThisWeek } from "./FreeThisWeek";
@@ -19,7 +19,6 @@ const CARDS = 3;
 function HomeSkeleton() {
   return (
     <div role="status" aria-label="Loading Home">
-      <Skeleton className="mb-10 h-7 w-64 rounded-md" />
       <Skeleton className="mb-3 h-5 w-36 rounded-sm" />
       <div className="mb-10 grid grid-cols-3 gap-5">
         {[0, 1, 2].map((i) => (
@@ -61,7 +60,6 @@ function FirstGame() {
 
 /** Home: four possible sections (continue, downloads, updates, free games); an empty one is not drawn. */
 export function Home() {
-  const name = useSnap((s) => s.auth.account?.displayName);
   const loaded = useLibrary((s) => s.loaded);
   const syncing = useSnap((s) => s.library.syncing);
   const counts = useLibraryCounts();
@@ -88,20 +86,13 @@ export function Home() {
 
   return (
     <PageScroll full>
-      <h1 className="mb-10 text-xl font-semibold tracking-tight text-fg">{name ? `Welcome back, ${name}` : "Home"}</h1>
+      {/* No greeting: it said nothing and pushed the games down. The first section leads; the page keeps an h1 for screen readers. */}
+      <h1 className="sr-only">Home</h1>
+      {total > 0 && <SignInBanner className="mb-8" />}
 
       {total === 0 ? (
         <div className="mb-10">
-          <EmptyState
-            className="py-8"
-            icon={<Gamepad2 size={20} />}
-            title="Your library is empty"
-            action={
-              <Button variant="primary" onClick={() => void actions.refreshLibrary()}>
-                Sync library
-              </Button>
-            }
-          />
+          <LibraryEmpty className="py-8" />
         </div>
       ) : cards.length > 0 ? (
         <HomeSection title={recent.length > 0 ? "Continue playing" : "Ready to play"}>

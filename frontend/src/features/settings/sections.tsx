@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Cloud, Download, Gamepad2, HardDrive, Info, Layers, Link2, Palette, Power, RefreshCw, SlidersHorizontal, UserRound } from "lucide-react";
+import { CircleArrowUp, Cloud, Download, HardDrive, Info, Layers, Link2, Palette, Power, Rocket, SlidersHorizontal, UserRound } from "lucide-react";
 import type { SettingsSection } from "../../state/ui";
 
 export type SectionId = Exclude<SettingsSection, "general">;
@@ -17,11 +17,11 @@ export const SECTION_GROUPS: SectionDef[][] = [
   [
     { id: "downloads", label: "Downloads", icon: <Download size={16} />, keywords: "speed limit mode bandwidth cdn workers cache memory idle playing" },
     { id: "library", label: "Library folders", icon: <HardDrive size={16} />, keywords: "install location drive disk space default folder" },
-    { id: "updates", label: "Updates", icon: <RefreshCw size={16} />, keywords: "auto update check interval patch" },
+    { id: "updates", label: "Updates", icon: <CircleArrowUp size={16} />, keywords: "auto update check interval patch" },
     { id: "saves", label: "Cloud saves", icon: <Cloud size={16} />, keywords: "backup sync progress" },
   ],
   [
-    { id: "egl", label: "Epic Games Launcher", icon: <Gamepad2 size={16} />, keywords: "egl epic launcher import scan uninstall sync" },
+    { id: "egl", label: "Epic Games Launcher", icon: <Rocket size={16} />, keywords: "egl epic launcher import scan uninstall sync" },
     { id: "overlay", label: "Epic overlay", icon: <Layers size={16} />, keywords: "epic online services eos friends achievements" },
     { id: "links", label: "Links", icon: <Link2 size={16} />, keywords: "protocol com.epicgames.launcher glider:// url handler" },
   ],

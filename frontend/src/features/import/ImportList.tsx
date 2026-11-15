@@ -1,13 +1,15 @@
 import { memo, useEffect, useId } from "react";
-import { CircleCheck, FolderSearch } from "lucide-react";
+import { CircleCheck, FolderSearch, Wrench } from "lucide-react";
 import type { EglInstall } from "../../ipc/contract.gen";
+import { actions, pendingKey } from "../../state/actions";
 import { driveOf, formatBytes, prettyVersion } from "../../state/format";
+import { useGame } from "../../state/library";
 import { useJobProgress } from "../../state/progress";
-import { useUi } from "../../state/ui";
+import { usePending, useUi } from "../../state/ui";
 import { ArtThumb, Badge, Button, Checkbox, EmptyState, Skeleton, Spinner, cx } from "../../ui";
 import { ErrorView } from "../common/ErrorView";
 import { useImportBatch } from "./batch";
-import { batchHeadline, linkedCount, resultPhrase, unavailableLabel } from "./model";
+import { batchHeadline, batchNote, emptyBody, resultPhrase, unavailableLabel } from "./model";
 import type { ImportRowModel, ImportSession } from "./useImportSession";
 
 /**
@@ -50,13 +52,35 @@ const StaticRow = memo(function StaticRow({ install }: { install: EglInstall }) 
         <span className="size-4 shrink-0" aria-hidden />
         <ArtThumb src={install.artUrl} title={install.title} size="sm" className={imported ? undefined : "opacity-60"} />
         <span className={cx("min-w-0 flex-1 truncate text-sm font-medium", imported ? "text-fg" : "text-fg-muted")}>{install.title}</span>
-        <Badge tone={install.status === "busy" ? "warning" : install.status === "stale" ? "danger" : "neutral"}>{unavailableLabel(install.status)}</Badge>
+        <Badge tone={install.status === "busy" || install.status === "stale" ? "warning" : "neutral"}>{unavailableLabel(install.status)}</Badge>
       </div>
     </li>
   );
 });
 
 /* ------------------------------------------------------------------ batch rows */
+
+/** "Needs repair · 12 files" with its one action. The repair queues in the background; the row says so once it has. */
+function RepairResult({ appName, title, phrase }: { appName: string; title: string; phrase: string }) {
+  const game = useGame(appName);
+  const starting = usePending(pendingKey("verify", appName));
+  const underway = game?.activeJobId != null && game.activeJobKind !== "import";
+  return (
+    <span className="flex shrink-0 items-center gap-2">
+      <span className="flex items-center gap-1.5 text-xs text-warning-text">
+        <Wrench size={14} aria-hidden />
+        {phrase}
+      </span>
+      {underway ? (
+        <span className="text-xs text-fg-muted">Repairing…</span>
+      ) : (
+        <Button size="sm" variant="secondary" loading={starting} aria-label={`Repair ${title}`} onClick={() => void actions.verify(appName)}>
+          Repair
+        </Button>
+      )}
+    </span>
+  );
+}
 
 function Result({ row, onRetry }: { row: ImportRowModel; onRetry: () => void }) {
   const { state } = row.result;
@@ -67,13 +91,13 @@ function Result({ row, onRetry }: { row: ImportRowModel; onRetry: () => void }) 
       return <span className="shrink-0 text-xs tabular-nums text-fg-muted">{Math.round(Math.max(0, Math.min(100, progress?.percent ?? 0)))}%</span>;
     case "imported":
       return (
-        <span className="flex shrink-0 items-center gap-1.5 text-xs text-success-text">
-          <CircleCheck size={14} aria-hidden />
+        <span className="flex shrink-0 items-center gap-1.5 text-xs text-fg-muted">
+          <CircleCheck size={14} aria-hidden className="text-success" />
           {phrase}
         </span>
       );
     case "needsRepair":
-      return <span className="shrink-0 text-xs text-warning-text">{phrase}</span>;
+      return <RepairResult appName={row.install.appName} title={row.install.title} phrase={phrase} />;
     case "failed":
       return (
         <span className="flex shrink-0 items-center gap-1">
@@ -128,14 +152,29 @@ export function BatchLine({ session }: { session: ImportSession }) {
     <p className="mb-2 flex items-center gap-2 px-3 text-sm font-medium text-fg" role="status">
       {!s.settled && <Spinner size={14} />}
       {batchHeadline(s)}
-      {s.settled && linkedCount(s) > 0 && <span className="font-normal text-fg-muted">Nothing was downloaded.</span>}
+      {batchNote(s) && <span className="font-normal text-fg-muted">{batchNote(s)}</span>}
     </p>
   );
 }
 
 /* ------------------------------------------------------------------ the list */
 
-export function ImportList({ session, surface = "onboarding", launcherInstalled, toolbarClassName, withSummary }: { session: ImportSession; surface?: "onboarding" | "settings"; launcherInstalled: boolean; toolbarClassName?: string; withSummary?: boolean }) {
+export function ImportList({
+  session,
+  surface = "onboarding",
+  launcherInstalled,
+  toolbarClassName,
+  withSummary,
+  untitled,
+}: {
+  session: ImportSession;
+  surface?: "onboarding" | "settings";
+  launcherInstalled: boolean;
+  toolbarClassName?: string;
+  withSummary?: boolean;
+  /** The page already carries the "No games found" heading and its sentence: show the action only. */
+  untitled?: boolean;
+}) {
   const error = useUi((s) => s.errors[surface]);
   useEffect(() => useImportBatch.getState().attach(), []);
   const { phase, groups } = session;
@@ -148,11 +187,16 @@ export function ImportList({ session, surface = "onboarding", launcherInstalled,
       {error && <ErrorView className="mb-4" error={error.error} retry={error.retry} onDismiss={() => useUi.getState().setError(surface, undefined)} />}
 
       {phase === "scanning" && <Scanning />}
-      {phase === "empty" && (
+      {phase === "empty" && untitled && (
+        <Button variant="secondary" loading={session.scanning} onClick={() => void session.scanDrives()}>
+          Scan all drives
+        </Button>
+      )}
+      {phase === "empty" && !untitled && (
         <EmptyState
           icon={<FolderSearch size={20} />}
-          title="No installed games found"
-          description={launcherInstalled ? "Epic Games Launcher has none to import." : "Epic Games Launcher isn't installed."}
+          title="No games found on this PC"
+          description={emptyBody(launcherInstalled)}
           action={
             <Button variant="secondary" loading={session.scanning} onClick={() => void session.scanDrives()}>
               Scan all drives

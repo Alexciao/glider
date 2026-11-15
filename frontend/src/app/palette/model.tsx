@@ -1,23 +1,24 @@
 import type { ReactNode } from "react";
 import {
-  ArrowDownToLine,
+  CircleArrowUp,
   CircleDot,
   Download,
   FolderInput,
+  FileText,
   FolderOpen,
   Gamepad2,
   Gauge,
   House,
-  Library,
   LogOut,
   Moon,
   Pause,
   Play,
   RefreshCw,
-  RotateCcw,
+  Rocket,
   Settings as SettingsIcon,
   Store,
   Sun,
+  ShieldCheck,
   Trash2,
   Wrench,
 } from "lucide-react";
@@ -26,6 +27,7 @@ import { actions } from "../../state/actions";
 import { isBusy } from "../../state/derive";
 import { DOWNLOAD_MODES } from "../../state/downloadModes";
 import { fuzzyMatchAny, type FuzzyMatch } from "../../state/fuzzy";
+import { openInstall } from "../../state/installPlan";
 import { goGame } from "../../state/router";
 import { activeJobs, jobForGame } from "../../state/store";
 import { useUi, type DialogState } from "../../state/ui";
@@ -73,6 +75,8 @@ export interface PaletteItem {
   disabled?: string;
   /** Primary first, then the secondary actions. A command has exactly one. */
   actions: ItemAction[];
+  /** Set on "Update Fortnite"-style commands: the game whose primary action this repeats if that game has a row of its own. */
+  forGame?: string;
 }
 
 export interface PaletteContext {
@@ -138,7 +142,7 @@ export function gameActions(g: GameSummary, ctx: PaletteContext): ItemAction[] {
   if (job) return [openPrimary];
   if (g.installStatus === "notInstallable") return [openPrimary];
   if (g.installStatus === "notInstalled") {
-    return canDownload ? [{ label: "Install", keys: "Enter", run: () => ctx.openDialog({ kind: "install", appName: g.appName }) }, page] : [openPrimary];
+    return canDownload ? [{ label: "Install", keys: "Enter", run: () => void openInstall(g.appName) }, page] : [openPrimary];
   }
   if (g.installStatus === "broken") return canDownload && !busy ? [{ label: "Repair", keys: "Enter", run: () => void actions.verify(g.appName) }, page] : [openPrimary];
   if (installed && g.updateAvailable && canDownload) {
@@ -191,16 +195,17 @@ export function buildCommands(ctx: PaletteContext): PaletteItem[] {
     if (primary && primary.label !== "Open") {
       items.push({
         id: `cmd:game-primary`,
+        forGame: g.appName,
         group: "game",
         label: `${primary.label} ${g.title}`,
-        icon: primary.label === "Play" ? <Play size={sz} /> : primary.label === "Install" ? <Download size={sz} /> : primary.label === "Resume" ? <Play size={sz} /> : <ArrowDownToLine size={sz} />,
+        icon: primary.label === "Play" ? <Play size={sz} /> : primary.label === "Install" ? <Download size={sz} /> : primary.label === "Resume" ? <Play size={sz} /> : primary.label === "Repair" ? <Wrench size={sz} /> : <CircleArrowUp size={sz} />,
         keywords: "launch start download",
         actions: [{ label: primary.label, keys: "Enter", run: primary.run }],
       });
     }
     if (installed) {
       items.push(
-        cmd("game-verify", "game", `${g.installStatus === "broken" ? "Repair" : "Verify"} ${g.title}`, <Wrench size={sz} />, () => void actions.verify(g.appName), {
+        cmd("game-verify", "game", `${g.installStatus === "broken" ? "Repair" : "Verify"} ${g.title}`, g.installStatus === "broken" ? <Wrench size={sz} /> : <ShieldCheck size={sz} />, () => void actions.verify(g.appName), {
           keywords: "check integrity files repair verify",
           disabled: busy ? "Busy right now" : !online ? (offline ? "You're offline" : "Sign in first") : undefined,
         }),
@@ -219,7 +224,7 @@ export function buildCommands(ctx: PaletteContext): PaletteItem[] {
       ? cmd("resume-all", "actions", "Resume all downloads", <Play size={sz} />, () => void actions.resumeQueue(), { keywords: "queue continue" })
       : cmd("pause-all", "actions", "Pause all downloads", <Pause size={sz} />, () => void actions.pauseQueue(), { keywords: "queue stop", disabled: running ? undefined : "No downloads running" }),
     cmd("check-updates", "actions", "Check for updates", <RefreshCw size={sz} />, () => void actions.checkForUpdates(), { keywords: "refresh library games", disabled: online ? undefined : offline ? "You're offline" : "Sign in first" }),
-    cmd("update-all", "actions", "Update all games", <ArrowDownToLine size={sz} />, () => void actions.updateAll(), {
+    cmd("update-all", "actions", "Update all games", <CircleArrowUp size={sz} />, () => void actions.updateAll(), {
       keywords: "install updates",
       disabled: !online ? (offline ? "You're offline" : "Sign in first") : updates === 0 ? "Everything is up to date" : undefined,
     }),
@@ -237,10 +242,10 @@ export function buildCommands(ctx: PaletteContext): PaletteItem[] {
       useUi.getState().touchTheme();
       void actions.updateSettings({ theme: ctx.theme === "dark" ? "light" : "dark" });
     }, { keywords: "appearance mode color" }),
-    cmd("rescan", "actions", "Rescan for installed games", <RotateCcw size={sz} />, () => void actions.rescanEgl(), { keywords: "epic games launcher egl import find" }),
-    cmd("import", "actions", "Import games from Epic Games Launcher…", <Library size={sz} />, () => ctx.go("settings", "egl"), { keywords: "bulk existing installs link" }),
+    cmd("rescan", "actions", "Rescan for installed games", <RefreshCw size={sz} />, () => void actions.rescanEgl(), { keywords: "epic games launcher egl import find" }),
+    cmd("import", "actions", "Import games from Epic Games Launcher…", <Rocket size={sz} />, () => ctx.go("settings", "egl"), { keywords: "bulk existing installs link" }),
     cmd("setup", "actions", "Run setup again", <CircleDot size={sz} />, () => void actions.restartOnboarding(), { keywords: "onboarding welcome first run wizard" }),
-    cmd("logs", "actions", "Copy logs for a bug report", <Wrench size={sz} />, () => void actions.copyLogs(), { keywords: "diagnostics support" }),
+    cmd("logs", "actions", "Copy logs for a bug report", <FileText size={sz} />, () => void actions.copyLogs(), { keywords: "diagnostics support" }),
   );
   if (signedIn) items.push(cmd("sign-out", "actions", "Sign out", <LogOut size={sz} />, () => void actions.signOut(), { keywords: "account logout" }));
 
@@ -284,7 +289,20 @@ const MAX_PER_GROUP: Partial<Record<ItemGroup, number>> = { games: 6, actions: 5
  * Typing: results grouped by kind, groups ordered by their best match, each group capped.
  * Empty query: recents, then what is useful right now, then everything else.
  */
-export function buildSections(query: string, games: PaletteItem[], commands: PaletteItem[], recents: PaletteItem[], suggested: PaletteItem[]): Section[] {
+/**
+ * "Update Fortnite" and the row "Fortnite · Update ↵" are one action twice. When a game has a row of its own whose
+ * Enter does that, its command twin ("Suggested" and "This game" alike) is dropped: the row says it once.
+ */
+export function withoutTwins(rowsShown: readonly PaletteItem[], ...lists: PaletteItem[][]): PaletteItem[][] {
+  const covered = new Set(
+    rowsShown.filter((i) => i.id.startsWith("game:") && i.actions[0] && i.actions[0].label !== "Open").map((i) => `${i.id.slice(5)}|${i.actions[0]!.label}`),
+  );
+  return lists.map((list) => list.filter((c) => !(c.forGame && covered.has(`${c.forGame}|${c.actions[0]?.label}`))));
+}
+
+export function buildSections(query: string, gamesIn: PaletteItem[], commandsIn: PaletteItem[], recentsIn: PaletteItem[], suggestedIn: PaletteItem[]): Section[] {
+  const games = gamesIn;
+  const [commands = [], recents = [], suggested = []] = withoutTwins([...gamesIn, ...recentsIn, ...suggestedIn], commandsIn, recentsIn, suggestedIn);
   const q = query.trim();
   if (!q) {
     const taken = new Set([...recents, ...suggested].map((i) => i.id));

@@ -68,6 +68,57 @@ const TAKES = {
     prepare: (p) => p.evaluate(() => window.__glider.ui.getState().go("settings")),
     trigger: (p) => p.evaluate(() => window.__glider.mock.emitNotice({ level: "success", title: "Fortnite is ready to play", message: "Version 40.20 is installed.", action: null })),
   },
+  // Library cover -> game page: the shared-element morph (the cover must stay the cover, the art must not arrive last).
+  morph: {
+    query: "scenario=returning",
+    clip: { x: 72, y: 40, w: 1208, h: 760 },
+    prepare: async (p) => {
+      await p.evaluate(() => window.__glider.ui.getState().go("library"));
+      await wait(700);
+      await p.locator("[data-tile-index='1']").hover();
+      await wait(300);
+    },
+    trigger: (p) => p.locator("[data-tile-index='1']").click(),
+  },
+  // Home card -> game page.
+  "home-morph": {
+    query: "scenario=returning&timescale=1",
+    clip: { x: 72, y: 40, w: 1208, h: 760 },
+    prepare: async (p) => {
+      await p.evaluate(() => window.__glider.ui.getState().go("home"));
+      await wait(700);
+      await p.getByRole("region", { name: "Continue playing" }).getByRole("button").first().hover();
+      await wait(300);
+    },
+    trigger: (p) => p.getByRole("region", { name: "Continue playing" }).getByRole("button").first().click(),
+  },
+  // Install pressed on a game that isn't installed: the dialog must open ready and stay put.
+  install: {
+    query: "scenario=returning",
+    clip: { x: 280, y: 100, w: 720, h: 600 },
+    prepare: async (p) => {
+      await p.evaluate(() => {
+        const g = [...window.__glider.library.getState().games.values()].find((x) => x.kind === "game" && x.installStatus === "notInstalled" && x.thirdParty === "none" && x.dlcCount > 0);
+        window.__glider.router.getState().go(`game/${g.appName}`);
+      });
+      await wait(900);
+    },
+    trigger: (p) => p.getByRole("button", { name: /^Install$/ }).first().click(),
+  },
+  // Worst case: the plan is not ready when the dialog opens (a slow Core). It opens loading and must not move when the plan lands.
+  "install-cold": {
+    query: "scenario=returning",
+    clip: { x: 280, y: 100, w: 720, h: 600 },
+    prepare: async (p) => {
+      await p.evaluate(() => {
+        const g = [...window.__glider.library.getState().games.values()].find((x) => x.kind === "game" && x.installStatus === "notInstalled" && x.thirdParty === "none" && x.dlcCount > 0);
+        window.__glider.router.getState().go(`game/${g.appName}`);
+        window.__film_app = g.appName;
+      });
+      await wait(900);
+    },
+    trigger: (p) => p.evaluate(() => window.__glider.ui.getState().openDialog({ kind: "install", appName: window.__film_app })),
+  },
   // Page switch.
   page: {
     query: "scenario=installed",

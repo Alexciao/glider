@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AppSnapshot, GameSummary } from "../../ipc/contract.gen";
 import { worldFor } from "../../test/fixtures";
-import { buildCommands, buildSections, gameActions, gameItem, rankItems, type PaletteContext } from "./model";
+import { buildCommands, buildSections, gameActions, gameItem, rankItems, withoutTwins, type PaletteContext } from "./model";
 
 const ctxFor = (snap: AppSnapshot, patch: Partial<PaletteContext> = {}): PaletteContext => ({ snap, theme: "dark", go: () => {}, openDialog: () => {}, ...patch });
 
@@ -87,6 +87,31 @@ describe("ranking and sections", () => {
     expect(sections[0]!.group).toBe("recent");
     const ids = sections.flatMap((s) => s.rows.map((r) => r.item.id));
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("one action is offered once: a game row with a primary action hides its twin command (Suggested and This game)", async () => {
+    const w = await worldFor("returning");
+    const g: GameSummary = w.find((x) => x.kind === "game" && x.installStatus === "installed" && x.updateAvailable && x.runState === "idle" && !w.snap.queue.jobs.some((j) => j.appName === x.appName));
+    const ctx = ctxFor(w.snap, { currentGame: g });
+    const commands = buildCommands(ctx);
+    const twin = commands.find((c) => c.id === "cmd:game-primary")!;
+    expect(twin.label).toBe(`Update ${g.title}`);
+    const row = gameItem(g, ctx);
+    expect(row.actions[0]!.label).toBe("Update");
+
+    // Typing the game's name: the Games row says "Update"; "This game → Update …" would repeat it.
+    const typed = buildSections(g.title, [row], commands, [], []);
+    expect(typed.flatMap((s) => s.rows).some((r) => r.item.id === "cmd:game-primary")).toBe(false);
+    expect(typed.flatMap((s) => s.rows).some((r) => r.item.id === row.id)).toBe(true);
+
+    // Empty query: the recent/suggested game row covers the command in both lists it could appear in.
+    const suggested = [{ ...twin, group: "suggested" as const }, { ...row, group: "suggested" as const }];
+    const empty = buildSections("", [], commands, [], suggested);
+    expect(empty.flatMap((s) => s.rows).filter((r) => r.item.id === "cmd:game-primary")).toHaveLength(0);
+
+    // With no row of that game on screen, the command is the only place the action appears and it stays.
+    const alone = withoutTwins([], commands)[0]!;
+    expect(alone.some((c) => c.id === "cmd:game-primary")).toBe(true);
   });
 
   it("a game item carries its status for screen readers and its primary action", async () => {

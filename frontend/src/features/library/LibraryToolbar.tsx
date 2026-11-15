@@ -79,7 +79,7 @@ const ToolbarControls = memo(function ToolbarControls(p: Omit<LibraryToolbarProp
         minWidth={168}
         value={p.filter}
         onValueChange={p.onFilter}
-        options={LIBRARY_FILTERS.map((f) => ({ value: f, label: f === "all" ? FILTER_LABEL.all : `${FILTER_LABEL[f]} (${p.counts[f]})` }))}
+        options={LIBRARY_FILTERS.map((f) => ({ value: f, label: `${FILTER_LABEL[f]} (${p.counts[f]})` }))}
       />
       {p.collections.length > 0 && (
         <DropdownMenu>

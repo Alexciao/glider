@@ -91,7 +91,7 @@ export function DownloadsSection({ s }: { s: SettingsT }) {
   return (
     <Block id="downloads" title={def.label}>
       <Group>
-        <Setting label="Download mode" find="background balanced full priority cpu disk">
+        <Setting label="Download mode" id="downloadMode" find="background balanced full priority cpu disk">
           <Line
             label="Download mode"
             description={modeSummary(s.downloadMode)}
@@ -106,7 +106,7 @@ export function DownloadsSection({ s }: { s: SettingsT }) {
             }
           />
         </Setting>
-        <Setting label="Speed limit" find="cap bandwidth throttle mb/s">
+        <Setting label="Speed limit" id="speedLimit" find="cap bandwidth throttle mb/s">
           <Line label="Speed limit" control={<Select aria-label="Speed limit" minWidth={190} value={limit} onValueChange={(v) => void set({ speedLimitBytesPerSecond: v === "none" ? null : Number(v) })} options={limitOptions} />} />
         </Setting>
         <SwitchRow label="Full speed when I'm away" find="idle away afk" description="While the PC is idle and no game is running." checked={s.idleFullSpeed} onChange={(v) => void set({ idleFullSpeed: v })} />
