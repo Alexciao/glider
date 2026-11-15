@@ -543,6 +543,12 @@ export class MockBackend {
     return true;
   }
 
+  /** What the Store page is after a load: no connection is a failed load with its error (the page then says "You're offline"), a session that ended lands on the Store's own sign-in. */
+  private loadedStore(): Pick<StoreState, "loading" | "phase" | "error"> {
+    if (this.connectivity === "offline") return { loading: false, phase: "error", error: Errors.network("The Store page couldn't be reached.") };
+    return { loading: false, phase: this.auth.status === "signedIn" ? "ready" : "signedOut", error: null };
+  }
+
   private view(e: JobEntry): JobInfo {
     const cancellable = this.cancellableNow(e.info);
     return e.info.cancellable === cancellable ? e.info : { ...e.info, cancellable };
@@ -2130,7 +2136,7 @@ export class MockBackend {
       this.event("store", { ...this.store });
       this.timer(700, () => {
         if (this.store.phase !== "loading") return;
-        this.store = { ...this.store, loading: false, phase: this.connectivity === "offline" ? "error" : this.auth.status === "signedIn" ? "ready" : "signedOut" };
+        this.store = { ...this.store, ...this.loadedStore() };
         this.event("store", { ...this.store });
       });
       return { ...this.store };
@@ -2151,7 +2157,7 @@ export class MockBackend {
       this.store = { ...this.store, loading: true, phase: "loading" };
       this.event("store", { ...this.store });
       this.timer(500, () => {
-        this.store = { ...this.store, loading: false, phase: "ready" };
+        this.store = { ...this.store, ...this.loadedStore() };
         this.event("store", { ...this.store });
       });
       return { ...this.store };

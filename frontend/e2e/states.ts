@@ -51,10 +51,6 @@ const goPicked = async (page: Page, pred: string): Promise<string> => {
   return app;
 };
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-const finishOnboarding = async (page: Page) => {
-  await g(page, (h) => h.rpc("onboarding.complete"));
-  await wait(400);
-};
 
 const RAW_STATES: ShotState[] = [
   // ------------------------------------------------------------ onboarding
@@ -119,6 +115,17 @@ const RAW_STATES: ShotState[] = [
     },
   },
   {
+    // The import itself is done and Core is verifying what it adopted: rows say "Checking files", the headline says how many.
+    name: "onboarding-3-import-checking",
+    query: "scenario=firstRunSignedIn&timescale=40",
+    setup: async (p) => {
+      await wait(1100);
+      await btn(p, /^Import \d+ games$/).click();
+      await p.getByText(/being checked/).waitFor({ timeout: 20_000 });
+      await wait(150);
+    },
+  },
+  {
     name: "onboarding-3-import-done",
     query: "scenario=firstRunSignedIn&timescale=400",
     setup: async (p) => {
@@ -148,7 +155,7 @@ const RAW_STATES: ShotState[] = [
     setup: async (p) => {
       await wait(1100);
       await btn(p, /Locate another folder/).click();
-      await p.getByText(/imported/).first().waitFor({ timeout: 15_000 });
+      await p.getByText(/^(Ready|Checking files|Repaired)/).first().waitFor({ timeout: 15_000 });
       await btn(p, /Locate another folder/).click();
       await wait(1500);
     },
@@ -453,12 +460,19 @@ const RAW_STATES: ShotState[] = [
     settle: 700,
   },
   {
+    // "Nothing downloading" with the offer to update: a returning user with History cleared. (Onboarding's "You're all set" is a different screen.)
     name: "downloads-empty",
-    query: "scenario=firstRunSignedIn",
+    query: "scenario=returning",
     setup: async (p) => {
-      await finishOnboarding(p);
+      await g(p, (h) => h.rpc("queue.clearFinished"));
       await go(p, "downloads");
     },
+  },
+  {
+    // Nothing installed and nothing to update: the one quiet action.
+    name: "downloads-empty-library",
+    query: "scenario=emptyLibrary",
+    setup: async (p) => go(p, "downloads"),
   },
   {
     name: "downloads-queued",
@@ -499,6 +513,29 @@ const RAW_STATES: ShotState[] = [
       await p.evaluate(() => (window as unknown as { __glider: G }).__glider.mock.setConnectivity("offline"));
     },
     settle: 900,
+  },
+  {
+    // Offline for a while mid-queue: the running job waits, nothing fails, and the page says why.
+    name: "downloads-offline-later",
+    query: "scenario=queue&timescale=1",
+    setup: async (p) => {
+      await go(p, "downloads");
+      await wait(800);
+      await p.evaluate(() => (window as unknown as { __glider: G }).__glider.mock.setConnectivity("offline"));
+      await wait(4500);
+    },
+    settle: 600,
+  },
+  {
+    // "While a game is running: Pause" (the default) and an update started meanwhile: queued, with the reason on the page.
+    name: "downloads-held-by-game",
+    query: "scenario=playing",
+    setup: async (p) => {
+      await g(p, (h) => h.rpc("library.updateAll"));
+      await go(p, "downloads");
+      await wait(1500);
+    },
+    settle: 600,
   },
   {
     name: "downloads-game-running",
@@ -832,7 +869,8 @@ const RAW_STATES: ShotState[] = [
   // ----------------------------------------------------------------- store
   { name: "store-opening", query: "scenario=returning&latency=40", setup: async (p) => go(p, "store"), settle: 450 },
   { name: "store-loaded", query: "scenario=returning", setup: async (p) => go(p, "store"), settle: 1200 },
-  { name: "store-offline", query: "scenario=offline", setup: async (p) => go(p, "store"), settle: 900 },
+  // The page fails to load with no connection: "You're offline", Try again, and no browser to open (the toolbar's Open in browser steps aside too).
+  { name: "store-offline", query: "scenario=offline", setup: async (p) => go(p, "store"), settle: 1500 },
   { name: "store-signed-out", query: "scenario=authExpired", setup: async (p) => go(p, "store"), settle: 1200 },
 
   // ------------------------------------ signed out (Core keeps the library; the session is what ends)
@@ -933,6 +971,16 @@ const RAW_STATES: ShotState[] = [
       await p.getByRole("textbox", { name: "Search your library" }).fill("the");
       await wait(450);
     },
+  },
+  {
+    // The Download server row sits inside Advanced: the link opens it first.
+    name: "settings-focus-cdn",
+    query: "scenario=returning",
+    setup: async (p) => {
+      await g(p, (h) => h.router.getState().go("settings?focus=cdn"));
+      await wait(500);
+    },
+    live: true,
   },
   {
     name: "settings-focus-speed-limit",
