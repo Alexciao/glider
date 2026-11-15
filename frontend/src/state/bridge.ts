@@ -2,7 +2,7 @@ import type { AppSnapshot, JobProgress, LibraryDelta } from "../ipc/contract.gen
 import { rpc } from "../ipc/rpc";
 import { hasSettingsInFlight } from "./actions";
 import { useLibrary } from "./library";
-import { pushNotice } from "./notices";
+import { pushNotice, useNotices } from "./notices";
 import { ingestProgress, pruneProgress, seedProgress } from "./progress";
 import { installIntent, navigate } from "./router";
 import { isActiveJob, useApp } from "./store";
@@ -31,6 +31,8 @@ function applySnapshot(next: AppSnapshot): void {
   // An optimistic settings write is still in flight: keep the local value so toggles don't flicker back.
   const merged = prev && hasSettingsInFlight() ? { ...next, settings: prev.settings } : next;
   store.setSnapshot(merged);
+  // The connection is back: "Can't reach Epic" is over (the jobs it stopped resume on their own).
+  if (prev?.connectivity === "offline" && merged.connectivity === "online") useNotices.getState().dismissTitled("Can't reach Epic");
   const readyApp = detectReadyMoment(prev, merged);
   if (readyApp) useUi.getState().markReady(readyApp);
   pruneProgress(new Set(merged.queue.jobs.map((j) => j.id)));

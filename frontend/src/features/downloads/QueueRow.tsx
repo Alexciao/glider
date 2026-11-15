@@ -44,7 +44,7 @@ export const QueueRow = memo(function QueueRow({ job, handle, canMoveUp, sharedR
   const meta = queueMeta(job, game?.downloadSizeBytes ?? null, showReason);
   const hasTrend = paused && (job.progress?.percent ?? 0) > 0;
   return (
-    <div className="flex h-14 items-center gap-3 pl-1 pr-2">
+    <div className="flex h-14 items-center gap-3 px-3">
       <span className="w-6 shrink-0">{handle}</span>
       <JobArt job={job} size="xs" />
       <p className="flex min-w-0 flex-1 items-baseline gap-3 text-sm">

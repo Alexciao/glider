@@ -8,12 +8,11 @@ import { goGame } from "../../state/router";
 import { KIND_NOUN, tookText } from "../../state/transfer";
 import { usePending } from "../../state/ui";
 import { Button, IconButton, cx } from "../../ui";
-import { ErrorView } from "../common/ErrorView";
 
-type Result = "done" | "needsRepair" | "failed" | "cancelled";
+/** Failures aren't history: they sit in "Couldn't finish" until they succeed or are dismissed. */
+type Result = "done" | "needsRepair" | "cancelled";
 
 export function resultOf(job: JobInfo): Result {
-  if (job.status === "failed" || job.outcome?.kind === "failed") return "failed";
   if (job.status === "cancelled") return "cancelled";
   if (job.outcome?.kind === "needsRepair") return "needsRepair";
   return "done";
@@ -22,14 +21,13 @@ export function resultOf(job: JobInfo): Result {
 /** The outcome in a few words, for results that are not a plain success. */
 const OUTCOME_WORDS: Partial<Record<Result, { label: string; className: string }>> = {
   needsRepair: { label: "Needs repair", className: "text-warning-text" },
-  failed: { label: "Failed", className: "text-danger-text" },
   cancelled: { label: "Cancelled", className: "text-fg-muted" },
 };
 
 const ICON: Record<Result, { node: React.ReactNode; className: string }> = {
-  done: { node: <Check size={14} strokeWidth={2.5} />, className: "text-success-text" },
+  // Green is the dot of a running game only; a finished job is an ordinary fact, so its check is quiet.
+  done: { node: <Check size={14} strokeWidth={2.5} />, className: "text-fg-subtle" },
   needsRepair: { node: <AlertTriangle size={14} />, className: "text-warning-text" },
-  failed: { node: <X size={14} strokeWidth={2.5} />, className: "text-danger-text" },
   cancelled: { node: <Minus size={14} strokeWidth={2.5} />, className: "text-fg-subtle" },
 };
 
@@ -40,24 +38,21 @@ const ICON: Record<Result, { node: React.ReactNode; className: string }> = {
 export function historyMeta(job: JobInfo, now: number): string {
   const res = resultOf(job);
   const when = formatRelativeTime(job.finishedAt ?? job.createdAt, now);
-  if (job.kind === "import" && job.outcome && res !== "failed") return `${job.outcome.message.replace(/[.\s]+$/, "")} · ${when}`;
+  if (job.kind === "import" && job.outcome) return `${job.outcome.message.replace(/[.\s]+$/, "")} · ${when}`;
   if (res === "needsRepair" && job.outcome) return `${job.outcome.message.replace(/[.\s]+$/, "")} · ${when}`;
   const took = tookText(job);
   if (res === "done") return `${JOB_PAST[job.kind]}${took ? ` in ${took}` : ""} · ${when}`;
   return `${KIND_NOUN[job.kind]} · ${when}`;
 }
 
-/**
- * A finished job on one line. A plain success is just a check; anything else says so in a few words, and a failure
- * keeps its explanation and fix underneath.
- */
+/** A finished job on one line. A plain success is just a quiet check; anything else says so in a few words. */
 export const HistoryRow = memo(function HistoryRow({ job, now }: { job: JobInfo; now: number }) {
   const res = resultOf(job);
   const words = OUTCOME_WORDS[res];
   const busyDismiss = usePending(`dismiss:${job.id}`);
   const busyRepair = usePending(`verify:${job.appName}`);
   return (
-    <div className="group py-2 pl-3 pr-2">
+    <div className="group px-3 py-2">
       <div className="flex min-h-8 items-center gap-3">
         <span aria-hidden className={cx("grid w-4 shrink-0 place-items-center", ICON[res].className)}>
           {ICON[res].node}
@@ -86,11 +81,6 @@ export const HistoryRow = memo(function HistoryRow({ job, now }: { job: JobInfo;
           <X size={14} />
         </IconButton>
       </div>
-      {res === "failed" && (job.error || job.outcome) && (
-        <div className="ml-7 mt-2 pb-1">
-          {job.error ? <ErrorView error={job.error} retry={() => void actions.retryJob(job)} path={job.targetPath} /> : <p className="text-xs text-danger-text">{job.outcome?.message}</p>}
-        </div>
-      )}
     </div>
   );
 });
