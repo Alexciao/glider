@@ -37,7 +37,7 @@ function RailItem({
         onClick={() => go(page)}
         className={cx(
           "group relative flex h-[54px] w-[60px] flex-col items-center justify-center gap-1 rounded-lg",
-          "transition-[background-color,color,transform] duration-150 ease-out active:scale-95",
+          "transition-[background-color,color,transform,scale] duration-150 ease-out press:scale-95",
           active ? "bg-surface-2 text-fg" : "text-fg-subtle hover:bg-surface-hover hover:text-fg",
         )}
       >
@@ -45,7 +45,7 @@ function RailItem({
         <span
           aria-hidden
           className={cx(
-            "absolute -left-[7px] top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-accent transition-[transform,opacity] duration-200 ease-out",
+            "absolute -left-[7px] top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-accent transition-[transform,opacity,scale] duration-200 ease-out",
             active ? "scale-y-100 opacity-100" : "scale-y-50 opacity-0",
           )}
         />

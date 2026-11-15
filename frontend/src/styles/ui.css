@@ -204,7 +204,7 @@
   transition: scale 140ms var(--ease-out), box-shadow 150ms var(--ease-out);
 }
 /* Press squeezes the whole group, whichever half is held. */
-.g-split:has(.g-split-seg:active:not(:disabled):not(.g-split-inert)) {
+.g-split:has(.g-split-seg:is(:active, [data-pressed]):not(:disabled):not(.g-split-inert)) {
   scale: 0.975;
 }
 /* The hairline ring is painted above the fills so the divider and the edge never fight. */
@@ -240,7 +240,7 @@
     background: var(--seg-bg-hover);
   }
 }
-.g-split-seg:active:not(:disabled):not(.g-split-inert) {
+.g-split-seg:is(:active, [data-pressed]):not(:disabled):not(.g-split-inert) {
   background: var(--seg-bg-active);
 }
 .g-split-seg:disabled {
@@ -338,7 +338,8 @@
     scroll-behavior: auto !important;
   }
   /* Press-squeeze and hover-lift are movement: colour changes still say "this is pressed" without it. */
-  :active {
+  :active,
+  [data-pressed] {
     scale: none !important;
   }
   .group\/tile:hover {

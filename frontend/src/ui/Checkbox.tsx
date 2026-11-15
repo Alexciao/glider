@@ -21,7 +21,7 @@ export function Checkbox({ checked, onCheckedChange, className, ...rest }: Check
       onCheckedChange={(v) => onCheckedChange(v === true)}
       className={cx(
         "group/cb relative grid size-4 shrink-0 place-items-center rounded-xs border border-fg-disabled bg-surface-1 text-accent-fg",
-        "transition-[background-color,border-color,transform] duration-150 ease-out active:scale-90",
+        "transition-[background-color,border-color,transform,scale] duration-150 ease-out press:scale-90",
         "hover:border-fg-subtle data-[state=checked]:border-transparent data-[state=checked]:bg-accent data-[state=indeterminate]:border-transparent data-[state=indeterminate]:bg-accent",
         "disabled:pointer-events-none disabled:opacity-45",
         className,

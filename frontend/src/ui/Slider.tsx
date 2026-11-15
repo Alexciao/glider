@@ -32,7 +32,7 @@ export function Slider({ value, min, max, step = 1, onValueChange, onValueCommit
       </S.Track>
       <S.Thumb
         aria-label={aria["aria-label"]}
-        className="block size-4 rounded-full border border-border-strong bg-fg shadow-md transition-transform duration-150 ease-out hover:scale-110 active:scale-95"
+        className="block size-4 rounded-full border border-border-strong bg-fg shadow-md transition-[transform,scale] duration-150 ease-out hover:scale-110 press:scale-95"
       />
     </S.Root>
   );

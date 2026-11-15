@@ -37,7 +37,7 @@ export function ChoiceGroup<T extends string>({ value, onValueChange, options, c
             value={o.value}
             className={cx(
               "group flex w-full items-center gap-4 rounded-xl border p-4 text-left",
-              "transition-[background-color,border-color,box-shadow,transform] duration-150 ease-out active:scale-[0.995]",
+              "transition-[background-color,border-color,box-shadow,transform,scale] duration-150 ease-out press:scale-[0.995]",
               on ? "border-accent bg-surface-2 shadow-[0_0_0_1px_var(--g-accent)]" : "border-border bg-surface-1 hover:border-border-strong hover:bg-surface-2",
             )}
           >
@@ -66,7 +66,7 @@ export function ChoiceGroup<T extends string>({ value, onValueChange, options, c
                 on ? "border-accent" : "border-fg-disabled group-hover:border-fg-subtle",
               )}
             >
-              <span className={cx("size-2 rounded-full bg-accent transition-[transform,opacity] duration-150 ease-out", on ? "scale-100 opacity-100" : "scale-50 opacity-0")} />
+              <span className={cx("size-2 rounded-full bg-accent transition-[transform,opacity,scale] duration-150 ease-out", on ? "scale-100 opacity-100" : "scale-50 opacity-0")} />
             </span>
           </RadioGroup.Item>
         );
