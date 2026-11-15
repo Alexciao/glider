@@ -498,7 +498,31 @@ public sealed record QueueState(
     /// Why queued downloads aren't starting although nothing is paused by the user: "Paused while Fortnite is running"
     /// (Settings.WhilePlaying = Pause) or "Waiting for an internet connection". Null when nothing holds the queue.
     /// </summary>
-    string? HoldReason = null);
+    string? HoldReason = null,
+    /// <summary>
+    /// The same hold as <see cref="HoldReason"/>, structured, so the download card composes its own words ("Waiting for Fortnite to
+    /// close") instead of parsing a sentence. Also set for a queue the user paused and for the head job waiting on another task
+    /// (EGL busy, saves, a game of the same title). Null when nothing holds the queue.
+    /// </summary>
+    HoldInfo? Hold = null);
+
+[JsonConverter(typeof(CamelEnumConverter<HoldKind>))]
+public enum HoldKind
+{
+    /// <summary>A game is running and Settings.WhilePlaying is Pause (or the same game blocks this job). <see cref="HoldInfo.Subject"/> is its title.</summary>
+    Game,
+    /// <summary>No connection; continues on its own when it is back.</summary>
+    Offline,
+    /// <summary>The Epic Games Launcher is installing or updating the game.</summary>
+    Egl,
+    /// <summary>The user paused the whole queue.</summary>
+    Paused,
+    /// <summary>Another task holds the game's files (cloud saves, the overlay…); <see cref="HoldInfo.Subject"/> carries Core's sentence.</summary>
+    Other,
+}
+
+/// <summary>Why queued work isn't starting: the kind picks the copy, <see cref="Subject"/> names the game where one is involved.</summary>
+public sealed record HoldInfo(HoldKind Kind, string? Subject);
 
 /// <summary>
 /// Live job progress (event <c>progress</c>, ≤10 Hz). Groups are null when they don't apply to the current phase:
@@ -513,6 +537,10 @@ public sealed record JobProgress(
     /// <summary>Current phase percent 0..100.</summary>
     double PhasePercent,
     double ElapsedSeconds,
+    /// <summary>
+    /// Seconds until the whole job is done (downloading: the slower of the download and the writes still owed; installing: the
+    /// writes still owed; verifying/moving: that step's own estimate). Null while there is no estimate yet.
+    /// </summary>
     double? EtaSeconds,
     NetworkStats? Network,
     DiskStats? Disk,
@@ -533,7 +561,12 @@ public sealed record NetworkStats(
     double PeakBytesPerSecond,
     /// <summary>CDN host in use, e.g. "fastly-download.epicgames.com".</summary>
     string? Cdn,
-    int? Connections);
+    int? Connections,
+    /// <summary>
+    /// The most this connection has shown it can deliver: the larger of this job's peak and the CDN probe's rate (the number behind
+    /// "Your connection can do ≈40 MB/s"). Null until either is known.
+    /// </summary>
+    double? CeilingBytesPerSecond = null);
 
 public sealed record DiskStats(
     long WrittenBytes,

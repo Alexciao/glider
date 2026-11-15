@@ -49,6 +49,12 @@ export interface ThroughputChartProps {
   peakLabel?: boolean;
   /** "always" writes the average beside its dashed line; "whenDifferent" only when the latest value is 5 % or more away from it (a steady job needs only the line); "never" leaves the line alone. Default "always". */
   averageLabel?: "always" | "whenDifferent" | "never";
+  /**
+   * What the line could reach: a dashed line at this value, labelled `ceilingLabel`, and the y-axis always reaches it, so a
+   * line held down by something else (a slow drive) sits low instead of filling the plot like every auto-scaled chart.
+   */
+  ceiling?: number | null;
+  ceilingLabel?: string;
   /** Elapsed seconds → "2:41". */
   formatTime: (seconds: number) => string;
   /** Accessible description; a live summary is appended. */
@@ -153,6 +159,8 @@ export function ThroughputChart({
   legend = true,
   peakLabel: showPeakLabel = true,
   averageLabel = "always",
+  ceiling = null,
+  ceilingLabel,
   className,
   plotClassName = "h-24",
   emptyText = "Collecting speed data…",
@@ -167,6 +175,8 @@ export function ThroughputChart({
   const empty = useRef<HTMLSpanElement>(null);
   const avgLine = useRef<HTMLDivElement>(null);
   const avgLabel = useRef<HTMLSpanElement>(null);
+  const ceilLine = useRef<HTMLDivElement>(null);
+  const ceilText = useRef<HTMLSpanElement>(null);
   const peakDot = useRef<HTMLSpanElement>(null);
   const peakLabel = useRef<HTMLSpanElement>(null);
   const cross = useRef<HTMLDivElement>(null);
@@ -176,9 +186,9 @@ export function ThroughputChart({
   const live = useRef<HTMLSpanElement>(null);
 
   // Props the draw loop needs, kept in a ref so the subscription never re-binds.
-  const props = useRef({ series, read, format, markers, formatTime, label, minSpan, markerSeries, showPeakLabel, averageLabel });
+  const props = useRef({ series, read, format, markers, formatTime, label, minSpan, markerSeries, showPeakLabel, averageLabel, ceiling });
   useEffect(() => {
-    props.current = { series, read, format, markers, formatTime, label, minSpan, markerSeries, showPeakLabel, averageLabel };
+    props.current = { series, read, format, markers, formatTime, label, minSpan, markerSeries, showPeakLabel, averageLabel, ceiling };
   });
   const peakTip = useRef<HTMLSpanElement>(null);
 
@@ -230,7 +240,7 @@ export function ThroughputChart({
         frame = null;
         areaPath.current?.setAttribute("d", "");
         paths.current.forEach((p) => p?.setAttribute("d", ""));
-        for (const el of [avgLine.current, avgLabel.current, peakDot.current, peakLabel.current]) if (el) el.style.opacity = "0";
+        for (const el of [avgLine.current, avgLabel.current, peakDot.current, peakLabel.current, ceilLine.current, ceilText.current]) if (el) el.style.opacity = "0";
         return;
       }
       const t0 = d.t[0]!;
@@ -239,7 +249,8 @@ export function ThroughputChart({
       frame = { t0, tLast, span, n };
 
       const mk = props.current.markers?.() ?? null;
-      let peak = Math.max(mk?.peak ?? 0, mk?.average ?? 0);
+      const ceil = props.current.ceiling && props.current.ceiling > 0 ? props.current.ceiling : 0;
+      let peak = Math.max(mk?.peak ?? 0, mk?.average ?? 0, ceil);
       for (const col of d.values) for (let i = 0; i < n; i++) if (col[i]! > peak) peak = col[i]!;
       // Headroom for the peak label.
       yMax = niceCeil(peak * 1.3);
@@ -256,6 +267,16 @@ export function ThroughputChart({
         el.setAttribute("d", dPath);
         if (s.area && areaPath.current) areaPath.current.setAttribute("d", `${dPath}L${f1(xs[n - 1]!)} ${VH}L${f1(xs[0]!)} ${VH}Z`);
       });
+
+      if (ceilLine.current && ceilText.current) {
+        const y = ceil > 0 ? yOf(ceil, yMax) : -1;
+        ceilLine.current.style.opacity = y >= 0 ? "1" : "0";
+        ceilText.current.style.opacity = y >= 0 ? "1" : "0";
+        if (y >= 0) {
+          ceilLine.current.style.top = `${y}%`;
+          ceilText.current.style.top = `${y}%`;
+        }
+      }
 
       // Average and peak markers (the marker series).
       const first = d.values[props.current.markerSeries];
@@ -422,6 +443,10 @@ export function ThroughputChart({
         </div>
 
 
+        <div ref={ceilLine} aria-hidden className="pointer-events-none absolute inset-x-0 border-t border-dashed border-fg-subtle/70 opacity-0 transition-opacity duration-200" />
+        <span ref={ceilText} aria-hidden className="pointer-events-none absolute right-0 -translate-y-[calc(100%+3px)] rounded-sm text-2xs tabular-nums text-fg-muted opacity-0 transition-opacity duration-200">
+          {ceilingLabel}
+        </span>
         <div ref={avgLine} aria-hidden className="pointer-events-none absolute inset-x-0 border-t border-dashed border-fg-subtle opacity-0 transition-opacity duration-200" />
         <span
           ref={avgLabel}

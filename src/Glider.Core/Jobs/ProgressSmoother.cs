@@ -16,6 +16,7 @@ internal sealed class ProgressSmoother
     private double _download;
     private double _disk;
     private double? _eta;
+    private double? _writeEta;
     private bool _etaIsFallback;
     private double _lastPercent;
     private double? _percentRate;
@@ -33,11 +34,15 @@ internal sealed class ProgressSmoother
 
     public double? EtaSeconds => _eta;
 
+    /// <summary>Seconds until the writer has put everything on the drive (its own countdown), when the bytes still owed are known.</summary>
+    public double? WriteEtaSeconds => _writeEta;
+
     public void Reset()
     {
         _started = false;
         _download = _disk = 0;
         _eta = null;
+        _writeEta = null;
         _etaIsFallback = false;
         _percentRate = null;
         _lastPercent = 0;
@@ -45,7 +50,8 @@ internal sealed class ProgressSmoother
 
     /// <param name="remainingBytes">Bytes left to download, when known (bytes-based ETA); otherwise percent-rate based.</param>
     /// <param name="fallbackEta">Legendary's own long-run-average ETA, used until we have a rate of our own.</param>
-    public void Update(double rawDownload, double rawDisk, double percent, long? remainingBytes, double? fallbackEta)
+    /// <param name="remainingWriteBytes">Bytes the writer still owes the drive, when known (the install tail's countdown).</param>
+    public void Update(double rawDownload, double rawDisk, double percent, long? remainingBytes, double? fallbackEta, long? remainingWriteBytes = null)
     {
         var now = _time.GetTimestamp();
         if (!_started)
@@ -56,6 +62,7 @@ internal sealed class ProgressSmoother
             _disk = rawDisk;
             _lastPercent = percent;
             (_eta, _etaIsFallback) = Estimate(percent, remainingBytes, fallbackEta);
+            _writeEta = EstimateWrite(remainingWriteBytes);
             return;
         }
 
@@ -75,6 +82,17 @@ internal sealed class ProgressSmoother
         if (rate >= 0)
         {
             _percentRate = _percentRate is { } r ? r + a * (rate - r) : rate;
+        }
+
+        var measuredWrite = EstimateWrite(remainingWriteBytes);
+        if (measuredWrite is null)
+        {
+            _writeEta = null;
+        }
+        else
+        {
+            var predictedWrite = _writeEta is { } w ? Math.Max(0, w - dt) : measuredWrite.Value;
+            _writeEta = Math.Max(0, predictedWrite + (1 - Math.Exp(-dt / _etaTau)) * (measuredWrite.Value - predictedWrite));
         }
 
         var (measured, fallback) = Estimate(percent, remainingBytes, fallbackEta);
@@ -97,6 +115,21 @@ internal sealed class ProgressSmoother
         var predicted = Math.Max(0, previous - dt);
         var b = 1 - Math.Exp(-dt / _etaTau);
         _eta = Math.Max(0, predicted + b * (measured.Value - predicted));
+    }
+
+    private double? EstimateWrite(long? remainingWriteBytes)
+    {
+        if (remainingWriteBytes is not { } rem)
+        {
+            return null;
+        }
+
+        if (rem <= 0)
+        {
+            return 0;
+        }
+
+        return _disk > 1024 ? rem / _disk : null;
     }
 
     private (double? Value, bool Fallback) Estimate(double percent, long? remainingBytes, double? fallbackEta)

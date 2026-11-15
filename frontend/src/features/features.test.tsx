@@ -202,54 +202,7 @@ describe("Home", () => {
   });
 });
 
-/** The paragraph whose whole text matches (the headline is split across styled spans). */
-const para = (re: RegExp) => screen.queryAllByText((_, el) => el?.tagName === "P" && re.test(el.textContent ?? ""))[0];
-
 describe("Downloads", () => {
-  it("renders live progress with the planned steps and pauses/resumes through the real actions", async () => {
-    const { user } = await mount("downloading", <Downloads />, { freeze: false });
-    expect(await screen.findByRole("progressbar", { name: /^(Preparing|Downloading) / })).toBeInTheDocument();
-    expect(screen.getByRole("list", { name: "Steps" })).toHaveTextContent("Downloading");
-    await user.click(screen.getByRole("button", { name: "Pause" }));
-    await waitFor(() => expect(screen.getByText("Paused", { selector: "span" })).toBeInTheDocument());
-    await user.click(await screen.findByRole("button", { name: "Resume" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument());
-  });
-
-  it("the lit step names the phase, so the card header does not repeat it as a state label", async () => {
-    await mount("downloading", <Downloads />, { freeze: true });
-    const header = (await screen.findAllByRole("heading", { level: 2 }))[0]!.closest("header")!;
-    expect(within(screen.getByRole("list", { name: "Steps" })).getByText("Downloading")).toBeInTheDocument();
-    expect(within(header).queryByText("Downloading")).not.toBeInTheDocument();
-  });
-
-  it("says each fact once: one title, a big percent with the time left, the bytes of this phase, live speeds as the legend, no caption", async () => {
-    await mount("downloading", <Downloads />, { freeze: true });
-    const bar = await screen.findByRole("progressbar", { name: /^Downloading / });
-    expect(bar).toBeInTheDocument();
-    expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toContain(bar.getAttribute("aria-label")!.replace(/^Downloading /, ""));
-    // The slot right of the bar holds only the bytes, named; the time left sits beside the percentage.
-    expect(para(/ of .* (GB|MB) downloaded$/)).toBeTruthy();
-    expect(screen.getByText(/ left$/)).toBeInTheDocument();
-    expect(Number(bar.getAttribute("aria-valuenow"))).toBeGreaterThan(0);
-    // The two live speeds are the chart's legend: label under value, no stats table, no legend list.
-    const speeds = screen.getByLabelText("Speed");
-    expect(within(speeds).getByText("Download")).toBeInTheDocument();
-    expect(within(speeds).getByText("Disk write")).toBeInTheDocument();
-    expect(screen.queryByRole("list", { name: "Series" })).not.toBeInTheDocument();
-    for (const g of ["Progress", "Disk", "Time"]) expect(screen.queryByRole("region", { name: g })).not.toBeInTheDocument();
-    // No caption: files, size on disk, server and elapsed are not facts a player acts on.
-    for (const t of [/files/i, /on disk/i, /Akamai|Fastly|Cloudflare/, /^Server$/]) expect(screen.queryByText(t)).not.toBeInTheDocument();
-    expect(screen.queryByText("—")).not.toBeInTheDocument();
-  });
-
-  it("puts the stepper below the bar, so it reads as the bar's timeline", async () => {
-    await mount("downloading", <Downloads />, { freeze: true });
-    const bar = await screen.findByRole("progressbar", { name: /^Downloading / });
-    const steps = screen.getByRole("list", { name: "Steps" });
-    expect(bar.compareDocumentPosition(steps) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
   it("the header is the title only: no mode control, no limit button, no Pause all; a paused queue gets one quiet notice with Resume all", async () => {
     const { user } = await mount("queue", <Downloads />, { freeze: true });
     expect(await screen.findByRole("progressbar", { name: /^Downloading / })).toBeInTheDocument();
@@ -291,37 +244,6 @@ describe("Downloads", () => {
     });
   });
 
-  it("a verify reads files: one 'Reading' speed, no network or write figure, no chart", async () => {
-    await mount("frozenVerifying", <Downloads />);
-    expect(await screen.findByRole("progressbar", { name: /^Verifying / })).toBeInTheDocument();
-    const speeds = screen.getByLabelText("Speed");
-    expect(within(speeds).getByText("Reading")).toBeInTheDocument();
-    expect(within(speeds).queryByText("Download")).not.toBeInTheDocument();
-    expect(within(speeds).queryByText("Disk write")).not.toBeInTheDocument();
-    expect(screen.queryByText("Files checked")).not.toBeInTheDocument();
-    expect(para(/GB of .* GB checked$/)).toBeTruthy();
-    expect(screen.queryByRole("group", { name: /speed over time/ })).not.toBeInTheDocument();
-  });
-
-  it("a repair step shows download and disk write for just the bad files, with the speed graph", async () => {
-    await mount("frozenRepairing", <Downloads />);
-    const speeds = await screen.findByLabelText("Speed");
-    expect(within(speeds).getByText("Download")).toBeInTheDocument();
-    expect(within(speeds).getByText("Disk write")).toBeInTheDocument();
-    expect(screen.getByText(/files? to fix/)).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: /Download and disk speed over time/ })).toBeInTheDocument();
-  });
-
-  it("confirms before cancelling, then returns to an empty state", async () => {
-    const { user } = await mount("downloading", <Downloads />, { freeze: true });
-    await user.click((await screen.findAllByRole("button", { name: "Cancel" }))[0]!);
-    const dialog = await screen.findByRole("alertdialog");
-    expect(dialog).toHaveTextContent(/Cancel install of /);
-    // The destructive button doesn't repeat the title.
-    await user.click(within(dialog).getByRole("button", { name: "Cancel install" }));
-    await waitFor(() => expect(screen.queryByRole("progressbar", { name: /^(Preparing|Downloading) / })).not.toBeInTheDocument());
-  });
-
   it("offers Cancel only where Core accepts it (a running uninstall, a move recording its new folder)", async () => {
     let next = "";
     await mount(
@@ -341,7 +263,7 @@ describe("Downloads", () => {
       { freeze: true },
     );
     expect(await screen.findByRole("progressbar", { name: /^Downloading / })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel download" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: `Cancel ${next}` })).toHaveLength(1);
   });
 
@@ -433,42 +355,6 @@ describe("Downloads: Couldn't finish", () => {
     expect(railDotTone([job("failed"), job("running")])).toBe("danger");
     expect(railDotTone([job("completed")])).toBeNull();
     expect(railDotTone([])).toBeNull();
-  });
-});
-
-describe("Downloads: the speed status", () => {
-  it("is quiet when nothing holds the speed back", async () => {
-    await mount("downloading", <Downloads />, { freeze: true });
-    await screen.findByRole("progressbar", { name: /^Downloading / });
-    expect(screen.queryByRole("button", { name: /Slow download|Speed limit|mode$/ })).not.toBeInTheDocument();
-  });
-
-  it("a slow drive is 'Slow download'; hover gives one line, a click opens the full reason with numbers and advice", async () => {
-    const { user } = await mount("downloading", <Downloads />, { freeze: true, bottleneck: "disk" });
-    const button = await screen.findByRole("button", { name: "Slow download" });
-    await user.hover(button);
-    expect(await screen.findByRole("tooltip")).toHaveTextContent(/Drive [A-Z]: writes about .* MB\/s, slower than your connection\./);
-    await user.click(button);
-    const dialog = await screen.findByRole("dialog");
-    expect(dialog).toHaveTextContent("Your drive is limiting this download");
-    expect(within(dialog).getByRole("region", { name: "Measured" })).toHaveTextContent(/writes about/);
-    expect(within(dialog).getByRole("region", { name: "What you can do" })).toBeInTheDocument();
-    // No corner x: the dialog has its own Close.
-    expect(within(dialog).getAllByRole("button")).toHaveLength(1);
-    expect(within(dialog).getByRole("button", { name: "Close" })).toBeInTheDocument();
-  });
-
-  it("a limit the user chose is a muted label that links to its Settings row", async () => {
-    const { user } = await mount("downloading", <Downloads />, { freeze: true });
-    await screen.findByRole("progressbar", { name: /^Downloading / });
-    await act(async () => {
-      await rpc().call("settings.update", { ...useApp.getState().snapshot!.settings, speedLimitBytesPerSecond: 8 * 1024 * 1024 });
-    });
-    await user.click(await screen.findByRole("button", { name: "Speed limit" }));
-    const dialog = await screen.findByRole("dialog");
-    expect(dialog).toHaveTextContent("Held to your speed limit");
-    await user.click(within(dialog).getByRole("button", { name: "Change speed limit" }));
-    expect(useRouter.getState().route).toEqual({ page: "settings", focus: "speedLimit" });
   });
 });
 

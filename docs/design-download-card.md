@@ -11,6 +11,15 @@ fonts and ui kit). `frontend/e2e/mockups/vite.config.mjs` swaps `Downloads.tsx`'
 No product code changed. Screenshots: [`screenshots/download-card-redesign/`](screenshots/download-card-redesign/).
 Mock values (sizes, speeds, a 58.8 MB/s connection) are the mock's. The slow-drive case is forced with `?bottleneck=disk`.
 
+> **Status: direction D is implemented** (`frontend/src/features/downloads/ActiveJobCard.tsx`, `CardBand.tsx`, `state/transfer.ts`;
+> Core: whole-job ETA, `NetworkStats.CeilingBytesPerSecond`, `QueueState.Hold`). The scratch mockups this document describes
+> (`frontend/e2e/mockups/`: A, B, C, D, their model and the shoot/contrast scripts) were deleted once the real card existed, and
+> A–C can no longer run (the helpers they sketched were replaced). They are in git history: `git show 6dcd763:frontend/e2e/mockups/README.md`,
+> or check out `6dcd763` to run them. The real card has its own tooling: `e2e/tools/downloads-shots.mjs` (every state, both themes and
+> sizes), `e2e/tools/film-card.mjs` (pause/resume/phase filmstrips), `e2e/card-contrast.spec.ts` (the band's AA, enforced) and the
+> focus-ring check in `e2e/focus.spec.ts`. Final shots: [`screenshots/download-card-final/`](screenshots/download-card-final/). Where
+> the shipped card differs from this proposal, `DECISIONS.md` ("Download card, as built") says how and why.
+
 ## Verdict
 
 The card is clean and honest per phase. But it answers the wrong question first, and it's at its worst in the case that
@@ -560,3 +569,12 @@ Reproduce: `cd frontend && pnpm exec vite --config e2e/mockups/vite.config.mjs -
 opens the panel; `hold=playing|offline` fakes a hold; `done=1` shows Ready; `nowide=1` drops the wide art; `art=white|bright|busy|none`
 swaps all art). Shots: `GLIDER_E2E_PORT=5988 CARD=d node e2e/mockups/shoot-current.mjs <outDir>`. Contrast:
 `GLIDER_E2E_PORT=5988 node e2e/mockups/contrast-card.mjs`.
+
+## Final screenshots (as built)
+
+[`screenshots/download-card-final/`](screenshots/download-card-final/): the production build against the mock backend, `node e2e/tools/downloads-shots.mjs`
+(every state at 1280×800 and 960×600, dark and light; the sheets crop each card) and `e2e/tools/film-card.mjs`. `01`–`02` are whole
+pages, `03`–`10` every card state (running, slow and limited with Details open, paused, every phase, held by Epic's launcher or a game,
+offline, ready, art fallbacks and worst-case art), `11`–`12` the 761 px card at the 900 px window minimum, `13`–`15` the page at
+960×600, `16` the keyboard focus ring on green, purple, blue, white and bright art, `17` Ready, `18`–`21` pause and resume frame by frame
+(the card does not move).

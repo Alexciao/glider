@@ -113,7 +113,7 @@ describe("progress store (keyed by job, with ≈1 Hz history)", () => {
     phasePercent: seconds,
     elapsedSeconds: seconds,
     etaSeconds: 10,
-    network: { downloadedBytes: 1, totalBytes: 10, bytesPerSecond: net, averageBytesPerSecond: net, peakBytesPerSecond: net, cdn: "cdn", connections: 8 },
+    network: { downloadedBytes: 1, totalBytes: 10, bytesPerSecond: net, averageBytesPerSecond: net, peakBytesPerSecond: net, cdn: "cdn", connections: 8, ceilingBytesPerSecond: null },
     disk: { writtenBytes: 1, totalBytes: 10, bytesPerSecond: disk, averageBytesPerSecond: disk, peakBytesPerSecond: disk, installSizeBytes: 10 },
     verify: null,
     filesDone: null,

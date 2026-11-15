@@ -299,6 +299,14 @@
   animation: g-draw 520ms var(--ease-out) 180ms forwards;
 }
 
+/* Controls over art (the download card's band, docs/design-download-card.md §7.6): the accent ring alone can vanish on blue or
+   purple art, so a dark halo sits under it, which keeps the ring readable on any picture (at .55 the halo over flat white measured 2.1:1 against the ring; .8 gives 4:1). */
+[data-band] :focus-visible {
+  outline: 2px solid var(--g-focus);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 5px rgb(0 0 0 / 0.8);
+}
+
 /* ---------- Reduced motion: fewer, gentler — opacity survives, movement doesn't ---------- */
 @media (prefers-reduced-motion: reduce) {
   @keyframes g-pop-in { from { opacity: 0; } to { opacity: 1; } }

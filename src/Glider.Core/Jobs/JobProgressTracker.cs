@@ -318,7 +318,8 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
             _baseline.Percent = percent;
             var (from, to) = _segment.For(measuring);
             _baseline.JobPercent = Math.Clamp(Math.Max(_baseline.JobPercent, from + (to - from) * percent / 100), 0, 100);
-            _smoother.Update(rawDownload, rawDisk, percent, remaining, p.EtaSeconds);
+            long? remainingWrite = measuring == JobPhase.Downloading && totalWrite > 0 ? Math.Max(0, totalWrite - written) : null;
+            _smoother.Update(rawDownload, rawDisk, percent, remaining, p.EtaSeconds, remainingWrite);
             var elapsed = _baseline.ElapsedSeconds + _time.GetElapsedTime(_runStarted).TotalSeconds;
             var stepElapsed = Math.Max(1e-3, _baseline.StepElapsedSeconds + _time.GetElapsedTime(_stepStarted).TotalSeconds);
             var phase = phaseChange ?? _phase;
@@ -326,6 +327,7 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
             var disk = _smoother.DiskBytesPerSecond;
             var counts = _verifyCounts();
             var verifyTotalBytes = _installSize ?? 0;
+            var wholeEta = WholeJobEta(phase, _smoother.EtaSeconds, _smoother.WriteEtaSeconds);
 
             if (phase is JobPhase.Downloading or JobPhase.Repairing)
             {
@@ -344,8 +346,9 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
                 Math.Round(_baseline.JobPercent, 2),
                 Math.Round(percent, 2),
                 Math.Round(elapsed),
-                _smoother.EtaSeconds is { } eta ? Math.Round(eta) : null,
-                new NetworkStats(downloaded, totalDownload, net, downloaded / stepElapsed, _baseline.PeakNetworkBytesPerSecond, p.Cdn ?? _runInfo.Cdn, _runInfo.Connections),
+                wholeEta is { } eta ? Math.Round(eta) : null,
+                new NetworkStats(downloaded, totalDownload, net, downloaded / stepElapsed, _baseline.PeakNetworkBytesPerSecond, p.Cdn ?? _runInfo.Cdn, _runInfo.Connections,
+                    LimiterDecision.Ceiling(_baseline.PeakNetworkBytesPerSecond, _runInfo.ProbeMegabytesPerSecond)),
                 new DiskStats(written, totalWrite, disk, written / stepElapsed, _baseline.PeakDiskBytesPerSecond, _installSize),
                 new VerifyStats((int)Math.Min(p.ProcessedChunks, int.MaxValue), (int)Math.Min(p.TotalChunks, int.MaxValue),
                     (long)(verifyTotalBytes * percent / 100), verifyTotalBytes, disk, counts.Bad, counts.Fixed),
@@ -375,6 +378,19 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
         _throttle.Post(progress);
     }
 
+    /// <summary>
+    /// Seconds until the whole job is done, not just the current step: while downloading it is the slower of the download and the
+    /// writes still owed (they run side by side, and on a slow drive the writer finishes long after the network); while installing
+    /// only the writes are left. Without the writer's totals it is the download's own countdown, as before; other phases keep their
+    /// own estimate.
+    /// </summary>
+    private static double? WholeJobEta(JobPhase phase, double? stepEta, double? writeEta) => phase switch
+    {
+        JobPhase.Downloading or JobPhase.Repairing => stepEta is { } d ? (writeEta is { } w ? Math.Max(d, w) : d) : null,
+        JobPhase.Installing => writeEta ?? stepEta,
+        _ => stepEta,
+    };
+
     /// <summary>Only the groups that apply to the phase are sent (verifying never shows network figures).</summary>
     private JobProgress Groups(JobProgress p, JobPhase phase)
     {
@@ -388,7 +404,6 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
                 Verify = null,
                 FilesDone = null,
                 FilesTotal = null,
-                EtaSeconds = phase == JobPhase.Installing ? null : p.EtaSeconds,
             },
             _ => p with { Network = null, Disk = null, Verify = null, FilesDone = null, FilesTotal = null, EtaSeconds = null },
         };

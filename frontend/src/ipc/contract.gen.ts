@@ -295,6 +295,13 @@ export interface GliderError {
   drive: string | null;
 }
 
+export interface HoldInfo {
+  kind: HoldKind;
+  subject: string | null;
+}
+
+export type HoldKind = "game" | "offline" | "egl" | "paused" | "other";
+
 export interface InstallComponent {
   id: string;
   name: string;
@@ -510,6 +517,7 @@ export interface NetworkStats {
   peakBytesPerSecond: number;
   cdn: string | null;
   connections: number | null;
+  ceilingBytesPerSecond: number | null;
 }
 
 export interface Notice {
@@ -577,6 +585,7 @@ export interface QueueState {
   effectiveMode: DownloadMode;
   modeReason: string | null;
   holdReason: string | null;
+  hold: HoldInfo | null;
 }
 
 export interface ReadinessItem {

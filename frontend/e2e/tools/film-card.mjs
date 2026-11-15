@@ -1,10 +1,11 @@
 // Filmstrips of the active download card (docs/design-download-card.md): real compositor frames around one interaction.
-//   node e2e/mockups/film-card.mjs <take> <out.png> [--theme dark] [--ms 1200] [--cols 3] [--scale 0.45] [--every 1] [--mock <name>]
-// Mockups: GLIDER_E2E_PORT=<mockup server port> CARD=a|b|c (see vite.config.mjs).
+//   node e2e/tools/film-card.mjs <take> <out.png> [--theme dark] [--ms 1200] [--cols 3] [--scale 0.45] [--every 1] [--gap 400]
+// Takes: pause, resume (the card must not jump), phase (downloading → installing as the last bytes arrive).
+// Needs this checkout's e2e server on its port (see port.mjs): the production build is the honest one.
 import { chromium } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { E2E_PORT as PORT } from "../tools/port.mjs";
+import { E2E_PORT as PORT } from "./port.mjs";
 
 const [take, out, ...rest] = process.argv.slice(2);
 const opt = (n, f) => (rest.indexOf(`--${n}`) >= 0 ? rest[rest.indexOf(`--${n}`) + 1] : f);
@@ -31,7 +32,7 @@ if (!t || !out) throw new Error(`usage: film-card.mjs <${Object.keys(TAKES).join
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
 const page = await context.newPage();
-await page.goto(`http://localhost:${PORT}/?${t.q}&theme=${theme}&backdrop=solid&dev=0${process.env.CARD ? `&card=${process.env.CARD}` : ""}`);
+await page.goto(`http://localhost:${PORT}/?${t.q}&theme=${theme}&backdrop=solid&dev=0`);
 await page.waitForSelector("html[data-ready='1']");
 await page.evaluate(() => window.__glider.ui.getState().go("downloads"));
 await wait(1200);

@@ -520,6 +520,32 @@ internal sealed class QueuePolicy : IQueuePolicy
         var unfinished = all.Where(StateHub.IsActive).ToList();
         var finished = all.Where(j => !StateHub.IsActive(j)).Take(20);
         var (mode, reason) = Effective();
-        return new QueueState([.. unfinished, .. finished], jobs.Paused, mode, reason, HoldReason);
+        return new QueueState([.. unfinished, .. finished], jobs.Paused, mode, reason, HoldReason, Hold(jobs.Paused, unfinished));
+    }
+
+    /// <summary>
+    /// <see cref="HoldReason"/> as data. A queue the user paused wins; then the policy's own holds (offline, a game running);
+    /// then whatever the head job is waiting for, told apart from its reason text once, here, so the card never parses a sentence.
+    /// </summary>
+    private HoldInfo? Hold(bool paused, List<JobInfo> unfinished)
+    {
+        if (paused)
+        {
+            return new HoldInfo(HoldKind.Paused, null);
+        }
+
+        if (_c.Hub.State.Connectivity == Connectivity.Offline)
+        {
+            return new HoldInfo(HoldKind.Offline, null);
+        }
+
+        if (_c.Settings.WhilePlaying == WhilePlayingPolicy.Pause && Playing is { } p)
+        {
+            return new HoldInfo(HoldKind.Game, p.Title);
+        }
+
+        return unfinished.FirstOrDefault(j => j.Status == JobStatus.Waiting && j.BlockedReason is not null) is { } waiting
+            ? Holds.FromBlockedReason(waiting.BlockedReason!)
+            : null;
     }
 }

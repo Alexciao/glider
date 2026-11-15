@@ -39,8 +39,8 @@ export interface ScenarioInfo {
   description: string;
 }
 
-/** `none` strips all art; `busy` / `bright` / `white` replace it with the worst key art for text legibility. */
-export const MOCK_ART = ["default", "none", "busy", "bright", "white"] as const;
+/** `none` strips all art; `noWide` keeps the tall cover but no wide art (the download card blurs the cover); `busy` / `bright` / `white` replace it with the worst key art for text legibility. */
+export const MOCK_ART = ["default", "none", "noWide", "busy", "bright", "white"] as const;
 export type MockArt = (typeof MOCK_ART)[number];
 
 export interface MockOptions {
