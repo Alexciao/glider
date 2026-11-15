@@ -70,6 +70,16 @@ jobs:
           UV_SYSTEM_PYTHON: 1
         run: uv sync --frozen --extra pyinstaller_build --no-install-local
 
+      - name: The fork's own version parses where Legendary compares versions
+        working-directory: legendary-src
+        env:
+          UV_SYSTEM_PYTHON: 1
+        # 0.21.1-glider.1 shipped with int('1-glider') raising ValueError in every forced update check (auth, status):
+        # Glider showed it as "Can't reach Epic". Exercise the comparison with the literal version this build reports.
+        run: >-
+          uv run python -c "from legendary import __version__ as v; from legendary.core import _version_tuple as t;
+          assert t(v) == (0, 21, 1), (v, t(v)); assert t('0.21.2') > t(v) and not t('0.21.1') > t(v); print('version ok', v, t(v))"
+
       - name: Build legendary.exe
         working-directory: legendary-src/legendary
         env:

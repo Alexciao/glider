@@ -20,10 +20,53 @@ index 45bedf0..5f8a138 100644
                                  help='Set the hostname of the preferred CDN to use when available')
      install_parser.add_argument('--no-https', dest='disable_https', action='store_true',
 diff --git a/legendary/core.py b/legendary/core.py
-index 6e27a52..ed08019 100644
+index 6e27a52..f4d2abc 100644
 --- a/legendary/core.py
 +++ b/legendary/core.py
-@@ -1484,7 +1484,8 @@ class LegendaryCore:
+@@ -1,5 +1,6 @@
+ 
+ import contextlib
++import itertools
+ import json
+ import logging
+ import os
+@@ -74,6 +75,16 @@ from legendary.utils.selective_dl import games as sdl_games
+ #  can handle to give the user more details. (Not required yet since there's no GUI so log output is fine)
+ 
+ 
++
++def _version_tuple(v):
++    # glider: tolerate a pre-release/build suffix such as '0.21.1-glider.2' (int('1-glider') used to raise ValueError
++    # inside every forced update check: `auth`, `status` and `get_available_bottles`).
++    parts = []
++    for p in str(v).split('-', 1)[0].split('+', 1)[0].split('.'):
++        digits = ''.join(itertools.takewhile(str.isdigit, p))
++        parts.append(int(digits) if digits else 0)
++    return tuple(parts)
++
+ class LegendaryCore:
+     """
+     LegendaryCore handles most of the lower level interaction with
+@@ -291,9 +302,6 @@ class LegendaryCore:
+                                               fallback=not is_windows_mac_or_pyi())
+ 
+     def check_for_updates(self, force=False):
+-        def version_tuple(v):
+-            return tuple(map(int, (v.split('.'))))
+-
+         cached = self.lgd.get_cached_version()
+         version_info = cached['data']
+         if force or not version_info or (datetime.now().timestamp() - cached['last_update']) > 24*3600:
+@@ -301,7 +309,7 @@ class LegendaryCore:
+             self.lgd.set_cached_version(version_info)
+ 
+         web_version = version_info['release_info']['version']
+-        self.update_available = version_tuple(web_version) > version_tuple(__version__)
++        self.update_available = _version_tuple(web_version) > _version_tuple(__version__)
+         self.apply_lgd_config(version_info)
+ 
+     def apply_lgd_config(self, version_info=None):
+@@ -1484,7 +1492,8 @@ class LegendaryCore:
                           repair: bool = False, repair_use_latest: bool = False,
                           disable_delta: bool = False, override_delta_manifest: str = '',
                           egl_guid: str = '', preferred_cdn: str = None,
@@ -33,7 +76,7 @@ index 6e27a52..ed08019 100644
          # load old manifest
          old_manifest = None
  
-@@ -1656,7 +1657,10 @@ class LegendaryCore:
+@@ -1656,7 +1665,10 @@ class LegendaryCore:
  
          dlm = DLManager(install_path, base_url, manifest_secrets, resume_file=resume_file, status_q=status_q,
                          max_shared_memory=max_shm * 1024 * 1024, max_workers=max_workers,
