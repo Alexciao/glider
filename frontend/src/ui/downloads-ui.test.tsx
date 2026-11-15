@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MiniSparkline, PhaseStepper, ReorderList, ThroughputChart, monotonePath, nearestIndex, niceCeil, slotOffset, type ChartData } from "./index";
+import { MiniSparkline, ReorderList, ThroughputChart, monotonePath, nearestIndex, niceCeil, slotOffset, type ChartData } from "./index";
 
 describe("niceCeil", () => {
   it("rounds up to a clean axis maximum", () => {
@@ -119,6 +119,27 @@ describe("ThroughputChart", () => {
     const chip = (c: HTMLElement) => [...c.querySelectorAll<HTMLElement>("span")].find((e) => e.textContent?.startsWith("Average"));
     const peakLabel = (c: HTMLElement) => [...c.querySelectorAll<HTMLElement>("span")].find((e) => e.textContent?.startsWith("Peak") && e.className.includes("whitespace-nowrap"));
 
+    it("a ceiling is a dashed line with its label, and the axis reaches it so the data sits low under it", () => {
+      const { container } = draw({ ceiling: 300, ceilingLabel: "Your connection, up to 300 B/s", markers: () => null });
+      const label = [...container.querySelectorAll<HTMLElement>("span")].find((e) => e.textContent === "Your connection, up to 300 B/s")!;
+      expect(label.style.opacity).toBe("1");
+      const line = label.previousElementSibling as HTMLElement;
+      expect(line.className).toContain("border-dashed");
+      expect(line.style.opacity).toBe("1");
+      // The data tops out at 30 of a 300 ceiling: the dashed line sits near the top, the series stays in the lower part.
+      expect(parseFloat(line.style.top)).toBeLessThan(35);
+      const path = container.querySelector("svg path[stroke=red]")!.getAttribute("d")!;
+      const nums = path.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+      const ys = nums.filter((_, k) => k % 2 === 1);
+      expect(Math.min(...ys)).toBeGreaterThan(60);
+    });
+
+    it("no ceiling, no dashed line", () => {
+      const { container } = draw({ markers: () => null });
+      const dashed = [...container.querySelectorAll<HTMLElement>("div.border-dashed")];
+      expect(dashed.every((d) => d.style.opacity !== "1")).toBe(true);
+    });
+
     it("drops the legend list", () => {
       draw({ legend: false });
       expect(screen.queryByRole("list", { name: "Series" })).toBeNull();
@@ -189,38 +210,6 @@ describe("MiniSparkline", () => {
     expect(container.querySelector("path[stroke]")!.getAttribute("d")).toMatch(/^M0.0 /);
     rerender(<MiniSparkline read={() => [1]} subscribe={() => () => {}} />);
     expect(container.querySelector("path[stroke]")!.getAttribute("d")).toBe("");
-  });
-});
-
-describe("PhaseStepper", () => {
-  const steps = [
-    { id: "a", label: "Preparing" },
-    { id: "b", label: "Downloading" },
-    { id: "c", label: "Installing" },
-  ];
-  it("is a list of numbered steps, not a control: finished are done, one is current, no interactive roles", () => {
-    render(<PhaseStepper steps={steps} current="b" />);
-    const list = screen.getByRole("list", { name: "Steps" });
-    const items = screen.getAllByRole("listitem");
-    expect(items).toHaveLength(3);
-    expect(items[0]).toHaveTextContent("Preparing, done");
-    expect(items[1]).toHaveAttribute("aria-current", "step");
-    expect(items[1]).toHaveTextContent("Downloading, in progress");
-    expect(items[2]).not.toHaveAttribute("aria-current");
-    expect(list.querySelector("button, [role=tab], [role=radio], input")).toBeNull();
-    expect(items[2]).toHaveTextContent("3"); // upcoming steps show their number
-  });
-  it("re-divides when the list shrinks and renders nothing for a single step", () => {
-    const { rerender, container } = render(<PhaseStepper steps={steps} current="c" />);
-    expect(screen.getAllByRole("listitem")).toHaveLength(3);
-    rerender(<PhaseStepper steps={[steps[1]!, steps[2]!]} current="c" />);
-    expect(screen.getAllByRole("listitem")).toHaveLength(2);
-    rerender(<PhaseStepper steps={[steps[0]!]} current="a" />);
-    expect(container).toBeEmptyDOMElement();
-  });
-  it("marks nothing current when the phase is not in the list", () => {
-    render(<PhaseStepper steps={steps} current="zzz" />);
-    expect(document.querySelector("[aria-current]")).toBeNull();
   });
 });
 

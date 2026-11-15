@@ -1,15 +1,15 @@
 import type { SettingsFocus } from "./router";
-import type { DownloadMode, JobInfo, JobKind, JobPhase, JobProgress } from "../ipc/contract.gen";
-import { driveOf, formatBytes, formatBytesPrecise, formatClock, formatCount, formatDuration, formatEta, formatSpeed, prettyVersion } from "./format";
+import type { DownloadMode, HoldInfo, JobInfo, JobKind, JobPhase, JobProgress } from "../ipc/contract.gen";
+import { driveOf, formatDuration, formatEta, prettyVersion } from "./format";
 
 /**
- * Everything the download card says, as pure data: one function per question ("what is this job doing?",
- * "what are its numbers?", "what is limiting it?"), so the card is layout only and phases cannot leak into each other
- * (a verify never shows a download speed; installing shows disk writes; docs/v0.2-design.md §5).
- * Rule of the module: a figure appears only when it has a real value in this phase, and never twice.
+ * Everything the download card says, as pure data (docs/design-download-card.md §5, §7). One function answers one question
+ * ("what is the headline?", "what does the step line say?", "what limits the speed?"), so the card is layout only and phases
+ * cannot leak into each other (a verify never shows a download speed). Rule of the module: a figure appears only when it has a
+ * real value in this phase, never twice, and a time phrase is one phrase ("1 min left when you resume"), never stacked words.
  */
 
-/** The state a job is in, one word. Also the stepper's labels. */
+/** The state a job is in, one word (the activity pill's labels). */
 export const PHASE_STATE: Record<JobPhase, string> = {
   preparing: "Preparing",
   verifying: "Verifying",
@@ -24,15 +24,6 @@ export const PHASE_STATE: Record<JobPhase, string> = {
 
 export const MODE_LABEL: Record<DownloadMode, string> = { background: "Background", balanced: "Balanced", full: "Full" };
 
-/** The phase whose name already says what the job is ("Verifying" for a verify): the kind adds nothing there. */
-const SELF_NAMING: Partial<Record<JobKind, JobPhase>> = {
-  verify: "verifying",
-  repair: "repairing",
-  move: "moving",
-  uninstall: "removing",
-  import: "importing",
-};
-
 export const KIND_NOUN: Record<JobKind, string> = {
   install: "Install",
   update: "Update",
@@ -45,195 +36,61 @@ export const KIND_NOUN: Record<JobKind, string> = {
   overlay: "Epic overlay",
 };
 
-export interface JobStateLabel {
-  /** What the job is doing now: "Downloading", "Paused", "Queued". */
-  label: string;
-  tone: "accent" | "warning" | "neutral";
-}
+// ------------------------------------------------------------------------------------------------ number formats
 
-export function stateOf(job: JobInfo, p: JobProgress | null): JobStateLabel {
-  switch (job.status) {
-    case "paused":
-      return { label: "Paused", tone: "warning" };
-    case "waiting":
-      return { label: "Waiting", tone: "warning" };
-    case "queued":
-      return { label: "Queued", tone: "neutral" };
-    default: {
-      const phase = p?.phase ?? job.phase;
-      return { label: phase ? PHASE_STATE[phase] : "Starting", tone: "accent" };
-    }
+const UNITS = ["B", "KB", "MB", "GB", "TB"];
+function scale(n: number): { v: number; u: number } {
+  let u = 0;
+  let v = Math.max(0, n);
+  while (v >= 1024 && u < UNITS.length - 1) {
+    v /= 1024;
+    u++;
   }
+  return { v, u };
+}
+const digits = (v: number): string => (v >= 100 ? Math.round(v).toString() : v.toFixed(1));
+
+/** "15.8 of 37.6 GB" (the unit once when both sides share it), "659 MB of 1.5 GB" otherwise. */
+export function ofBytes(done: number, total: number): string {
+  const a = scale(done);
+  const b = scale(total);
+  if (a.u === b.u) return `${digits(a.v)} of ${digits(b.v)} ${UNITS[b.u]}`;
+  return `${digits(a.v)} ${UNITS[a.u]} of ${digits(b.v)} ${UNITS[b.u]}`;
 }
 
-/**
- * The one muted line next to the state: what kind of job this is (when the state doesn't already say so) and the detail
- * that distinguishes it. Never a restatement of the title or the state.
- */
-export function metaOf(job: JobInfo, p: JobProgress | null): string | null {
-  const phase = p?.phase ?? job.phase;
-  if (phase === "repairing" && p?.verify && p.verify.badFiles > 0) {
-    const bytes = p.network?.totalBytes;
-    return `${formatCount(p.verify.badFiles)} ${p.verify.badFiles === 1 ? "file" : "files"} to fix${bytes ? ` · ${formatBytes(bytes)}` : ""}`;
-  }
-  const parts: string[] = [];
-  if (!phase || SELF_NAMING[job.kind] !== phase) parts.push(KIND_NOUN[job.kind]);
-  if (job.kind === "update" && job.fromVersion && job.toVersion) parts.push(`${prettyVersion(job.fromVersion)} → ${prettyVersion(job.toVersion)}`);
-  else if ((job.kind === "install" || job.kind === "update") && job.toVersion) parts.push(prettyVersion(job.toVersion));
-  return parts.length ? parts.join(" · ") : null;
+/** "3.9 MB/s", "247 MB/s": one decimal under 100, whole numbers from 100 (it changes less often, so it never flickers). Null when there is no speed. */
+export function speedText(bytesPerSecond: number | null | undefined): string | null {
+  if (bytesPerSecond == null || !(bytesPerSecond > 0)) return null;
+  const { v, u } = scale(bytesPerSecond);
+  return `${digits(v)} ${UNITS[u]}/s`;
 }
 
-// ------------------------------------------------------------------------------------------------ figures
-
-export type ChartKind = "network+disk" | "disk" | null;
-
-/** One live speed. Doubles as the chart's legend: `series` names the line it labels. */
-export interface Readout {
-  key: "network" | "disk" | "read" | "copy";
-  /** "Download", "Disk write", "Reading", "Copying"; with ", average" while the job is not moving. */
-  label: string;
-  bytesPerSecond: number;
-  /** The job's average (paused, waiting), not a live speed. */
-  average: boolean;
-  /** The chart line this readout is the legend of; null when the phase has no chart. */
-  series: "network" | "disk" | null;
-}
-
-export interface Figures {
-  /** The phase's own "done of total" ("15.81 GB of 37.64 GB"); `unit` completes the sentence. Null when there is none. */
-  headline: string | null;
-  /** What the headline's bytes did: "downloaded", "written", "copied", "checked". */
-  unit: string | null;
-  /** Live speeds, in the order they are drawn. Empty when the phase has none. */
-  readouts: Readout[];
-  /** Verifying only: "3 damaged so far", once something is. */
-  damaged: string | null;
-  /** A chart only while bytes are moving (downloading, repairing, installing). */
-  chart: ChartKind;
-  /** Which throughput figure the speed status talks about. */
-  throughput: "network" | "write" | "read" | null;
-}
-
-/** "epicgames-download1.akamaized.net" → "Akamai": the provider, not the host name. Unknown hosts pass through. */
-export function cdnName(host: string): string {
-  const h = host.toLowerCase();
-  if (h.includes("akamai")) return "Akamai";
-  if (h.includes("fastly")) return "Fastly";
-  if (h.includes("cloudflare")) return "Cloudflare";
-  if (h === "download.epicgames.com") return "Epic";
-  return host;
-}
-
-/** "15.81 GB of 37.64 GB": the numbers a bar is made of, with nothing after them. */
-const ofBytes = (done: number, total: number): string => `${formatBytesPrecise(done)} of ${formatBytesPrecise(total)}`;
-
-/**
- * A speed readout. While the job is moving it is the live figure; while it is not (paused, waiting) it is the job's
- * average and says so, so the row keeps its place and the card does not jump when Pause is pressed. A speed that has no
- * value yet (an average of 0) is left out rather than shown as "0 B/s, average".
- */
-function readout(key: Readout["key"], label: string, series: Readout["series"], live: number, average: number, moving: boolean): Readout | null {
-  const value = moving ? live : average;
-  if (!moving && !(value > 0)) return null;
-  return { key, label: moving ? label : `${label}, average`, bytesPerSecond: Math.max(0, value), average: !moving, series };
-}
-
-const present = <T>(list: (T | null)[]): T[] => list.filter((x): x is T => x !== null);
-
-export function figuresOf(job: JobInfo, p: JobProgress | null): Figures {
-  const moving = job.status === "running";
-  const phase = p?.phase ?? job.phase;
-  const net = p?.network ?? null;
-  const disk = p?.disk ?? null;
-  const verify = p?.verify ?? null;
-
-  // Network phases: downloading, and the re-download step of a repair.
-  if (net && (phase === "downloading" || phase === "repairing")) {
-    return {
-      headline: ofBytes(net.downloadedBytes, net.totalBytes),
-      unit: "downloaded",
-      readouts: present([
-        readout("network", "Download", "network", net.bytesPerSecond, net.averageBytesPerSecond, moving),
-        disk && readout("disk", "Disk write", "disk", disk.bytesPerSecond, disk.averageBytesPerSecond, moving),
-      ]),
-      damaged: null,
-      chart: "network+disk",
-      throughput: "network",
-    };
-  }
-
-  // Verify: local reads only. Never any network figure, and no chart: a verify is one steady read.
-  if (verify && phase === "verifying") {
-    const average = p && p.elapsedSeconds > 0 ? verify.bytesChecked / p.elapsedSeconds : 0;
-    return {
-      headline: ofBytes(verify.bytesChecked, verify.bytesTotal),
-      unit: "checked",
-      readouts: present([readout("read", "Reading", null, verify.readBytesPerSecond, average, moving)]),
-      damaged: verify.badFiles > 0 ? `${formatCount(verify.badFiles)} damaged so far` : null,
-      chart: null,
-      throughput: "read",
-    };
-  }
-
-  // The install tail: the download is done, files are still landing on the drive.
-  if (disk && phase === "installing") {
-    return {
-      headline: ofBytes(disk.writtenBytes, disk.totalBytes),
-      unit: "written",
-      readouts: present([readout("disk", "Disk write", "disk", disk.bytesPerSecond, disk.averageBytesPerSecond, moving)]),
-      damaged: null,
-      chart: "disk",
-      throughput: "write",
-    };
-  }
-
-  // Moving files: one copy, no chart.
-  if (disk && phase === "moving") {
-    return {
-      headline: ofBytes(disk.writtenBytes, disk.totalBytes),
-      unit: "copied",
-      readouts: present([readout("copy", "Copying", null, disk.bytesPerSecond, disk.averageBytesPerSecond, moving)]),
-      damaged: null,
-      chart: null,
-      throughput: "write",
-    };
-  }
-
-  // Short timed steps (preparing, finalizing, removing, importing): the card shows the clock next to the percentage.
-  return { headline: null, unit: null, readouts: [], damaged: null, chart: null, throughput: null };
-}
-
-/** The line at the bar's right edge: "15.81 GB of 37.64 GB downloaded". */
-export const headlineOf = (f: Figures): string | null => (f.headline ? (f.unit ? `${f.headline} ${f.unit}` : f.headline) : null);
-
-/**
- * The time beside the big percentage: what is left when there is an estimate (elapsed moves into its tooltip), else the
- * elapsed time itself. Null before the job has started.
- */
-export function timeOf(job: JobInfo, p: JobProgress | null): { text: string; tip: string | null } | null {
-  if (!p) return null;
-  const elapsed = `${formatClock(p.elapsedSeconds)} elapsed`;
-  if (job.status === "running" && p.etaSeconds != null) return { text: `${formatEta(p.etaSeconds)} left`, tip: elapsed };
-  return { text: elapsed, tip: null };
+/** The time left in words a screen reader says well: "less than a minute", "7 minutes", "1 hour 37 minutes". */
+export function etaWords(seconds: number): string {
+  if (seconds < 45) return "less than a minute";
+  const minutes = Math.round(seconds / 60);
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  if (minutes < 60) return plural(minutes, "minute");
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h < 24) return m === 0 ? plural(h, "hour") : `${plural(h, "hour")} ${plural(m, "minute")}`;
+  return `${plural(Math.floor(h / 24), "day")} ${plural(h % 24, "hour")}`;
 }
 
 // ------------------------------------------------------------------------------------------------ speed status
 
 export type SpeedCause = "playing" | "disk" | "cpu" | "speedLimit" | "mode" | "cdn";
 
-/** The row in Settings → Downloads that can change a cause. */
 /** The Settings → Downloads row a speed explanation links to (the `settings?focus=` route). */
 export type SettingFocus = SettingsFocus;
 
 export interface SpeedStatus {
   cause: SpeedCause;
-  /** "slow": something the user did not choose is holding the speed back (amber). "limit": a choice they made (muted). */
+  /** "slow": something the user did not choose is holding the speed back (amber). "limit": a choice they made (neutral). */
   kind: "slow" | "limit";
-  /** Two or three words: "Slow download", "Speed limit", "Background mode". */
-  label: string;
-  /** One line, for the tooltip: "Drive D: writes about 117 MB/s, slower than your connection." */
+  /** One line: Core's sentence for a throttle ("Background mode while Fortnite is running."). */
   reason: string;
-  /** The setting that changes it, for the dialog's link; null when only the PC or the network can. */
+  /** The setting that changes it; null when only the PC or the network can. */
   setting: SettingFocus | null;
 }
 
@@ -247,155 +104,321 @@ export interface SpeedContext {
   modeReason: string | null;
 }
 
+/** "epicgames-download1.akamaized.net" → "Akamai": the provider, not the host name. Unknown hosts pass through. */
+export function cdnName(host: string): string {
+  const h = host.toLowerCase();
+  if (h.includes("akamai")) return "Akamai";
+  if (h.includes("fastly")) return "Fastly";
+  if (h.includes("cloudflare")) return "Cloudflare";
+  if (h === "download.epicgames.com") return "Epic";
+  return host;
+}
+
 /**
  * What is holding this download's speed back, or null when nothing worth saying is (the connection being the limit is
  * the normal case and needs no comment). One cause, picked in this order: a mode change Glider made on its own, the disk,
  * the processor, the user's speed limit, the user's mode, the download server. Idle boost is not a limit: it only adds
  * speed. Null when the job is not running or its phase has no network throughput to hold back.
  */
-export function speedStatusOf(job: JobInfo, p: JobProgress | null, throughput: Figures["throughput"], ctx: SpeedContext): SpeedStatus | null {
+export function speedStatusOf(job: JobInfo, p: JobProgress | null, throughput: "network" | "write" | "read" | null, ctx: SpeedContext): SpeedStatus | null {
   if (!p || !throughput || job.status !== "running") return null;
-  const drive = driveOf(ctx.path);
-  const where = drive ? `Drive ${drive}` : "This drive";
   // Glider throttled itself (the user's "while a game runs" choice): the cause is the game, whatever the limiter measured.
   if (throughput === "network" && ctx.effectiveMode !== ctx.chosenMode && ctx.effectiveMode === "background" && ctx.modeReason) {
-    return { cause: "playing", kind: "limit", label: "Throttled while playing", reason: `${ctx.modeReason.replace(/[.\s]+$/, "")}.`, setting: "whilePlaying" };
+    return { cause: "playing", kind: "limit", reason: `${ctx.modeReason.replace(/[.\s]+$/, "")}.`, setting: "whilePlaying" };
   }
   switch (p.limiter) {
-    case "disk": {
+    case "disk":
       // Only a drive that holds back a live download is worth saying: reading files or writing the install tail is the work itself.
-      if (!p.network) return null;
-      const avg = p.disk?.averageBytesPerSecond ?? p.disk?.bytesPerSecond;
-      return {
-        cause: "disk",
-        kind: "slow",
-        label: "Slow download",
-        reason: avg && avg > 0 ? `${where} writes about ${formatSpeed(avg)}, slower than your connection.` : `${where} is slower than your connection.`,
-        setting: null,
-      };
-    }
+      return p.network ? { cause: "disk", kind: "slow", reason: "", setting: null } : null;
     case "cpu":
-      return { cause: "cpu", kind: "slow", label: "Slow download", reason: "The processor is the limit while files unpack.", setting: null };
+      return { cause: "cpu", kind: "slow", reason: "", setting: null };
     case "speedLimit":
-      return {
-        cause: "speedLimit",
-        kind: "limit",
-        label: "Speed limit",
-        reason: ctx.speedLimitBytesPerSecond ? `Held to your ${formatSpeed(ctx.speedLimitBytesPerSecond)} limit.` : "Held to your speed limit.",
-        setting: "speedLimit",
-      };
+      return { cause: "speedLimit", kind: "limit", reason: "", setting: "speedLimit" };
     case "mode":
-      return { cause: "mode", kind: "limit", label: `${MODE_LABEL[p.mode]} mode`, reason: `${MODE_LABEL[p.mode]} mode is easing off to keep your PC responsive.`, setting: "downloadMode" };
-    case "cdn": {
-      const cdn = p.network?.cdn;
-      return { cause: "cdn", kind: "slow", label: "Slow download", reason: cdn ? `${cdnName(cdn)} is responding slowly right now.` : "The download server is responding slowly right now.", setting: "cdn" };
-    }
+      return { cause: "mode", kind: "limit", reason: "", setting: "downloadMode" };
+    case "cdn":
+      return { cause: "cdn", kind: "slow", reason: "", setting: "cdn" };
     default:
       return null;
   }
 }
 
-// ------------------------------------------------------------------------------------------------ the full reason
+/** The short name of the cause, on the disclosure: names the cause, never a verdict. */
+export function causeLabel(status: SpeedStatus, ctx: SpeedContext, p: JobProgress | null): string {
+  switch (status.cause) {
+    case "disk": {
+      const d = driveOf(ctx.path);
+      return d ? `Limited by drive ${d}` : "Limited by your drive";
+    }
+    case "cpu":
+      return "Limited by the processor";
+    case "cdn":
+      return "Server is slow";
+    case "speedLimit": {
+      const t = speedText(ctx.speedLimitBytesPerSecond);
+      return t ? `Your ${t} limit` : "Your speed limit";
+    }
+    case "mode":
+      return `${MODE_LABEL[p?.mode ?? ctx.effectiveMode]} mode`;
+    case "playing":
+      return "Slowed while you play";
+  }
+}
 
-export interface SpeedExplanation {
+export interface Explanation {
   title: string;
-  /** What is limiting, in one or two sentences. */
-  lead: string;
-  /** What was measured, one short sentence each: only numbers that exist. */
-  facts: string[];
-  /** What the user can do about it. */
+  body: string;
   advice: string[];
-  /** The Settings row that changes it, with the button's text; null when only the PC or the network can. */
+  /** The setting that changes it, with the button's text; null when only the PC or the network can. */
   link: { focus: SettingFocus; label: string } | null;
 }
 
-/**
- * The dialog behind the speed status: why, with the numbers measured for this job, and what the user can do. The numbers
- * come from the job's own stats (what the connection has reached, what the drive writes), never from guesses.
- */
-export function explainSpeed(status: SpeedStatus, p: JobProgress | null, ctx: SpeedContext): SpeedExplanation {
-  const now = p?.network?.bytesPerSecond ?? 0;
-  const reached = p?.network?.peakBytesPerSecond ?? 0;
-  const drive = driveOf(ctx.path);
-  const where = drive ? `Drive ${drive}` : "Your drive";
-  const facts: string[] = [];
-  // The connection's own ceiling is worth a line only when it is clearly above what the job gets now.
-  const ceiling = (against: number) => {
-    if (reached > against * 1.25 && reached > 0) facts.push(`Your connection has reached about ${formatSpeed(reached)}.`);
-  };
+/** What is behind the disclosure, per cause: why, what to do, and the one setting that changes it. Copy: spec §5.5. */
+export function explainCause(status: SpeedStatus, ctx: SpeedContext): Explanation {
+  const drive = driveOf(ctx.path) || "your drive";
   switch (status.cause) {
-    case "disk": {
-      const writes = p?.disk?.averageBytesPerSecond ?? p?.disk?.bytesPerSecond ?? 0;
-      if (writes > 0) facts.push(`${where} writes about ${formatSpeed(writes)}.`);
-      if (now > 0) facts.push(`Glider is downloading at ${formatSpeed(now)}, the pace the drive allows.`);
-      ceiling(Math.max(now, writes));
+    case "disk":
       return {
-        title: "Your drive is limiting this download",
-        lead: "Files can't be written as fast as your connection delivers them, so Glider has to slow down to match the drive.",
-        facts,
-        advice: [
-          "Free up space. Drives slow down as they fill up.",
-          "Install games on a faster drive. You can move an installed game from its page.",
-          "Pause other work on the same drive: backups, scans and other downloads.",
-        ],
+        title: `Drive ${drive} is the limit`,
+        body: "It can't write game files as fast as your connection delivers them, so Glider downloads at the pace the drive allows.",
+        advice: [`Free up space on ${drive}. Drives slow down as they fill up.`, `Pause backups, scans or other downloads that use ${drive}.`, "Put big games on a faster drive. You can move this one later from its page."],
         link: null,
       };
-    }
     case "cpu":
-      if (now > 0) facts.push(`Glider is downloading at ${formatSpeed(now)}.`);
-      ceiling(now);
+      return { title: "The processor is busy", body: "Unpacking files needs more processor time than your PC has free right now. Speed comes back as it settles.", advice: ["Close heavy programs while this finishes."], link: null };
+    case "cdn":
+      return { title: "Epic's server is slow right now", body: "Glider switches to another server on its own if it stays slow.", advice: [], link: { focus: "cdn", label: "Choose a server" } };
+    case "speedLimit": {
+      const t = speedText(ctx.speedLimitBytesPerSecond);
       return {
-        title: "Your processor is limiting this download",
-        lead: "Unpacking files takes more processor time than your PC has to spare right now.",
-        facts,
-        advice: ["Close heavy programs while this finishes.", "It is temporary: speed recovers once the files are unpacked."],
-        link: null,
-      };
-    case "cdn": {
-      const host = p?.network?.cdn;
-      if (host) facts.push(`Server in use: ${cdnName(host)}.`);
-      if (now > 0) facts.push(`Glider is downloading at ${formatSpeed(now)}.`);
-      ceiling(now);
-      return {
-        title: "The download server is slow",
-        lead: "The server isn't sending data as fast as usual. Glider tries another one on its own if it stays slow.",
-        facts,
-        advice: ["It usually clears up by itself within a few minutes.", "Or choose a download server yourself."],
-        link: { focus: "cdn", label: "Choose a server" },
+        title: t ? `Held to your ${t} limit` : "Held to your speed limit",
+        body: "Downloads stay under the limit you set, so the rest of your network keeps its share.",
+        advice: [],
+        link: { focus: "speedLimit", label: "Change limit" },
       };
     }
-    case "speedLimit":
-      if (ctx.speedLimitBytesPerSecond) facts.push(`Your limit is ${formatSpeed(ctx.speedLimitBytesPerSecond)}.`);
-      ceiling(ctx.speedLimitBytesPerSecond ?? now);
-      return {
-        title: "Held to your speed limit",
-        lead: "Downloads stay at the limit you set, so other things on your network keep their share.",
-        facts,
-        advice: ["Raise or remove the limit to download at full speed."],
-        link: { focus: "speedLimit", label: "Change speed limit" },
-      };
     case "mode":
-      if (now > 0) facts.push(`Glider is downloading at ${formatSpeed(now)}.`);
-      ceiling(now);
-      return {
-        title: `${MODE_LABEL[p?.mode ?? ctx.effectiveMode]} mode is on`,
-        lead: "Glider downloads gently with few connections and low priority, so the rest of your PC stays responsive.",
-        facts,
-        advice: ["Balanced downloads at full network speed and stays gentle on the disk. Full uses everything this PC has."],
-        link: { focus: "downloadMode", label: "Change download mode" },
-      };
+      return { title: "Background mode is on", body: "Glider downloads gently, with few connections and low priority, so games and apps stay smooth.", advice: [], link: { focus: "downloadMode", label: "Change mode" } };
     case "playing":
-      if (now > 0) facts.push(`Glider is downloading at ${formatSpeed(now)}.`);
-      ceiling(now);
-      return {
-        title: "Slowed down while you play",
-        lead: status.reason,
-        facts,
-        advice: ["Speed returns to your chosen mode when the game closes.", "Or pick what Glider does while a game runs: pause, slow down or carry on."],
-        link: { focus: "whilePlaying", label: "Change this setting" },
-      };
+      return { title: "Slowed while you play", body: `${status.reason} Full speed returns when the game closes.`, advice: [], link: { focus: "whilePlaying", label: "Change" } };
   }
 }
+
+// ------------------------------------------------------------------------------------------------ the card
+
+/** The step's name on the line under the band. Preparing, finalizing, removing and importing say it in the headline instead. */
+const STEP_NAME: Partial<Record<JobPhase, string>> = {
+  downloading: "Downloading",
+  repairing: "Repairing",
+  verifying: "Checking files",
+  installing: "Installing",
+  moving: "Moving",
+};
+
+/** The same step while paused: one phrase with "paused" ("Downloading paused", "Install paused"). */
+const PAUSED_NAME: Partial<Record<JobPhase, string>> = {
+  downloading: "Downloading paused",
+  repairing: "Repair paused",
+  verifying: "File check paused",
+  installing: "Install paused",
+  moving: "Move paused",
+};
+
+/** The headline when there is no time to give: the step, still going. */
+const WORKING: Record<JobPhase, string> = {
+  preparing: "Preparing…",
+  downloading: "Downloading…",
+  repairing: "Repairing…",
+  verifying: "Checking files…",
+  installing: "Installing…",
+  finalizing: "Almost done",
+  moving: "Moving…",
+  removing: "Removing files…",
+  importing: "Linking the install…",
+};
+
+export type Lead = { kind: "time"; text: string } | { kind: "state"; text: string };
+
+export interface HoldCopy {
+  /** The headline: "Waiting for Fortnite to close". */
+  lead: string;
+  /** The sentence on the step line; it always says the job continues on its own. */
+  line: string;
+  /** The Settings row that decides this hold ("While a game is running"); null when nothing the user set causes it. */
+  setting: SettingFocus | null;
+}
+
+/** What a hold says, composed from its kind and subject so the words stay short and consistent. Never "Queued". */
+export function holdCopy(hold: HoldInfo, blockedReason?: string | null): HoldCopy {
+  switch (hold.kind) {
+    case "game":
+      return { lead: hold.subject ? `Waiting for ${hold.subject} to close` : "Waiting for a game to close", line: "Downloads pause while you play and continue on their own", setting: "whilePlaying" };
+    case "offline":
+      return { lead: "Waiting for an internet connection", line: "Continues on its own when you're back online", setting: null };
+    case "egl":
+      return { lead: "Waiting for Epic Games Launcher", line: `It's ${/installing/i.test(blockedReason ?? "") ? "installing" : "updating"} this game. Glider continues on its own`, setting: null };
+    case "paused":
+      return { lead: "Paused", line: "Downloads are paused", setting: null };
+    case "other":
+      return { lead: (hold.subject ?? "Waiting for another task").replace(/[.\s]+$/, ""), line: "Glider continues on its own", setting: null };
+  }
+}
+
+export interface CardContext extends SpeedContext {
+  /** `QueueState.hold`: why queued work isn't starting. */
+  hold: HoldInfo | null;
+}
+
+export interface CardCause {
+  status: SpeedStatus;
+  /** The disclosure's label. */
+  label: string;
+  explain: Explanation;
+}
+
+export interface CardView {
+  /** Bytes are moving (running, not held). */
+  moving: boolean;
+  paused: boolean;
+  /** Waiting on something outside: a game, no connection, the Epic launcher. */
+  held: HoldCopy | null;
+  phase: JobPhase | null;
+  /** Whole-job percent, whole number. */
+  percent: number;
+  /** Show the percent: the job has begun. */
+  started: boolean;
+  /** The bar has nothing to show yet (starting, preparing). */
+  indeterminate: boolean;
+  lead: Lead;
+  /** The step line's parts, joined with " · ". */
+  line: string[];
+  /** Found damage ("3 to repair"), set apart in the line. */
+  extra: string | null;
+  /** The speed the bar's sheen follows. */
+  speed: number | null;
+  cause: CardCause | null;
+  /** The chart in Details: the download while downloading or repairing, the drive's writes while installing. */
+  chart: "network" | "disk" | null;
+  /** The connection's ceiling, for the chart's dashed line; only while a cause is shown. */
+  ceiling: number | null;
+  /** The step in words for the bar's name. */
+  stepName: string;
+  /** Time left in words, for assistive tech; null when there is none. */
+  etaWords: string | null;
+}
+
+/** What is left at the job's average pace, for a job that is not moving (Core clears the live estimate while it is paused). */
+function etaAtPace(p: JobProgress): number | null {
+  if (p.etaSeconds != null) return p.etaSeconds;
+  const parts: number[] = [];
+  const net = p.network;
+  const disk = p.disk;
+  if ((p.phase === "downloading" || p.phase === "repairing") && net && net.averageBytesPerSecond > 0) parts.push(Math.max(0, net.totalBytes - net.downloadedBytes) / net.averageBytesPerSecond);
+  if ((p.phase === "downloading" || p.phase === "repairing" || p.phase === "installing" || p.phase === "moving") && disk && disk.totalBytes > 0 && disk.averageBytesPerSecond > 0) {
+    parts.push(Math.max(0, disk.totalBytes - disk.writtenBytes) / disk.averageBytesPerSecond);
+  }
+  return parts.length ? Math.max(...parts) : null;
+}
+
+/**
+ * The card's content for one job: the headline (time left, or the state in words), the one line for the current step, the
+ * cause of a slow speed, and what Details can show. `ctx.hold` is `QueueState.hold`; a job Core still calls `queued` while a
+ * hold stops it (it never started) reads as waiting, never as "Queued".
+ */
+export function cardOf(job: JobInfo, p: JobProgress | null, ctx: CardContext): CardView {
+  const paused = job.status === "paused";
+  const heldStatus = job.status === "waiting" || job.status === "queued";
+  const hold = !paused && heldStatus ? (ctx.hold ?? (job.status === "waiting" ? { kind: "other" as const, subject: job.blockedReason } : null)) : null;
+  const held = hold ? holdCopy(hold, job.blockedReason) : null;
+  const moving = job.status === "running";
+  const phase = p?.phase ?? job.phase;
+  const percent = Math.floor(Math.min(100, Math.max(0, p?.percent ?? 0)));
+  const net = p?.network ?? null;
+  const disk = p?.disk ?? null;
+  const verify = p?.verify ?? null;
+
+  // The current step: its own bytes and its own speed.
+  let bytes: string | null = null;
+  let speed: number | null = null;
+  let extra: string | null = null;
+  if (net && (phase === "downloading" || phase === "repairing")) {
+    bytes = ofBytes(net.downloadedBytes, net.totalBytes);
+    speed = net.bytesPerSecond;
+  } else if (verify && phase === "verifying") {
+    bytes = ofBytes(verify.bytesChecked, verify.bytesTotal);
+    speed = verify.readBytesPerSecond;
+    if (verify.badFiles > 0) extra = `${verify.badFiles.toLocaleString()} to repair`;
+  } else if (disk && (phase === "installing" || phase === "moving")) {
+    bytes = ofBytes(disk.writtenBytes, disk.totalBytes);
+    speed = disk.bytesPerSecond;
+  }
+  let step = (phase && STEP_NAME[phase]) ?? null;
+  if (phase === "repairing" && verify && verify.badFiles > 0) step = `Repairing ${verify.badFiles.toLocaleString()} ${verify.badFiles === 1 ? "file" : "files"}`;
+
+  const eta = moving ? (p?.etaSeconds ?? null) : null;
+
+  let lead: Lead;
+  let line: string[] = [];
+  if (paused) {
+    lead = { kind: "state", text: "Paused" };
+    const left = p ? etaAtPace(p) : null;
+    const pausedStep = phase ? PAUSED_NAME[phase] : undefined;
+    // One phrase for the time: "1 min left when you resume" (never "about under a minute left").
+    if (pausedStep) line = [pausedStep, ...(bytes ? [bytes] : []), ...(left != null ? [`${formatEta(left)} left when you resume`] : [])];
+  } else if (held) {
+    lead = { kind: "state", text: held.lead };
+    // The bytes so far, then the promise; a lone promise is a sentence.
+    line = p && bytes ? [bytes, held.line] : [`${held.line}.`];
+  } else if (!p) {
+    lead = { kind: "state", text: "Starting…" };
+  } else if (phase === "finalizing" || phase === "preparing" || phase === "removing" || phase === "importing" || eta == null) {
+    lead = { kind: "state", text: WORKING[phase ?? "preparing"] };
+  } else {
+    lead = { kind: "time", text: formatEta(eta) };
+  }
+  if (moving && step) {
+    const speedLabel = speedText(speed);
+    line = [step, ...(bytes ? [bytes] : []), ...(speedLabel ? [speedLabel] : [])];
+  }
+
+  const throughput = net && (phase === "downloading" || phase === "repairing") ? "network" : phase === "installing" || phase === "moving" ? "write" : phase === "verifying" ? "read" : null;
+  const status = moving ? speedStatusOf(job, p, throughput, ctx) : null;
+  const cause: CardCause | null = status ? { status, label: causeLabel(status, ctx, p), explain: explainCause(status, ctx) } : null;
+  const chart = moving && (phase === "downloading" || phase === "repairing") && net ? "network" : moving && phase === "installing" ? "disk" : null;
+  const ceiling = chart === "network" && cause && net?.ceilingBytesPerSecond ? net.ceilingBytesPerSecond : null;
+
+  return {
+    moving,
+    paused,
+    held,
+    phase: phase ?? null,
+    percent,
+    started: p !== null && phase !== "preparing",
+    indeterminate: !paused && !held && (p === null || phase === "preparing"),
+    lead,
+    line,
+    extra,
+    speed: moving ? speed : null,
+    cause,
+    chart,
+    ceiling,
+    stepName: held ? held.lead : paused ? "Paused" : (phase && PHASE_STATE[phase]) || "Starting",
+    etaWords: eta != null && lead.kind === "time" ? etaWords(eta) : null,
+  };
+}
+
+/** What kind of job this is, for the Task field in Details. */
+export function taskOf(job: JobInfo): string {
+  if (job.kind === "install" && job.toVersion) return `Install, version ${prettyVersion(job.toVersion)}`;
+  if (job.kind === "update" && job.fromVersion && job.toVersion) return `Update, ${prettyVersion(job.fromVersion)} → ${prettyVersion(job.toVersion)}`;
+  if (job.kind === "move" && job.targetPath) return `Move to ${job.targetPath}`;
+  if (job.kind === "verify") return "Verify files, repair what's damaged";
+  return KIND_NOUN[job.kind];
+}
+
+// ------------------------------------------------------------------------------------------------ ready
+
+const DONE_VERB: Partial<Record<JobKind, string>> = { install: "Installed", update: "Updated", repair: "Repaired", verify: "Checked", move: "Moved", modify: "Changed" };
 
 /** "took 4 min" for finished work. */
 export const tookText = (job: JobInfo): string | null => {
@@ -403,3 +426,36 @@ export const tookText = (job: JobInfo): string | null => {
   const secs = (Date.parse(job.finishedAt) - Date.parse(job.startedAt ?? job.createdAt)) / 1000;
   return secs > 0 ? formatDuration(secs) : null;
 };
+
+export interface ReadyView {
+  /** The headline: "Ready to play", "All files are fine", "Moved to E:". */
+  lead: string;
+  /** "Installed in 28 min." */
+  line: string | null;
+  /** Play is offered (an install or an update leaves a game to play). */
+  play: boolean;
+}
+
+/** Jobs whose end the card marks and keeps for a while. Removing and importing have nothing to celebrate or play. */
+export const READY_KINDS: readonly JobKind[] = ["install", "update", "repair", "verify", "move", "modify"];
+
+export function readyOf(job: JobInfo): ReadyView {
+  const took = tookText(job);
+  const verb = DONE_VERB[job.kind];
+  const line = verb ? `${verb}${took ? ` in ${took}` : ""}.` : null;
+  switch (job.kind) {
+    case "verify":
+    case "repair": {
+      const fixed = job.verify?.filesFixed ?? 0;
+      return { lead: fixed > 0 ? `Repaired ${fixed.toLocaleString()} ${fixed === 1 ? "file" : "files"}` : "All files are fine", line, play: false };
+    }
+    case "move": {
+      const drive = driveOf(job.targetPath);
+      return { lead: drive ? `Moved to ${drive}` : "Moved", line, play: false };
+    }
+    case "modify":
+      return { lead: "Changes applied", line, play: false };
+    default:
+      return { lead: "Ready to play", line, play: true };
+  }
+}

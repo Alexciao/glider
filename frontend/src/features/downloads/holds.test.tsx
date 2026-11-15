@@ -12,63 +12,58 @@ import { queueNotice } from "./QueueNotice";
 
 installCleanStores();
 
-const queue = (over: Partial<QueueState> = {}): QueueState => ({ jobs: [], paused: false, effectiveMode: "balanced", modeReason: null, holdReason: null, ...over });
+const queue = (over: Partial<QueueState> = {}): QueueState => ({ jobs: [], paused: false, effectiveMode: "balanced", modeReason: null, holdReason: null, hold: null, ...over });
 const job = (status: JobInfo["status"]): JobInfo => ({ id: "j", appName: "a", title: "A", kind: "update", status }) as JobInfo;
 
-describe("the queue notice says why nothing is moving", () => {
+describe("the queue notice is only for a queue the player paused", () => {
   it("is silent while nothing holds the queue, or when there is no job to hold", () => {
-    expect(queueNotice(queue(), false, job("queued"))).toBeNull();
-    expect(queueNotice(queue({ holdReason: "Paused while Fortnite is running" }), false, undefined)).toBeNull();
+    expect(queueNotice(queue(), job("queued"))).toBeNull();
+    expect(queueNotice(queue({ holdReason: "Paused while Fortnite is running" }), undefined)).toBeNull();
   });
 
-  it("a game running: the hold's reason, what happens next, and a Change link", () => {
-    expect(queueNotice(queue({ holdReason: "Paused while Fortnite is running" }), false, job("queued"))).toEqual({
-      lead: "Paused while Fortnite is running.",
-      rest: "Glider continues when it closes.",
-      change: true,
-    });
+  it("holds are said once, on the card: the page adds nothing for a game or for no connection", () => {
+    expect(queueNotice(queue({ holdReason: "Paused while Fortnite is running", hold: { kind: "game", subject: "Fortnite" } }), job("queued"))).toBeNull();
+    expect(queueNotice(queue({ holdReason: "Waiting for an internet connection", hold: { kind: "offline", subject: null } }), job("queued"))).toBeNull();
   });
 
-  it("no connection: the offline words, and no setting to change", () => {
-    expect(queueNotice(queue({ holdReason: "Waiting for an internet connection" }), true, job("queued"))).toEqual({
-      lead: "You're offline.",
-      rest: "Downloads continue when you're back.",
-    });
-  });
-
-  it("a waiting card already says its own reason, so the page doesn't repeat it", () => {
-    expect(queueNotice(queue({ holdReason: "Paused while Fortnite is running" }), false, job("waiting"))).toBeNull();
-  });
-
-  it("a paused queue says so and offers Resume all, over any hold", () => {
-    expect(queueNotice(queue({ paused: true, holdReason: "Paused while Fortnite is running" }), false, job("queued"))).toEqual({ lead: "Downloads are paused.", resume: true });
+  it("a paused queue says so and offers Resume all", () => {
+    expect(queueNotice(queue({ paused: true, holdReason: "Paused while Fortnite is running" }), job("queued"))).toEqual({ lead: "Downloads are paused.", resume: true });
   });
 });
 
-describe("Downloads while a game runs, and offline", () => {
-  it("a queued update under 'While a game is running: Pause' shows the reason and a Change link to that setting", async () => {
+describe("Downloads while a game runs, and offline: the card says why, in place", () => {
+  it("a queued update under 'While a game is running: Pause' reads 'Waiting for Fortnite to close', never 'Queued', with the setting in Details", async () => {
     const { user, booted } = await mount("playing", <Downloads />);
     const other = booted.find((g) => g.installStatus === "installed" && g.updateAvailable && g.thirdParty === "none" && g.appName !== "Fortnite");
     await act(async () => {
       await rpc().call("game.update", { appName: other.appName });
     });
-    const lead = await screen.findByText("Paused while Fortnite is running.");
-    const status = lead.closest("[role='status']") as HTMLElement;
-    expect(status).toHaveTextContent("Paused while Fortnite is running. Glider continues when it closes. Change");
-    await user.click(within(status).getByRole("button", { name: "Change" }));
+    const region = await screen.findByRole("region", { name: other.title });
+    expect(within(region).getByText("Waiting for Fortnite to close")).toBeInTheDocument();
+    expect(region).toHaveTextContent("Downloads pause while you play and continue on their own.");
+    expect(within(region).queryByText(/queued/i)).toBeNull();
+    // The page has no second sentence for the same hold.
+    expect(screen.queryByText("Paused while Fortnite is running.")).toBeNull();
+    expect(useApp.getState().snapshot!.queue.hold).toEqual({ kind: "game", subject: "Fortnite" });
+    await user.click(within(region).getByRole("button", { name: /Details/ }));
+    expect(within(region).getByText("While a game is running")).toBeInTheDocument();
+    await user.click(within(region).getByRole("button", { name: "Change" }));
     expect(useRouter.getState().route).toEqual({ page: "settings", focus: "whilePlaying" });
   });
 
-  it("offline, a queued install says it will continue when the connection is back (and names no setting)", async () => {
+  it("offline, a queued install reads 'Waiting for an internet connection' and says it continues on its own (no setting to change)", async () => {
     const { booted } = await mount("offline", <Downloads />);
     const game = booted.find((g) => g.kind === "game" && g.installStatus === "notInstalled" && g.thirdParty === "none");
     await act(async () => {
       await rpc().call("game.install", { appName: game.appName, basePath: "D:\\Games", components: null, dlc: [], priority: false });
     });
-    const status = (await screen.findByText("You're offline.")).closest("[role='status']") as HTMLElement;
-    expect(status).toHaveTextContent("You're offline. Downloads continue when you're back.");
-    expect(within(status).queryByRole("button")).toBeNull();
+    const region = await screen.findByRole("region", { name: game.title });
+    expect(within(region).getByText("Waiting for an internet connection")).toBeInTheDocument();
+    expect(region).toHaveTextContent("Continues on its own when you're back online.");
+    expect(screen.queryByText("You're offline.")).toBeNull();
+    expect(within(region).queryByRole("button", { name: "Change" })).toBeNull();
     expect(useApp.getState().snapshot!.queue.holdReason).toBe("Waiting for an internet connection");
+    expect(useApp.getState().snapshot!.queue.hold).toEqual({ kind: "offline", subject: null });
   });
 });
 

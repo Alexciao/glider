@@ -9,7 +9,7 @@ import { goGame } from "../../state/router";
 import { KIND_NOUN } from "../../state/transfer";
 import { usePending, useUi } from "../../state/ui";
 import { Button, IconButton, cx } from "../../ui";
-import { JobSparkline } from "./ActiveJobCard";
+import { JobSparkline } from "./JobSparkline";
 import { JobArt } from "./JobArt";
 
 /** The one short fact a waiting row carries: how big it is, how far a paused one got, or why it can't run. */

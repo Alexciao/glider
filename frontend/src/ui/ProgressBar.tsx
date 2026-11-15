@@ -26,6 +26,8 @@ export interface ProgressBarProps {
   paused?: boolean;
   /** No sheen, whatever the state: nobody is looking (the window is not focused). The fill and glow stay. */
   still?: boolean;
+  /** What assistive tech reads as the value ("33 percent, 1 hour 37 minutes left"); omit for the plain percent. */
+  valueLabel?: string;
 }
 
 /** Sheen sweep time: 3.6 s when crawling down to 1.2 s at several hundred MB/s, in 0.4 s steps so it never twitches. */
@@ -40,7 +42,7 @@ export function sheenSeconds(bytesPerSecond: number | null | undefined): number 
  * Determinate bars move via translateX on a full-width fill (compositor only). 10 Hz updates are
  * bridged by a short linear transition, so motion reads as continuous rather than stepped.
  */
-export function ProgressBar({ value, tone = "accent", size = "md", label, className, speed, paused, still }: ProgressBarProps) {
+export function ProgressBar({ value, tone = "accent", size = "md", label, className, speed, paused, still, valueLabel }: ProgressBarProps) {
   const indeterminate = value == null;
   const v = indeterminate ? 0 : Math.min(100, Math.max(0, value));
   const live = !indeterminate && !paused && !still && v > 0 && v < 100;
@@ -55,16 +57,18 @@ export function ProgressBar({ value, tone = "accent", size = "md", label, classN
     <Progress.Root
       value={indeterminate ? null : v}
       max={100}
+      getValueLabel={valueLabel ? () => valueLabel : undefined}
       aria-label={label}
       data-paused={paused || undefined}
       className={cx("relative w-full overflow-hidden rounded-full bg-surface-3", heights[size], settle && "g-bar-settle", className)}
     >
       <Progress.Indicator
         className={cx(
-          "relative h-full w-full overflow-hidden rounded-full transition-[transform,opacity,filter] duration-[120ms] ease-linear",
+          // The fill glides linearly between 10 Hz updates; a change of tone (accent ⇄ graphite on pause) eases instead of snapping.
+          "relative h-full w-full overflow-hidden rounded-full transition-[transform,opacity,filter,background-color] duration-[120ms,120ms,120ms,200ms] ease-linear",
           fills[tone],
           indeterminate && "g-indeterminate",
-          paused && "opacity-70 saturate-[0.45]",
+          paused && tone !== "neutral" && "opacity-70 saturate-[0.45]",
         )}
         style={indeterminate ? undefined : { transform: `translateX(-${100 - v}%)` }}
       >
