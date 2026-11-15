@@ -255,3 +255,4 @@ One line of reasoning per decision. Newest at the bottom of each section.
 - **Palette and tray copy stay as they are**: download mode, Pause all and Resume all remain there (the owner removed them from the page header only), so no copy changed.
 - **Mock grew two dev handles for the screenshots**: `?bottleneck=disk|cpu|cdn` (a slow drive caps the speeds at 7.8 MB/s and the card shows "Slow download") and `controller.setFreeSpace(letter, bytes)` (space freed outside Glider).
 - **One Settings deep-link mechanism: the `settings?focus=<row>` route** (rows `downloadMode`, `speedLimit`, `whilePlaying`, `cdn`, marked with `<Setting id>`): the two UI branches each built one; the route wins because links and the host can address it, and `goToSetting` from the slow-download dialog now just navigates to it.
+- **Inter stays; no font setting (owner, 2026-11-15)**: shown Home in Segoe UI Variable (dark and light), the owner rejected it outright.
