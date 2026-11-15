@@ -19,3 +19,7 @@ src/Glider.App/wwwroot/
 Thumbs.db
 .idea/
 *.swp
+
+# Local agent worktrees and settings
+.claude/worktrees/
+.claude/settings.local.json
