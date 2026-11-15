@@ -104,6 +104,7 @@
   --g-accent-hover: oklch(0.77 0.14 252);
   --g-accent-fg: oklch(0.16 0.03 252);
   --g-accent-soft: oklch(0.72 0.15 252 / 0.16);
+  --g-switch-thumb: oklch(0.99 0 0); /* a light knob on the accent track in both themes, as in Windows 11 */
   --g-focus: oklch(0.75 0.15 252);
 
   /* Logo (assets/brand): wing = paper on dark, graphite on light; flap = glide blue. */
@@ -182,6 +183,7 @@
   --g-accent-hover: oklch(0.5 0.19 258);
   --g-accent-fg: oklch(0.99 0 0);
   --g-accent-soft: oklch(0.55 0.19 258 / 0.12);
+  --g-switch-thumb: oklch(0.99 0 0);
   --g-focus: oklch(0.55 0.19 258);
 
   --g-brand-wing: #0d0e11;
@@ -246,6 +248,7 @@
   --color-accent-hover: var(--g-accent-hover);
   --color-accent-fg: var(--g-accent-fg);
   --color-accent-soft: var(--g-accent-soft);
+  --color-switch-thumb: var(--g-switch-thumb);
   --color-focus: var(--g-focus);
   --color-success: var(--g-success);
   --color-success-soft: var(--g-success-soft);

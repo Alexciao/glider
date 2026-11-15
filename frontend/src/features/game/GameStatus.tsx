@@ -3,14 +3,10 @@ import { useNow } from "../../state/hooks";
 import { Spinner, StatusDot, cx, labelSwap, tween } from "../../ui";
 import type { StatusModel } from "./actionModel";
 import { formatPlayingFor } from "./format";
+import { TONE_TEXT } from "./statusLevels";
 
-const text: Record<StatusModel["tone"], string> = {
-  neutral: "text-fg-muted",
-  accent: "text-accent-text",
-  success: "text-success-text",
-  warning: "text-warning-text",
-  danger: "text-danger-text",
-};
+// The status colour table lives in statusLevels.ts (pure, so models and lists can read it); it is re-exported here.
+export * from "./statusLevels";
 
 /** The success mark, drawn once with a stroke animation when a download finishes. */
 function ReadyCheck() {
@@ -46,7 +42,7 @@ export function GameStatus({ status, moment, className }: { status: StatusModel;
           className="flex min-w-0 items-center gap-2.5"
         >
           {status.spinner ? <Spinner size={14} className="shrink-0 text-fg-muted" /> : moment ? <ReadyCheck /> : <StatusDot tone={status.tone} />}
-          <span className={cx("font-medium", text[status.tone])}>{status.since !== undefined ? <PlayingFor since={status.since} /> : status.text}</span>
+          <span className={cx("font-medium", TONE_TEXT[status.tone])}>{status.since !== undefined ? <PlayingFor since={status.since} /> : status.text}</span>
           {status.sub && (
             <>
               <span aria-hidden className="h-3 w-px shrink-0 bg-border-strong" />

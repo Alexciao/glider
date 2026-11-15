@@ -2,22 +2,24 @@ import type { GameSummary } from "../../ipc/contract.gen";
 import { actions } from "../../state/actions";
 import { JOB_VERB } from "../../state/derive";
 import { toast } from "../../state/notices";
+import { openInstall } from "../../state/installPlan";
 import { useUi } from "../../state/ui";
 import type { BadgeTone } from "../../ui";
+import { statusTone } from "../game/statusLevels";
 
 /** The one-line status a list row shows for a game. */
 export function rowStatus(g: GameSummary): { tone: BadgeTone; text: string } {
-  if (g.runState !== "idle") return { tone: "success", text: g.runState === "running" ? "Running" : "Starting" };
-  if (g.activeJobKind) return { tone: "accent", text: JOB_VERB[g.activeJobKind] };
+  if (g.runState !== "idle") return { tone: statusTone("running"), text: g.runState === "running" ? "Running" : "Starting" };
+  if (g.activeJobKind) return { tone: statusTone("working"), text: JOB_VERB[g.activeJobKind] };
   switch (g.installStatus) {
     case "installed":
-      return g.updateAvailable ? { tone: "accent", text: "Update available" } : { tone: "success", text: "Installed" };
+      return g.updateAvailable ? { tone: statusTone("updateAvailable"), text: "Update available" } : { tone: statusTone("installed"), text: "Installed" };
     case "broken":
-      return { tone: "danger", text: "Needs repair" };
+      return { tone: statusTone("needsRepair"), text: "Needs repair" };
     case "notInstallable":
-      return { tone: "neutral", text: g.thirdPartyName ?? "Included" };
+      return { tone: statusTone("installed"), text: g.thirdPartyName ?? "Included" };
     case "notInstalled":
-      return { tone: "neutral", text: "Not installed" };
+      return { tone: statusTone("notInstalled"), text: "Not installed" };
   }
 }
 
@@ -64,7 +66,7 @@ export async function runQuick(kind: QuickKind, appName: string): Promise<void> 
       await actions.launch(appName);
       break;
     case "install":
-      useUi.getState().openDialog({ kind: "install", appName });
+      await openInstall(appName);
       return;
     case "repair":
       await actions.verify(appName);

@@ -24,14 +24,9 @@ export function OverlaySection() {
     </Badge>
   ) : !overlay.installed ? (
     <Badge>Not installed</Badge>
-  ) : overlay.updateAvailable ? (
-    <Badge tone="warning" dot>
-      Update available
-    </Badge>
   ) : (
-    <Badge tone="success" dot>
-      {overlay.version ? `Version ${overlay.version}` : "Installed"}
-    </Badge>
+    // An available update is the Update button's to say; the badge only names what is installed.
+    <Badge>{overlay.version ? `Version ${overlay.version}` : "Installed"}</Badge>
   );
 
   return (
@@ -95,11 +90,7 @@ export function LinksSection({ s }: { s: SettingsT }) {
         <Setting label="Glider links" find="glider:// protocol url open game">
           <Line
             label={<Code>glider://</Code>}
-            control={
-              <Badge tone="success" dot>
-                Always on
-              </Badge>
-            }
+            control={<Badge>Always on</Badge>}
           />
         </Setting>
       </Group>

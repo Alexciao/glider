@@ -17,7 +17,7 @@ export function Switch({ className, ...rest }: ComponentProps<typeof S.Root>) {
       <S.Thumb
         className={cx(
           "block size-3.5 rounded-full bg-fg-muted shadow-sm transition-[transform,background-color] duration-200 ease-out",
-          "data-[state=checked]:translate-x-4 data-[state=checked]:bg-accent-fg",
+          "data-[state=checked]:translate-x-4 data-[state=checked]:bg-switch-thumb",
         )}
       />
     </S.Root>

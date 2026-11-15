@@ -6,6 +6,7 @@ import { ArtThumb, Button, ProgressRing, cx } from "../../ui";
 import { useJobState } from "./CoverProgress";
 import { MoreButton } from "./GameMenu";
 import { LIST_ROW, type ListColumns } from "./gridLayout";
+import { TONE_TEXT } from "../game/statusLevels";
 import { describeState, quickAction, rowStatus, runQuick } from "./status";
 
 /** Fixed column widths, so the header row in the page lines up with every row. */
@@ -24,8 +25,6 @@ function JobStatus({ jobId }: { jobId: string }) {
     </span>
   );
 }
-
-const TONE_TEXT = { neutral: "text-fg-muted", accent: "text-accent-text", success: "text-success-text", warning: "text-warning-text", danger: "text-danger-text" } as const;
 
 function StatusCell({ game }: { game: GameSummary }) {
   if (game.activeJobId) return <JobStatus jobId={game.activeJobId} />;
