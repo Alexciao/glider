@@ -359,15 +359,26 @@ public class OverlayTests
     [Fact]
     public async Task AStaleVersionCacheTriggersOneMetadataLaneCheck_AndTheUpdateIsAnnouncedOnce()
     {
-        using var rig = await StartedAsync(r => ManagedInstall(r, "1.0.0", latest: "1.0.0", checkedAt: r.Time.GetUtcNow().AddDays(-3)));
-        rig.Legendary.OnSync = () => File.WriteAllText(Path.Combine(rig.Paths.LegendaryConfig, "overlay_version.json"),
-            new JsonObject { ["last_update"] = rig.Time.GetUtcNow().ToUnixTimeMilliseconds() / 1000.0, ["data"] = new JsonObject { ["buildVersion"] = "1.5.0" } }.ToJsonString());
-        var before = rig.Calls.Count("legendary.checkUpdates");
+        // The overlay's periodic loop starts the moment pre-warm ends and runs this very check, racing the explicit calls below, so the
+        // fake can't be armed after the start (the loop may already have spawned) and can't be armed from the start (warm-up's own
+        // `list-installed --check-updates` would refresh the cache first). The calls are numbered instead: #1 is the warm-up's,
+        // #2 is the overlay's check, whoever makes it (checks are serialized, so the second caller finds the cache fresh).
+        using var rig = new Rig();
+        ManagedInstall(rig, "1.0.0", latest: "1.0.0", checkedAt: rig.Time.GetUtcNow().AddDays(-3));
+        var latestFile = Path.Combine(rig.Paths.LegendaryConfig, "overlay_version.json");
+        rig.Legendary.OnSync = () =>
+        {
+            if (rig.Calls.Count("legendary.checkUpdates") >= 2)
+            {
+                File.WriteAllText(latestFile, new JsonObject { ["last_update"] = rig.Time.GetUtcNow().ToUnixTimeMilliseconds() / 1000.0, ["data"] = new JsonObject { ["buildVersion"] = "1.5.0" } }.ToJsonString());
+            }
+        };
+        await rig.StartWarmAsync();
 
         await rig.Service.OverlayForTests.CheckOnceAsync(Ct);
         await rig.Service.OverlayForTests.CheckOnceAsync(Ct); // the cache is fresh now: no second spawn, no second notice
 
-        Assert.Equal(before + 1, rig.Calls.Count("legendary.checkUpdates"));
+        Assert.Equal(2, rig.Calls.Count("legendary.checkUpdates"));
         var state = (await rig.Service.GetSnapshot()).Overlay;
         Assert.Equal(("1.5.0", true), (state.LatestVersion, state.UpdateAvailable));
         Assert.Single(rig.Sink.Of<Notice>("notice"), n => n.Title == "Epic overlay update available");
