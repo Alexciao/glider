@@ -117,8 +117,8 @@ const ToolbarControls = memo(function ToolbarControls(p: Omit<LibraryToolbarProp
         onValueChange={p.onView}
         className="w-[72px]"
         options={[
-          { value: "grid", ariaLabel: "Grid view", label: <LayoutGrid size={14} className="mx-auto" /> },
-          { value: "list", ariaLabel: "List view", label: <List size={14} className="mx-auto" /> },
+          { value: "grid", ariaLabel: "Grid view", label: <LayoutGrid size={14} /> },
+          { value: "list", ariaLabel: "List view", label: <List size={14} /> },
         ]}
       />
     </>
