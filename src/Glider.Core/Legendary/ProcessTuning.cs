@@ -257,8 +257,8 @@ internal static class ProcessTuning
 /// <summary>
 /// Who is who inside a Legendary install/update/repair tree, from process ids alone (docs/download-perf.md §5.6). The
 /// DLManager announces its own pid ("Download Manager running with process-id"); it spawns the download workers and then the file
-/// writer, which is its <em>last</em> child. Under PyInstaller's onefile mode each multiprocessing child is a bootloader with the
-/// real interpreter beneath it, so the writer is the newest direct child plus everything below it.
+/// writer, which is its <em>last</em> child. The bundled onedir build has one process per multiprocessing child; a onefile build would have
+/// a bootloader with the real interpreter beneath each one, so the writer is taken as the newest direct child plus everything below it.
 /// </summary>
 internal static class ProcessRoles
 {

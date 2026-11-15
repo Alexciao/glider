@@ -160,6 +160,12 @@ jobs:
           Write-Host "version resource: $($fv.CompanyName) | $($fv.ProductName) | $($fv.FileVersion) | $($fv.OriginalFilename) | $($fv.LegalCopyright)"
           if ($fv.CompanyName -ne 'Glider (fork of Legendary)' -or $fv.OriginalFilename -ne 'legendary.exe' -or $fv.FileVersion -ne '${{ steps.vi.outputs.string }}') { throw "version resource is missing or wrong" }
 
+      # The runner has its own Python installed: exactly the interference case. The bundle must run without it, with a scrubbed
+      # environment and PYTHON* variables / decoy modules pointing elsewhere (build/verify-legendary-isolation.ps1).
+      - name: Isolation check (no Python needed, none used)
+        shell: pwsh
+        run: ./build/verify-legendary-isolation.ps1 -Exe legendary-src/legendary/dist/legendary/legendary.exe -Version '${{ steps.pin.outputs.version }}'
+
       - name: Collect release files (zip, SHA-256s, patch, source)
         shell: pwsh
         run: |

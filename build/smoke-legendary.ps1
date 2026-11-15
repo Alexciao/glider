@@ -18,6 +18,12 @@ try {
     Write-Host "--version: $ver"
     if ($ver -notmatch [regex]::Escape("version `"$($pin.version)`"")) { throw "Unexpected version output (expected $($pin.version)): $ver" }
 
+    if ($pin.url -like '*.zip' -and -not (Test-Path (Join-Path (Split-Path $exe) '_internal'))) { throw "_internal/ must sit next to legendary.exe (PyInstaller onedir)" }
+    if ($pin.exeSha256) {
+        $actual = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actual -ne $pin.exeSha256) { throw "legendary.exe sha256 $actual does not match the pin ($($pin.exeSha256))" }
+    }
+
     if ($Fork) {
         $help = (& $exe install --help 2>&1 | Out-String)
         if ($help -notmatch '--control-file') { throw "the fork's --control-file option is missing from install --help" }

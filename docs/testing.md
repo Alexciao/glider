@@ -12,6 +12,7 @@ Nothing in the automated suites signs in to Epic, reads `%LocalAppData%\Glider`,
 | **Windows shell, real**: `.lnk` files in a temp folder and a throw-away HKCU key | `Host/WindowsShellRealTests.cs` | same | `Test` |
 | **Real Legendary** (this repo's pinned exe, no account) | `RealLegendary/` | §2 | `Real Legendary integration tests` |
 | **Legendary smoke**: `--version`, `status --offline --json` | `build/smoke-legendary.ps1` | `pwsh build/smoke-legendary.ps1` (after `dotnet run build/FetchLegendary.cs`) | `Legendary smoke test` |
+| **Legendary isolation**: no Python needed, none used (scrubbed env, decoy modules, non-ASCII path, online `status` over verified HTTPS) | `build/verify-legendary-isolation.ps1` | `pwsh build/verify-legendary-isolation.ps1` | `Legendary isolation check` (CI and the `legendary-fork` workflow; both runners have a Python installed) |
 | **Contract**: C# contract and `frontend/src/ipc/contract.gen.ts` agree | `tools/Glider.ContractGen` | `dotnet run --project tools/Glider.ContractGen -- --check` | `Contract is up to date` |
 | **Frontend unit** (vitest, mock backend that implements the same contract), lint, typecheck | `frontend/` | `pnpm test`, `pnpm lint`, `pnpm typecheck` | yes |
 | **Playwright** (screenshots of every state, break-ui worst-case data, a11y, focus order, hero legibility, host surfaces) against the mock backend | `frontend/e2e/` | `pnpm screenshots`, `pnpm a11y` | no (local; they write `docs/screenshots`) |
