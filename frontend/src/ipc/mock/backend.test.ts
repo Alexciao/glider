@@ -697,9 +697,11 @@ describe("guards", () => {
     await h.advance(1500);
     expect((await h.job(job.id))!.status).toBe("queued"); // not started, so it can't fail
     expect((await h.snapshot()).queue.holdReason).toBe("Waiting for an internet connection");
+    expect((await h.snapshot()).queue.hold).toEqual({ kind: "offline", subject: null }); // the same hold as data
     h.controller.setConnectivity("online");
     await until(h, async () => (await h.job(job.id))?.status === "running");
     expect((await h.snapshot()).queue.holdReason).toBeNull();
+    expect((await h.snapshot()).queue.hold).toBeNull();
   });
 
   it("blocks verify, move and uninstall while the game runs", async () => {
@@ -1068,9 +1070,27 @@ describe("EGL busy and while-playing policy", () => {
     expect(s.queue.jobs.find((x) => x.id === j.id)!.blockedReason).toMatch(/Paused while .* is running/);
     expect(s.queue.modeReason).toMatch(/Paused while/);
     expect(s.queue.holdReason).toMatch(/^Paused while .* is running$/);
+    expect(s.queue.hold).toEqual({ kind: "game", subject: g.title });
     h.controller.endGame(g.appName);
     await h.advance(1500);
     expect((await h.job(j.id))!.status).toBe("running");
+  });
+
+  it("the hold is a user-paused queue first, then offline, then a game; a job waiting for the Epic launcher is `egl`", async () => {
+    const h = setup({ scenario: "eglBusy" });
+    expect((await h.snapshot()).queue.hold).toEqual({ kind: "egl", subject: null });
+    await h.call("queue.pauseAll");
+    expect((await h.snapshot()).queue.hold).toEqual({ kind: "paused", subject: null });
+    h.controller.setConnectivity("offline");
+    expect((await h.snapshot()).queue.hold).toEqual({ kind: "paused", subject: null }); // the player's own pause wins
+  });
+
+  it("a running download carries the connection's ceiling, never below what it reaches now", async () => {
+    const h = setup({ scenario: "downloading", bottleneck: "disk" });
+    await h.advance(1500);
+    const n = (await h.snapshot()).queue.jobs.find((j) => j.status === "running")!.progress!.network!;
+    expect(n.ceilingBytesPerSecond).toBeGreaterThanOrEqual(n.bytesPerSecond);
+    expect(n.ceilingBytesPerSecond).toBeGreaterThanOrEqual(n.peakBytesPerSecond);
   });
 
   it("whilePlaying=throttle: effective mode drops to background with a reason", async () => {

@@ -584,6 +584,8 @@ export class JobSim {
           peakBytesPerSecond: Math.round(Math.max(this.peakNet, raw)),
           cdn: this.env.cdn ?? CDNS[1],
           connections: this.env.mode === "background" ? 4 : this.env.mode === "full" ? 24 : 12,
+          // `LimiterDecision.Ceiling`: the most the connection has shown (the mock's uncapped rate stands in for the CDN probe).
+          ceilingBytesPerSecond: Math.round(Math.max(this.peakNet, raw)),
         };
         disk = {
           writtenBytes: Math.round(this.written),

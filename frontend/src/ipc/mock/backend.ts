@@ -25,6 +25,7 @@ import type {
   OnboardingState,
   OverlayState,
   QueueState,
+  HoldInfo,
   ReadinessItem,
   RpcEventMap,
   RpcEventName,
@@ -112,6 +113,18 @@ const OFFLINE_HOLD = "Waiting for an internet connection";
 const MAX_NETWORK_RESUMES = 3;
 const OFFLINE_SPELL_SLACK_MS = 120_000;
 /** A hold's own wording ("Paused while Fortnite is running", the offline one), to tell a job the hold stopped from one with another gate. */
+/** `Holds.FromBlockedReason`: the kind of a wait, read once from the sentence (Core and the mock write the same words). */
+function holdFromBlockedReason(reason: string): HoldInfo {
+  const r = reason.trim();
+  if (/internet connection/i.test(r)) return { kind: "offline", subject: null };
+  if (/Epic Games Launcher/i.test(r)) return { kind: "egl", subject: null };
+  const game = /^(?:Waiting for (.+?) to close|Paused while (.+?) is running)\.?$/i.exec(r);
+  if (game) {
+    const title = game[1] ?? game[2]!;
+    return { kind: "game", subject: title.toLowerCase() === "games" ? null : title };
+  }
+  return { kind: "other", subject: r };
+}
 const isHoldText = (r: string | null): boolean => r === OFFLINE_HOLD || (r?.startsWith("Paused while ") ?? false);
 /** `JobPlan.CanPause`. */
 const PAUSABLE: readonly JobKind[] = ["install", "update", "repair", "verify", "modify"];
@@ -336,6 +349,8 @@ export class MockBackend {
       eacInstalled: this.cfg.eacInstalled,
     });
     const w = this.world;
+    // `art=noWide`: covers but no wide art anywhere, to see what the download card does without it.
+    if (this.cfg.art === "noWide") for (const g of w.games) g.summary = { ...g.summary, art: { ...g.summary.art, wide: null } };
     this.games = new Map(w.games.map((g) => [g.summary.appName, g]));
     this.deferred = w.deferred;
     this.auth = clone(w.auth);
@@ -521,6 +536,16 @@ export class MockBackend {
     return p && this.settings.whilePlaying === "pause" ? `Paused while ${p.title} is running` : null;
   }
 
+  /** `QueuePolicy.Hold`: `holdReason` as data, plus a paused queue and what the head job is waiting for (`Holds.FromBlockedReason`). */
+  private hold(): HoldInfo | null {
+    if (this.queuePaused) return { kind: "paused", subject: null };
+    if (this.connectivity === "offline") return { kind: "offline", subject: null };
+    const p = this.playing();
+    if (p && this.settings.whilePlaying === "pause") return { kind: "game", subject: p.title };
+    const waiting = this.queue.find((e) => e.info.status === "waiting" && e.info.blockedReason);
+    return waiting ? holdFromBlockedReason(waiting.info.blockedReason!) : null;
+  }
+
   private effectiveMode(): { mode: DownloadMode; reason: string | null } {
     const running = this.playing();
     if (running && this.settings.whilePlaying === "throttle") return { mode: "background", reason: `Throttled while ${running.title} is running` };
@@ -556,7 +581,7 @@ export class MockBackend {
 
   private queueState(): QueueState {
     const { mode, reason } = this.effectiveMode();
-    return { jobs: [...this.queue.map((e) => this.view(e)), ...this.finished.slice(0, MAX_FINISHED_JOBS)], paused: this.queuePaused, effectiveMode: mode, modeReason: reason, holdReason: this.holdReason() };
+    return { jobs: [...this.queue.map((e) => this.view(e)), ...this.finished.slice(0, MAX_FINISHED_JOBS)], paused: this.queuePaused, effectiveMode: mode, modeReason: reason, holdReason: this.holdReason(), hold: this.hold() };
   }
 
   private eglState(): EglState {
