@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { GameSummary } from "../../ipc/contract.gen";
 import { computeRange } from "../../ui";
-import { GRID_GAP, MIN_TILE, TILE_TEXT, gridLayout, listColumns } from "./gridLayout";
+import { PAGE_FRAME, frameInset, frameWidth } from "../common/frame";
+import { GRID_GAP, MIN_TILE, TILE_TEXT, gridLayout, insetFor, listColumns } from "./gridLayout";
 import { quickAction, rowStatus } from "./status";
 
 describe("grid layout", () => {
@@ -20,6 +21,28 @@ describe("grid layout", () => {
   it("uses six columns at the common 1280 window and four at 960", () => {
     expect(gridLayout(1208).cols).toBe(6);
     expect(gridLayout(888).cols).toBe(4);
+  });
+
+  it("keeps the grid inside the page frame and centred in it on a wide window", () => {
+    for (const width of [1208, 1848, 2488, 3368]) {
+      const l = gridLayout(width);
+      const used = l.tileW * l.cols + GRID_GAP * (l.cols - 1);
+      expect(used).toBeLessThanOrEqual(PAGE_FRAME);
+      // The grid's left edge is the frame's (the same x as every page's title), give or take the few px that whole columns leave over.
+      expect(l.pad - frameInset(width)).toBeLessThan(l.tileW / 2 + GRID_GAP);
+      expect(l.pad + used + (l.pad - 0)).toBeLessThanOrEqual(width + (l.tileW + GRID_GAP));
+    }
+    expect(gridLayout(2488).cols).toBe(7);
+    expect(gridLayout(3368).cols).toBe(7);
+  });
+
+  it("the frame: gutters up to 1440 px of content, centred, shared by every page", () => {
+    expect(frameWidth(1208)).toBe(1128); // a 1280 window: the content area minus the gutters, as before
+    expect(frameInset(1208)).toBe(40);
+    expect(frameWidth(2488)).toBe(PAGE_FRAME);
+    expect(frameInset(2488)).toBe(Math.floor((2488 - PAGE_FRAME) / 2));
+    expect(frameInset(828)).toBe(28); // 900 px window: narrow gutter
+    expect(insetFor(3368)).toBe(frameInset(3368));
   });
 
   it("drops list columns from the right as the window narrows", () => {

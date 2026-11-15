@@ -339,6 +339,13 @@ public sealed class FakeStoreHost : IStoreHost
     public List<string?> Shown { get; } = [];
     public List<StoreBounds> Bounds { get; } = [];
     public List<string> Calls { get; } = [];
+    public int Warmed { get; private set; }
+
+    public Task WarmAsync()
+    {
+        Warmed++;
+        return Task.CompletedTask;
+    }
 
     public Task<StoreState> ShowAsync(string? url, StoreBounds bounds)
     {
@@ -573,11 +580,59 @@ public class StoreServiceTests
 
         var code = await host.ExchangeCodeProvider!(TestContext.Current.CancellationToken);
         Assert.Equal("0123456789abcdef0123456789abcdef", code);
-        Assert.Null(await host.ExchangeCodeProvider!(TestContext.Current.CancellationToken)); // < 10 s later
 
+        // < 10 s later: the second mint waits out Epic's spacing instead of failing (a retry right after the warm-up's mint was a sure miss).
+        var second = host.ExchangeCodeProvider!(TestContext.Current.CancellationToken);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
+        Assert.False(second.IsCompleted);
         rig.Time.Advance(TimeSpan.FromSeconds(11));
-        Assert.NotNull(await host.ExchangeCodeProvider!(TestContext.Current.CancellationToken));
+        Assert.NotNull(await second.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
         Assert.DoesNotContain(rig.Log.Lines, l => l.Contains("0123456789abcdef", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ACancelledWaitForTheExchangeSpacingIsNoCode()
+    {
+        using var rig = new Rig();
+        var host = new FakeStoreHost();
+        rig.Host.StoreHost = host;
+        await rig.StartWarmAsync();
+        await rig.Service.GetStoreState();
+        rig.Legendary.WebExchangeCode = "0123456789abcdef0123456789abcdef";
+        Assert.NotNull(await host.ExchangeCodeProvider!(TestContext.Current.CancellationToken));
+        using var cts = new CancellationTokenSource();
+        var second = host.ExchangeCodeProvider!(cts.Token);
+        cts.Cancel();
+        Assert.Null(await second.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task TheStoreIsWarmedOnceAfterSignInNotBefore()
+    {
+        using var rig = new Rig();
+        var host = new FakeStoreHost();
+        rig.Host.StoreHost = host;
+        await rig.StartWarmAsync();
+        await Task.Delay(50, TestContext.Current.CancellationToken);
+        Assert.Equal(0, host.Warmed); // a few seconds after sign-in, not at once
+        rig.Time.Advance(StoreService.WarmDelay + TimeSpan.FromSeconds(1));
+        await WaitUntil(() => host.Warmed == 1);
+        rig.Time.Advance(TimeSpan.FromMinutes(5));
+        await Task.Delay(50, TestContext.Current.CancellationToken);
+        Assert.Equal(1, host.Warmed);
+    }
+
+    [Fact]
+    public async Task NoWarmUpWhenSignedOut()
+    {
+        using var rig = new Rig();
+        rig.Legendary.Account = null;
+        var host = new FakeStoreHost();
+        rig.Host.StoreHost = host;
+        await rig.StartWarmAsync();
+        rig.Time.Advance(TimeSpan.FromMinutes(1));
+        await Task.Delay(50, TestContext.Current.CancellationToken);
+        Assert.Equal(0, host.Warmed);
     }
 
     [Fact]

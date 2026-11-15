@@ -32,7 +32,7 @@ function FolderRow({ folder, drive, isDefault, variant, onDefault, onRemove, onO
     <div
       onClick={() => folder.exists && !isDefault && onDefault()}
       className={cx(
-        "group/f flex items-center gap-3.5 transition-[background-color,border-color,box-shadow] duration-150 ease-out",
+        "group/f relative flex items-center gap-3.5 transition-[background-color,border-color,box-shadow] duration-150 ease-out",
         variant === "cards"
           ? cx("rounded-xl border p-4", isDefault ? "border-accent bg-surface-2 shadow-[0_0_0_1px_var(--g-accent)]" : "border-border bg-surface-1 hover:border-border-strong hover:bg-surface-2")
           : "py-3",
@@ -52,7 +52,7 @@ function FolderRow({ folder, drive, isDefault, variant, onDefault, onRemove, onO
         <RadioGroup.Indicator className="size-2 rounded-full bg-accent" />
       </RadioGroup.Item>
 
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 transition-[padding] duration-150 ease-out group-focus-within/f:pr-16 group-hover/f:pr-16">
         <div className="flex items-baseline gap-3">
           <span id={`${id}-p`} className="min-w-0 flex-1">
             <PathText path={folder.path} className="text-sm font-medium text-fg" tailSegments={2} />
@@ -64,7 +64,7 @@ function FolderRow({ folder, drive, isDefault, variant, onDefault, onRemove, onO
         {drive && folder.exists && <UsageBar className="mt-2" label={`${folder.drive || drive.root} drive usage`} usedBytes={drive.totalBytes - drive.freeBytes} totalBytes={drive.totalBytes} />}
       </div>
 
-      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover/f:opacity-100" onClick={(e) => e.stopPropagation()}>
+      <div className={cx("absolute top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover/f:opacity-100 group-active/f:opacity-100", variant === "cards" ? "right-3" : "right-0")} onClick={(e) => e.stopPropagation()}>
         {onOpen && folder.exists && (
           <IconButton label="Open in Explorer" size="sm" onClick={onOpen}>
             <FolderOpen size={14} />

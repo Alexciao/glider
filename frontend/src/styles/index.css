@@ -3,6 +3,9 @@
 @import "./ui.css";
 @import "./ui-forms.css";
 
+/* "Pressed": the real :active, or the data-pressed pulse `pressFeedback.ts` sets (a menu that opens on pointerdown steals :active). */
+@custom-variant press (&:is(:active, [data-pressed]));
+
 @utility app-drag {
   -webkit-app-region: drag;
   app-region: drag;

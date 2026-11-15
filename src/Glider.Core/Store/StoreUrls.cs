@@ -193,6 +193,43 @@ public static partial class StoreSso
         && u.Host.EndsWith("epicgames.com", StringComparison.OrdinalIgnoreCase)
         && u.AbsolutePath.StartsWith(ExchangePath, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// True when <paramref name="seen"/> (the address WebView2 reports) is the exchange URL the host started (<paramref name="started"/>):
+    /// same host and path, same code, same target. Compared by parts, not as strings, because the browser may re-encode the query
+    /// (hex case, %2F vs /), and a mismatch would make the policy cancel the host's own sign-in as a "replayed code".
+    /// </summary>
+    public static bool IsSameExchange(string? seen, string? started)
+    {
+        if (!Uri.TryCreate(seen, UriKind.Absolute, out var a) || !Uri.TryCreate(started, UriKind.Absolute, out var b))
+        {
+            return false;
+        }
+
+        if (!a.Host.Equals(b.Host, StringComparison.OrdinalIgnoreCase) || !a.AbsolutePath.Equals(b.AbsolutePath, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        static string? Param(Uri u, string name)
+        {
+            foreach (var pair in u.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var eq = pair.IndexOf('=');
+                if (eq > 0 && pair[..eq].Equals(name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return Uri.UnescapeDataString(pair[(eq + 1)..].Replace('+', ' '));
+                }
+            }
+
+            return null;
+        }
+
+        var code = Param(a, "exchangeCode");
+        return code is not null
+            && string.Equals(code, Param(b, "exchangeCode"), StringComparison.OrdinalIgnoreCase)
+            && string.Equals(Param(a, "redirectUrl"), Param(b, "redirectUrl"), StringComparison.OrdinalIgnoreCase);
+    }
+
     public static bool IsValidCode(string? code) => code is not null && Code().IsMatch(code);
 
     [GeneratedRegex("^[0-9a-f]{32}$")]

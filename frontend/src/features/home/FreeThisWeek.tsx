@@ -5,7 +5,7 @@ import { openStore, productTarget } from "../../state/storeTarget";
 import { Skeleton, cx } from "../../ui";
 import { HomeSection } from "./HomeParts";
 
-const SHOWN = 3;
+const SHOWN = 4; // the fourth only shows where the frame has a fourth column
 
 function FreeTile({ game }: { game: FreeGame }) {
   return (
@@ -40,14 +40,14 @@ export function FreeThisWeek() {
   return (
     <HomeSection title="Free this week">
       {items.length > 0 ? (
-        <ul className="grid grid-cols-3 gap-5">
+        <ul className="grid grid-cols-3 gap-5 @[1180px]:grid-cols-4 [&>li:nth-child(4)]:hidden @[1180px]:[&>li:nth-child(4)]:block">
           {items.slice(0, SHOWN).map((g) => (
             <FreeTile key={g.id} game={g} />
           ))}
         </ul>
       ) : (
-        <ul aria-label="Loading free games" role="status" className="grid grid-cols-3 gap-5">
-          {[0, 1, 2].map((i) => (
+        <ul aria-label="Loading free games" role="status" className="grid grid-cols-3 gap-5 @[1180px]:grid-cols-4 [&>li:nth-child(4)]:hidden @[1180px]:[&>li:nth-child(4)]:block">
+          {[0, 1, 2, 3].map((i) => (
             <li key={i}>
               <Skeleton className="aspect-video rounded-xl" />
               <Skeleton className="mt-3 h-4 w-[58%] rounded-sm" />

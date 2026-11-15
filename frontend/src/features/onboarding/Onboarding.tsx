@@ -303,7 +303,7 @@ function Folders() {
             onClick={() => void addLibraryFolder(settings)}
             className={cx(
               "flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border-strong text-sm font-medium text-fg-muted",
-              "transition-[background-color,color,border-color,transform] duration-150 ease-out hover:border-fg-subtle hover:bg-surface-hover hover:text-fg active:scale-[0.995]",
+              "transition-[background-color,color,border-color,transform,scale] duration-150 ease-out hover:border-fg-subtle hover:bg-surface-hover hover:text-fg press:scale-[0.995]",
               none ? "h-32 flex-col" : "mt-2 h-12",
             )}
           >

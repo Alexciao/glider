@@ -52,8 +52,9 @@ export const HistoryRow = memo(function HistoryRow({ job, now }: { job: JobInfo;
   const busyDismiss = usePending(`dismiss:${job.id}`);
   const busyRepair = usePending(`verify:${job.appName}`);
   return (
-    <div className="group px-3 py-2">
-      <div className="flex min-h-8 items-center gap-3">
+    <div className="group relative px-3 py-2">
+      {/* The × is laid over the row's right edge: it reserves nothing at rest, and the row makes room for it only while it shows. */}
+      <div className="flex min-h-8 items-center gap-3 transition-[padding] duration-150 ease-out group-focus-within:pr-8 group-hover:pr-8">
         <span aria-hidden className={cx("grid w-4 shrink-0 place-items-center", ICON[res].className)}>
           {ICON[res].node}
         </span>
@@ -75,7 +76,7 @@ export const HistoryRow = memo(function HistoryRow({ job, now }: { job: JobInfo;
           label={`Remove ${job.title} from history`}
           size="sm"
           disabled={busyDismiss}
-          className="opacity-0 transition-opacity duration-150 focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100"
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 transition-opacity duration-150 focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 group-active:opacity-100"
           onClick={() => void actions.dismissJob(job.id)}
         >
           <X size={14} />

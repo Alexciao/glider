@@ -8,8 +8,8 @@ export type ButtonSize = "sm" | "md" | "lg" | "xl";
 
 const base =
   "inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap font-medium " +
-  "transition-[background-color,color,box-shadow,transform,opacity,border-color] duration-150 ease-out " +
-  "active:scale-[0.97] disabled:pointer-events-none disabled:opacity-45 aria-busy:pointer-events-none";
+  "transition-[background-color,color,box-shadow,transform,opacity,border-color,scale] duration-150 ease-out " +
+  "press:scale-[0.97] disabled:pointer-events-none disabled:opacity-45 aria-busy:pointer-events-none";
 
 const variants: Record<ButtonVariant, string> = {
   primary: "bg-primary text-primary-fg shadow-sm hover:bg-primary-hover",

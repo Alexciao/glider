@@ -125,7 +125,7 @@ function AccountMenu() {
           type="button"
           aria-label={`Account: ${name}`}
           data-open={open || undefined}
-          className="app-no-drag relative grid size-7 place-items-center rounded-full transition-transform duration-150 ease-out active:scale-95"
+          className="app-no-drag relative grid size-7 place-items-center rounded-full transition-[transform,scale] duration-150 ease-out press:scale-95"
         >
           <Avatar name={name} seed={auth.account?.accountId} src={auth.account?.avatarUrl} size="sm" />
           {auth.status === "expired" && <span className="absolute right-0.5 top-0.5 size-2 rounded-full bg-warning ring-2 ring-[var(--g-bg-elevated)]" />}

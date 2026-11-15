@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Drawing;
 using System.Windows.Threading;
 using Glider.App.Native;
@@ -22,6 +23,10 @@ internal sealed class StoreView : IStoreHost, IDisposable
 {
     private static readonly TimeSpan CheckoutWindow = TimeSpan.FromMinutes(10);
     private const int MaxSsoAttempts = 2;
+    private const int MaxMintMisses = 2;
+
+    /// <summary>How long the first open may spend getting an exchange code (Legendary queues behind a library sync) before the deadline counts the navigation.</summary>
+    private static readonly TimeSpan MintBudget = TimeSpan.FromSeconds(25);
     private const string CoverFile = "store-cover.png";
 
     private readonly HostRuntime _rt;
@@ -30,6 +35,9 @@ internal sealed class StoreView : IStoreHost, IDisposable
     private readonly DispatcherTimer _closeTimer;
     private readonly DispatcherTimer _publishTimer;
     private readonly DispatcherTimer _coverCleanup;
+    private readonly DispatcherTimer _watchdog;
+    private readonly StoreRevealTracker _reveal = new();
+    private readonly Dictionary<ulong, long> _navStarted = [];
     private readonly List<StorePopupWindow> _popups = [];
     private readonly HashSet<string> _deniedHostsLogged = new(StringComparer.OrdinalIgnoreCase);
 
@@ -43,7 +51,14 @@ internal sealed class StoreView : IStoreHost, IDisposable
     private string? _glideExchangeUrl;
     private bool _wantVisible;
     private bool _windowHidden;
-    private bool _hasContent;
+    private bool _contentChecked; // the revealed page has text in it (not an empty shell): the view may be shown
+    private bool _warmRequested;
+    private bool _warming;
+    private bool _coverOk;
+    private int _navGeneration;
+    private int _revealGeneration;
+    private int _mintMisses;
+    private ulong _glideNavId;
     private bool _covered;
     private bool _loading;
     private bool _suspended;
@@ -66,10 +81,12 @@ internal sealed class StoreView : IStoreHost, IDisposable
         _closeTimer = new DispatcherTimer(StoreLifecycle.CloseAfter, DispatcherPriority.Background, (_, _) => { }, rt.Ui);
         _publishTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(100), DispatcherPriority.Normal, (_, _) => { }, rt.Ui);
         _coverCleanup = new DispatcherTimer(TimeSpan.FromMinutes(1), DispatcherPriority.Background, (_, _) => { }, rt.Ui);
+        _watchdog = new DispatcherTimer(TimeSpan.FromMilliseconds(500), DispatcherPriority.Background, (_, _) => { }, rt.Ui);
         _suspendTimer.Stop();
         _closeTimer.Stop();
         _publishTimer.Stop();
         _coverCleanup.Stop();
+        _watchdog.Stop();
         _suspendTimer.Tick += async (_, _) =>
         {
             _suspendTimer.Stop();
@@ -95,6 +112,7 @@ internal sealed class StoreView : IStoreHost, IDisposable
             _publishTimer.Stop();
             PublishNow();
         };
+        _watchdog.Tick += (_, _) => OnWatchdog();
         _coverCleanup.Tick += (_, _) =>
         {
             _coverCleanup.Stop();
@@ -147,6 +165,8 @@ internal sealed class StoreView : IStoreHost, IDisposable
         });
 
     public Task<StoreState> HideAsync() => Ui.InvokeAsync(HideCore).Task;
+
+    public Task WarmAsync() => Ui.InvokeAsync(() => WarmCoreAsync()).Task.Unwrap();
 
     public Task<StoreState> BackAsync() =>
         Ui.InvokeAsync(() =>
@@ -202,6 +222,8 @@ internal sealed class StoreView : IStoreHost, IDisposable
             DeleteCover();
             _lastUrl = null;
             _currentTarget = null;
+            _warmRequested = false;
+            _mintMisses = 0;
             _bootstrapped = false;
             _signedOut = false;
             _ssoAttempts = 0;
@@ -243,6 +265,12 @@ internal sealed class StoreView : IStoreHost, IDisposable
     public void OnWindowShown()
     {
         _windowHidden = false;
+        if (_warmRequested && _controller is null && !_wantVisible && !_disposed)
+        {
+            _ = WarmCoreAsync(); // the warm-up was asked for before the window had a handle (started in the tray)
+            return;
+        }
+
         if (_disposed || !_wantVisible)
         {
             return; // another tab is active: the view stays hidden and its timers keep running
@@ -314,6 +342,7 @@ internal sealed class StoreView : IStoreHost, IDisposable
         _closeTimer.Stop();
         _publishTimer.Stop();
         _coverCleanup.Stop();
+        _watchdog.Stop();
         CloseController();
         DeleteCover();
     }
@@ -343,12 +372,22 @@ internal sealed class StoreView : IStoreHost, IDisposable
         _window()?.Overlays?.Raise();
 
         var target = url ?? _currentTarget ?? _lastUrl ?? StoreUrls.Home(_locale);
-        var needsNavigation = url is not null || _web!.Source is not { Length: > 0 } || _web.Source == "about:blank" || _signedOut || _phase == StorePhase.Error;
+        // A warm-up (or an earlier open) is already loading this page: join it instead of starting a second chain.
+        var joinsLoad = url is null && _loading && _currentTarget is not null && _phase != StorePhase.Error && !_signedOut;
+        var needsNavigation = !joinsLoad && (url is not null || _web!.Source is not { Length: > 0 } || _web.Source == "about:blank" || _signedOut || _phase == StorePhase.Error);
         if (needsNavigation)
         {
+            if (_phase == StorePhase.Error || _signedOut)
+            {
+                // "Try again" / "Sign in again": a fresh run of the sign-in, not the leftovers of the failed one.
+                _bootstrapped = false;
+                _ssoAttempts = 0;
+                _mintMisses = 0;
+            }
+
             _signedOut = false;
             _error = null;
-            await NavigateAsync(target, bootstrap: !_bootstrapped);
+            StartNavigation(target, bootstrap: !_bootstrapped);
         }
         else
         {
@@ -440,17 +479,26 @@ internal sealed class StoreView : IStoreHost, IDisposable
 
     // ================================================================== creation
 
-    private Task<bool> EnsureCreatedAsync()
+    private Task<bool> EnsureCreatedAsync(bool quiet = false)
     {
         if (_controller is not null)
         {
             return Task.FromResult(true);
         }
 
-        return _creating ??= CreateAsync();
+        if (_creating is { } running)
+        {
+            return running;
+        }
+
+        // The creation clears `_creating` when it ends; started through a local first, so that an early return (no window yet) can't
+        // clear it before it is assigned and leave a finished "false" cached for the rest of the run.
+        var task = CreateAsync(quiet);
+        _creating = task.IsCompleted ? null : task;
+        return task;
     }
 
-    private async Task<bool> CreateAsync()
+    private async Task<bool> CreateAsync(bool quiet)
     {
         try
         {
@@ -460,7 +508,12 @@ internal sealed class StoreView : IStoreHost, IDisposable
                 return false;
             }
 
-            Publish(StorePhase.Creating);
+            if (!quiet)
+            {
+                Publish(StorePhase.Creating);
+            }
+
+            var created = Stopwatch.GetTimestamp();
             var env = await _rt.EnvTask; // the single shared environment: never create another one for the same user data folder
             var options = env.CreateCoreWebView2ControllerOptions();
             options.ProfileName = HostConstants.WebViewProfileEpic;
@@ -472,21 +525,68 @@ internal sealed class StoreView : IStoreHost, IDisposable
             Attach(controller, web);
             _controller = controller;
             _web = web;
-            _hasContent = false;
+            _warmRequested = false;
+            ResetReveal();
             window.Overlays?.Raise();
-            HostLog.Info("store: view created");
+            HostLog.Info($"store: view created in {Stopwatch.GetElapsedTime(created).TotalMilliseconds:0} ms{(quiet ? " (warm-up)" : "")}");
             return true;
         }
         catch (Exception ex)
         {
             HostLog.Error("Store: creating the view failed", ex);
-            _error = Errors.Unknown("The Store view couldn't be created.");
-            Publish(StorePhase.Error);
+            if (!quiet)
+            {
+                _error = Errors.Unknown("The Store view couldn't be created.");
+                Publish(StorePhase.Error);
+            }
+
             return false;
         }
         finally
         {
             _creating = null;
+        }
+    }
+
+    /// <summary>
+    /// Warm-up: create the view hidden and load the Store, so opening the tab finds the page ready. Runs once the window exists;
+    /// the hidden view is in low-memory mode, suspends after 60 s and closes after ~20 min like any hidden Store view.
+    /// </summary>
+    private async Task WarmCoreAsync()
+    {
+        _warmRequested = true;
+        if (_disposed || _controller is not null || _creating is not null || _wantVisible)
+        {
+            return;
+        }
+
+        var window = _window();
+        if (window is null || window.Hwnd == 0)
+        {
+            return; // no window yet (started in the tray): OnWindowShown warms it
+        }
+
+        _warming = true;
+        try
+        {
+            if (!await EnsureCreatedAsync(quiet: true) || _disposed || _web is null)
+            {
+                return;
+            }
+
+            TrySetMemory(CoreWebView2MemoryUsageTargetLevel.Low);
+            ApplyTimers();
+            if (_wantVisible)
+            {
+                return; // the user opened the tab while the view was being created: ShowCore takes it from here
+            }
+
+            HostLog.Info("store: warming up in the background");
+            StartNavigation(_currentTarget ?? _lastUrl ?? StoreUrls.Home(_locale), bootstrap: !_bootstrapped);
+        }
+        finally
+        {
+            _warming = false;
         }
     }
 
@@ -509,15 +609,34 @@ internal sealed class StoreView : IStoreHost, IDisposable
 
         _controller = null;
         _web = null;
-        _hasContent = false;
+        ResetReveal();
+        _navStarted.Clear();
+        _navGeneration++;
         _suspended = false;
         _loading = false;
         _covered = false;
         _suspendTimer.Stop();
         _closeTimer.Stop();
+        _watchdog.Stop();
     }
 
     // ================================================================== navigation
+
+    /// <summary>Starts a navigation without making the caller (the <c>store.show</c> RPC, the warm-up) wait for the sign-in to be restored.</summary>
+    private void StartNavigation(string url, bool bootstrap, bool forceSso = false) => _ = RunNavigationAsync(url, bootstrap, forceSso);
+
+    private async Task RunNavigationAsync(string url, bool bootstrap, bool forceSso)
+    {
+        try
+        {
+            await NavigateAsync(url, bootstrap, forceSso);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException or ArgumentException)
+        {
+            HostLog.Warn("Store: starting the navigation failed", ex);
+            FailNavigation(new StoreRevealResult(StoreRevealEffect.Fail, StoreFailure.Other, "navigation could not start"));
+        }
+    }
 
     private async Task NavigateAsync(string url, bool bootstrap, bool forceSso = false)
     {
@@ -526,19 +645,33 @@ internal sealed class StoreView : IStoreHost, IDisposable
             return;
         }
 
+        var generation = ++_navGeneration;
         _currentTarget = url;
         _loading = true;
-        Publish(StorePhase.Loading);
+        var needsSession = bootstrap && !_bootstrapped;
+        _reveal.BeginHostNavigation(DateTimeOffset.UtcNow, needsSession ? MintBudget : TimeSpan.Zero);
+        EnsureWatchdog();
+        if (!_warming)
+        {
+            Publish(StorePhase.Loading);
+        }
 
         // First open of a run (or after "try again"): make sure the Store's web session exists. No bearer cookie → one exchange-code SSO.
         var target = url;
-        if (bootstrap && !_bootstrapped)
+        if (needsSession)
         {
             _bootstrapped = true;
             var sso = await TryBuildSsoAsync(url, forceSso);
+            if (generation != _navGeneration || _web is null || _disposed)
+            {
+                return; // a newer navigation (the user opened another page, the view was closed) took over while the code was being minted
+            }
+
+            _reveal.BeginHostNavigation(DateTimeOffset.UtcNow);
             if (sso is not null)
             {
                 _glideExchangeUrl = sso;
+                _glideNavId = 0;
                 HostLog.Info($"store: signing in to the Store ({SecretRedactor.UrlForLog(sso)})");
                 target = sso;
             }
@@ -551,16 +684,14 @@ internal sealed class StoreView : IStoreHost, IDisposable
         catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException or ArgumentException)
         {
             HostLog.Warn("Store: navigate failed", ex);
-            _loading = false;
-            _error = Errors.Network("The Store couldn't be opened.");
-            Publish(StorePhase.Error);
+            FailNavigation(new StoreRevealResult(StoreRevealEffect.Fail, StoreFailure.Network, "navigate threw"));
         }
     }
 
     /// <summary>Null when the session already exists, no code is available, or the attempts are used up.</summary>
     private async Task<string?> TryBuildSsoAsync(string target, bool force)
     {
-        if (_web is null || ExchangeCodeProvider is null || _ssoAttempts >= MaxSsoAttempts)
+        if (_web is null || ExchangeCodeProvider is null || _ssoAttempts >= MaxSsoAttempts || _mintMisses >= MaxMintMisses)
         {
             return null;
         }
@@ -570,10 +701,11 @@ internal sealed class StoreView : IStoreHost, IDisposable
             return null;
         }
 
+        var minting = Stopwatch.GetTimestamp();
         string? code = null;
         try
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            using var cts = new CancellationTokenSource(MintBudget);
             code = await ExchangeCodeProvider(cts.Token);
         }
         catch (Exception ex) when (ex is OperationCanceledException or InvalidOperationException)
@@ -581,8 +713,15 @@ internal sealed class StoreView : IStoreHost, IDisposable
             HostLog.Info("store: no exchange code available");
         }
 
+        HostLog.Info($"store: exchange code {(code is null ? "not available" : "minted")} after {Stopwatch.GetElapsedTime(minting).TotalMilliseconds:0} ms");
+        if (code is null)
+        {
+            _mintMisses++; // not a used attempt, but not endless either
+            return null;
+        }
+
         _ssoAttempts++;
-        return code is null ? null : StoreSso.Build(code, target);
+        return StoreSso.Build(code, target);
     }
 
     /// <summary>Cookie NAMES and flags only, never values: a bearer cookie that has not expired means the web session exists.</summary>
@@ -615,11 +754,7 @@ internal sealed class StoreView : IStoreHost, IDisposable
         web.SourceChanged += (_, _) => SchedulePublish();
         web.HistoryChanged += (_, _) => SchedulePublish();
         web.DocumentTitleChanged += (_, _) => SchedulePublish();
-        web.DOMContentLoaded += (_, _) =>
-        {
-            _hasContent = true;
-            UpdateNativeVisibility();
-        };
+        web.DOMContentLoaded += (_, _) => _reveal.OnDomContentLoaded(_web?.Source, DateTimeOffset.UtcNow);
         web.FrameNavigationStarting += OnFrameNavigationStarting;
         web.LaunchingExternalUriScheme += OnLaunchingExternalUri;
         web.NewWindowRequested += OnNewWindowRequested;
@@ -641,8 +776,18 @@ internal sealed class StoreView : IStoreHost, IDisposable
 
     private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
-        var fromGlide = _glideExchangeUrl is not null && e.Uri == _glideExchangeUrl;
+        // The exchange URL is ours when it matches the one the host started, or when it is a later hop of that same navigation.
+        var fromGlide = _glideExchangeUrl is not null
+            && (StoreSso.IsSameExchange(e.Uri, _glideExchangeUrl) || (_glideNavId == e.NavigationId && StoreSso.IsExchangeUrl(e.Uri)));
         var decision = StoreNavigationPolicy.Decide(e.Uri, e.IsUserInitiated, CheckoutActive, fromGlide);
+        if (e.Uri is not "about:blank")
+        {
+            HostLog.Info("store: " + StoreNavLog.Starting(e.Uri, decision, e.IsRedirected, e.IsUserInitiated));
+        }
+
+        _navStarted.TryAdd(e.NavigationId, Stopwatch.GetTimestamp());
+        _reveal.OnNavigationStarting(e.NavigationId, decision, DateTimeOffset.UtcNow);
+        EnsureWatchdog();
         switch (decision)
         {
             case StoreNavDecision.Allow:
@@ -653,7 +798,7 @@ internal sealed class StoreView : IStoreHost, IDisposable
 
                 if (fromGlide)
                 {
-                    _glideExchangeUrl = null; // single use: Back can never replay it
+                    _glideNavId = e.NavigationId; // its redirect hops are the host's too; the URL is forgotten when the chain ends (single use: Back can never replay it)
                 }
 
                 _loading = true;
@@ -676,52 +821,164 @@ internal sealed class StoreView : IStoreHost, IDisposable
 
     private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
     {
-        _loading = false;
-        if (!e.IsSuccess && e.WebErrorStatus != CoreWebView2WebErrorStatus.OperationCanceled)
-        {
-            HostLog.Warn($"store: navigation failed: {e.WebErrorStatus}");
-            _hasContent = false;
-            _error = e.WebErrorStatus is CoreWebView2WebErrorStatus.CannotConnect or CoreWebView2WebErrorStatus.ConnectionAborted or CoreWebView2WebErrorStatus.ConnectionReset
-                or CoreWebView2WebErrorStatus.HostNameNotResolved or CoreWebView2WebErrorStatus.Disconnected or CoreWebView2WebErrorStatus.Timeout
-                ? Errors.Network("Epic's Store couldn't be reached.")
-                : Errors.Unknown("The Store page couldn't be loaded.");
-            UpdateNativeVisibility();
-            Publish(StorePhase.Error);
-            return;
-        }
+        var url = _web?.Source;
+        var elapsed = _navStarted.Remove(e.NavigationId, out var started) ? Stopwatch.GetElapsedTime(started) : TimeSpan.Zero;
+        var cancelled = e.WebErrorStatus == CoreWebView2WebErrorStatus.OperationCanceled;
+        HostLog.Info("store: " + StoreNavLog.Completed(url, e.IsSuccess, e.WebErrorStatus.ToString(), e.HttpStatusCode, elapsed));
+        var network = e.WebErrorStatus is CoreWebView2WebErrorStatus.CannotConnect or CoreWebView2WebErrorStatus.ConnectionAborted or CoreWebView2WebErrorStatus.ConnectionReset
+            or CoreWebView2WebErrorStatus.HostNameNotResolved or CoreWebView2WebErrorStatus.Disconnected or CoreWebView2WebErrorStatus.Timeout;
+        var result = _reveal.OnNavigationCompleted(e.NavigationId, e.IsSuccess, cancelled, network, url, DateTimeOffset.UtcNow);
+        _loading = _reveal.Pending;
 
-        if (e.IsSuccess && Uri.TryCreate(_web?.Source, UriKind.Absolute, out var u))
+        if (e.IsSuccess && Uri.TryCreate(url, UriKind.Absolute, out var u))
         {
             if (u.Host.Equals("store.epicgames.com", StringComparison.OrdinalIgnoreCase) && StoreUrls.TrySafePath(u.AbsolutePath, out var path))
             {
                 _lastUrl = StoreUrls.Origin + path;
             }
 
-            // A sign-in page: the web session is missing or expired. Try the exchange-code SSO (twice per run at most), then tell the user.
-            if (IsLoginPage(u) && _ssoAttempts < MaxSsoAttempts && ExchangeCodeProvider is not null)
+            if (!StoreSso.IsExchangeUrl(url) && _glideNavId == e.NavigationId)
             {
-                _bootstrapped = false;
-                _ = NavigateAsync(_lastUrl ?? _currentTarget ?? StoreUrls.Home(_locale), bootstrap: true, forceSso: true);
-                return;
-            }
-
-            if (IsLoginPage(u))
-            {
-                _signedOut = true;
-                _hasContent = false;
-                UpdateNativeVisibility();
-                Publish(StorePhase.SignedOut);
-                return;
+                _glideExchangeUrl = null; // the sign-in hop is over: a replay (Back) is cancelled again
+                _glideNavId = 0;
             }
         }
 
+        ApplyReveal(result);
+    }
+
+    /// <summary>Does what <see cref="StoreRevealTracker"/> decided: show the page, run the sign-in, or show the error.</summary>
+    private void ApplyReveal(StoreRevealResult result)
+    {
+        switch (result.Effect)
+        {
+            case StoreRevealEffect.Reveal:
+                HostLog.Info($"store: page ready ({result.Reason})");
+                BeginReveal();
+                break;
+            case StoreRevealEffect.LoginPage:
+                _contentChecked = false;
+                _revealGeneration++;
+                HostLog.Info("store: landed on the sign-in page");
+                if (_ssoAttempts < MaxSsoAttempts && _mintMisses < MaxMintMisses && ExchangeCodeProvider is not null)
+                {
+                    // The web session is missing or expired: one more exchange-code SSO (twice per run at most), then tell the user.
+                    _bootstrapped = false;
+                    StartNavigation(_lastUrl ?? _currentTarget ?? StoreUrls.Home(_locale), bootstrap: true, forceSso: true);
+                    return;
+                }
+
+                _signedOut = true;
+                _loading = false;
+                UpdateNativeVisibility();
+                Publish(StorePhase.SignedOut);
+                break;
+            case StoreRevealEffect.Fail:
+                FailNavigation(result);
+                break;
+            default:
+                UpdateNativeVisibility();
+                break;
+        }
+    }
+
+    private void FailNavigation(StoreRevealResult result)
+    {
+        HostLog.Warn($"store: navigation failed: {result.Failure} ({result.Reason}) at {StoreNavLog.Describe(_web?.Source)}");
+        _loading = false;
+        ResetReveal();
+        _error = result.Failure switch
+        {
+            StoreFailure.Network => Errors.Network("Epic's Store couldn't be reached."),
+            StoreFailure.Timeout => Errors.Network("The Store is taking too long to open."),
+            StoreFailure.Blocked => Errors.Unknown("The Store tried to open a page Glider doesn't allow here."),
+            _ => Errors.Unknown("The Store page couldn't be loaded."),
+        };
+        UpdateNativeVisibility();
+        Publish(StorePhase.Error);
+    }
+
+    // ------------------------------------------------------------------ reveal
+
+    private void ResetReveal()
+    {
+        _reveal.Reset();
+        _contentChecked = false;
+        _revealGeneration++;
+    }
+
+    /// <summary>
+    /// The final page loaded. Before it is shown, a last look inside: Epic's pages are script-built, so a "loaded" shell can still be
+    /// an empty document for a second or two (a dark rectangle that reads as a broken tab). The text length is the only thing read.
+    /// </summary>
+    private void BeginReveal()
+    {
+        var generation = ++_revealGeneration;
+        _error = null;
+        _ = ShowWhenFilledAsync(generation);
+    }
+
+    private async Task ShowWhenFilledAsync(int generation)
+    {
+        try
+        {
+            if (_wantVisible && !_windowHidden && _web is { IsSuspended: false } web)
+            {
+                for (var i = 0; i < 12 && generation == _revealGeneration; i++)
+                {
+                    if (await PageHasTextAsync(web))
+                    {
+                        break;
+                    }
+
+                    await Task.Delay(250);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
+        {
+            HostLog.Warn("Store: content check failed", ex);
+        }
+
+        if (generation != _revealGeneration || _disposed || _web is null)
+        {
+            return;
+        }
+
+        _contentChecked = true;
         _error = null;
         UpdateNativeVisibility();
         Publish(StoreLifecycle.PhaseFor(Life));
     }
 
-    private static bool IsLoginPage(Uri u) =>
-        u.Host.EndsWith("epicgames.com", StringComparison.OrdinalIgnoreCase) && u.AbsolutePath.StartsWith("/id/login", StringComparison.OrdinalIgnoreCase);
+    private static async Task<bool> PageHasTextAsync(CoreWebView2 web)
+    {
+        var json = await web.ExecuteScriptAsync("document.body ? document.body.innerText.length : 0");
+        return !int.TryParse(json, out var length) || length > 40;
+    }
+
+    private void EnsureWatchdog()
+    {
+        if (!_watchdog.IsEnabled)
+        {
+            _watchdog.Start();
+        }
+    }
+
+    private void OnWatchdog()
+    {
+        if (!_reveal.Pending)
+        {
+            _watchdog.Stop();
+            return;
+        }
+
+        ApplyReveal(_reveal.Tick(DateTimeOffset.UtcNow));
+        if (!_reveal.Pending)
+        {
+            _watchdog.Stop();
+        }
+    }
 
     private void OnFrameNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
@@ -939,7 +1196,7 @@ internal sealed class StoreView : IStoreHost, IDisposable
     private void UpdateNativeVisibility()
     {
         var window = _window();
-        var shouldShow = _wantVisible && !_windowHidden && _hasContent && !_covered && !_signedOut && _error is null && window is { IsVisible: true } && !window.IsMinimized;
+        var shouldShow = _wantVisible && !_windowHidden && _reveal.Revealed && _contentChecked && !_covered && !_signedOut && _error is null && window is { IsVisible: true } && !window.IsMinimized;
         SetNativeVisible(shouldShow);
         if (shouldShow)
         {
@@ -1009,9 +1266,11 @@ internal sealed class StoreView : IStoreHost, IDisposable
                 }
 
                 _coverVersion++;
+                _coverOk = true;
             }
             catch (Exception ex) when (ex is IOException or InvalidOperationException or System.Runtime.InteropServices.COMException or UnauthorizedAccessException)
             {
+                _coverOk = false; // no stale or half-written picture is handed to the placeholder
                 HostLog.Warn("Store: cover snapshot failed", ex);
             }
 
@@ -1082,7 +1341,7 @@ internal sealed class StoreView : IStoreHost, IDisposable
             CanGoForward: web?.CanGoForward ?? false,
             CheckoutActive: CheckoutActive,
             Covered: _covered,
-            CoverUrl: _covered ? $"{HostConstants.CacheUrlPrefix}{CoverFile}?v={_coverVersion}" : null,
+            CoverUrl: _covered && _coverOk ? $"{HostConstants.CacheUrlPrefix}{CoverFile}?v={_coverVersion}" : null,
             Error: _error);
         if (state == _published)
         {

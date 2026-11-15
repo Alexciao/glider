@@ -409,11 +409,48 @@ internal sealed class LibraryService : IArtSource, IDisposable
             }
         }
 
+        if (delta is not null || !_artPlanned)
+        {
+            _artPlanned = true;
+            PrefetchArt(map);
+        }
+
         // Every rebuild, not only one that published a delta: whether a known update can be measured depends on more than the
         // summaries (signed in yet? writer lane idle? the previous measurement finished?). The first rebuild of a fresh start can
         // publish the update before the pre-warm has loaded the account, and nothing would change afterwards to ask again.
         // MeasureUpdateSizes asks each (game, installed, latest) at most once, so this is cheap when there is nothing to do.
         MeasureUpdateSizes(map);
+    }
+
+    private bool _artPlanned;
+
+    /// <summary>
+    /// Fills the art cache ahead of the screen (docs/perf.md): what the player opens first (recent and installed games, their hero
+    /// pictures for Home), then every other cover, a few downloads at a time behind whatever the page asks for itself.
+    /// </summary>
+    private void PrefetchArt(ImmutableDictionary<string, GameSummary> map)
+    {
+        var first = map.Values
+            .Where(g => g.Kind != GameKind.Dlc && !g.Hidden)
+            .OrderBy(g => g.InstallStatus == InstallStatus.Installed ? 0 : 1)
+            .ThenBy(g => g.Favorite ? 0 : 1)
+            .ThenByDescending(g => g.LastPlayedAt ?? DateTimeOffset.MinValue)
+            .ThenBy(g => g.Title, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        IEnumerable<(string, ArtKind)> Plan()
+        {
+            foreach (var g in first.Where(g => g.LastPlayedAt is not null).Take(8))
+            {
+                yield return (g.AppName, ArtKind.Wide);
+            }
+
+            foreach (var g in first)
+            {
+                yield return (g.AppName, ArtKind.TallThumb);
+            }
+        }
+
+        _c.Art.Prefetch(Plan());
     }
 
     private CatalogContext Context()

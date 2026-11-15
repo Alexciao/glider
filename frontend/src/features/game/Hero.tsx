@@ -20,11 +20,11 @@ function FavoriteButton({ game }: { game: GameSummary }) {
         onClick={() => void actions.setFavorite(game.appName, !on)}
         className={cx(
           "grid size-12 shrink-0 place-items-center rounded-xl border border-border-strong bg-surface-3 backdrop-blur-md",
-          "transition-[background-color,color,scale] duration-150 ease-out hover:bg-surface-active active:scale-[0.96]",
+          "transition-[background-color,color,scale] duration-150 ease-out hover:bg-surface-active press:scale-[0.96]",
           on ? "text-warning-text" : "text-fg-muted hover:text-fg",
         )}
       >
-        <Star size={18} className={cx("transition-[fill] duration-150", on && "fill-current")} />
+        <Star size={18} className={cx("transition-[fill,scale] duration-150", on && "fill-current")} />
       </button>
     </Tooltip>
   );

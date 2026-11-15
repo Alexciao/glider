@@ -128,7 +128,7 @@ export function MoreButton({ game, className, tone = "glass" }: { game: GameSumm
         e.currentTarget.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left, clientY: r.bottom + 4 }));
       }}
       className={cx(
-        "grid place-items-center outline-none transition-[background-color,color,opacity,transform] duration-150 ease-out active:scale-95 focus-visible:outline-2 focus-visible:outline-focus",
+        "grid place-items-center outline-none transition-[background-color,color,opacity,transform,scale] duration-150 ease-out press:scale-95 focus-visible:outline-2 focus-visible:outline-focus",
         tone === "glass"
           ? "size-7 rounded-full bg-[oklch(0.14_0.006_265/0.72)] text-white/90 ring-1 ring-inset ring-white/10 hover:bg-[oklch(0.14_0.006_265/0.88)]"
           : "size-8 rounded-md text-fg-muted hover:bg-surface-active hover:text-fg",

@@ -32,8 +32,9 @@ const FailureRow = memo(function FailureRow({ job, storage, now }: { job: JobInf
   // space is back and the retry takes the lead.
   const tail = buttons.secondary ? [button(buttons.primary, "primary"), button(buttons.secondary, "secondary")] : [button(buttons.primary, space?.enough ? "primary" : "secondary")];
   return (
-    <div className="group px-3 py-3">
-      <div className="flex items-start gap-3">
+    <div className="group relative px-3 py-3">
+      {/* The × is laid over the right edge, so it reserves nothing at rest; the row makes room for it only while it shows. */}
+      <div className="flex items-start gap-3 transition-[padding] duration-150 ease-out group-focus-within:pr-8 group-hover:pr-8">
         <JobArt job={job} size="xs" />
         <div className="min-w-0 flex-1">
           <p className="flex min-w-0 items-baseline gap-3 text-sm">
@@ -63,7 +64,7 @@ const FailureRow = memo(function FailureRow({ job, storage, now }: { job: JobInf
           <IconButton
             label={`Dismiss ${job.title}`}
             size="sm"
-            className="opacity-0 transition-opacity duration-150 focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100"
+            className="absolute right-1.5 top-3 opacity-0 transition-opacity duration-150 focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 group-active:opacity-100"
             onClick={() => void actions.dismissJob(job.id)}
           >
             <X size={14} />

@@ -20,7 +20,7 @@ export interface GameCoverProps {
   title: string;
   /** `tall` is the 3:4 box art, `wide` the 16:9 key art. */
   shape?: CoverShape;
-  /** `thumb` skips the blur-up and uses the small image: for list rows and other tiny covers. */
+  /** `thumb` uses the 300 px cover and no blur-up (one download per tile): for grid tiles, list rows and other small covers. `full` is the 600 px cover over its own thumbnail, for big covers. */
   size?: "full" | "thumb";
   /** Eager-load (above the fold). Everything else is lazy. */
   priority?: boolean;
@@ -36,6 +36,9 @@ interface Sources {
   blur: string | null;
 }
 
+/** A quiet two-stop wash of the placeholder colour: the brief moment before the picture is a calm card, not a flat slab. */
+const wash = (base: string) => `linear-gradient(165deg, color-mix(in oklab, ${base}, white 9%), color-mix(in oklab, ${base}, black 22%))`;
+
 export function coverSources(art: GameArt, shape: CoverShape, size: "full" | "thumb"): Sources {
   if (shape === "wide") return { src: art.wide ?? art.tall ?? art.tallThumb, blur: null };
   if (size === "thumb") return { src: art.tallThumb ?? art.tall, blur: null };
@@ -45,8 +48,8 @@ export function coverSources(art: GameArt, shape: CoverShape, size: "full" | "th
 
 /**
  * Cover art with no layout shift: the box has its aspect ratio (or the parent's explicit size) from the first frame,
- * a flat placeholder colour fills it, a tiny thumbnail shows blurred while the real image loads and then the image
- * fades over it. An image that is already decoded (a recycled virtual tile, a cached cover) appears instantly with
+ * the placeholder colour (a soft wash of it) fills it, a thumbnail shows blurred under a big cover while that loads, and
+ * then the image fades in quickly (a cached one needs no fade). An image that is already decoded (a recycled virtual tile, a cached cover) appears instantly with
  * no fade. With no art at all (or a broken URL) the cover is a quiet gradient with the title's initials.
  */
 export function GameCover({ art, title, shape = "tall", size = "full", priority, className, style, children }: GameCoverProps) {
@@ -77,7 +80,7 @@ export function GameCover({ art, title, shape = "tall", size = "full", priority,
       data-cover=""
       data-loaded={loaded || undefined}
       className={cx("relative isolate overflow-hidden bg-surface-3", shape === "tall" ? "aspect-[3/4]" : "aspect-video", className)}
-      style={{ backgroundColor: base, ...style }}
+      style={{ backgroundColor: base, backgroundImage: failed ? undefined : wash(base), ...style }}
     >
       {failed ? (
         <div
@@ -101,6 +104,7 @@ export function GameCover({ art, title, shape = "tall", size = "full", priority,
             src={src}
             draggable={false}
             loading={priority ? "eager" : "lazy"}
+            fetchPriority={priority ? "high" : "auto"}
             decoding="async"
             onLoad={() => setLoadedSrc(src)}
             onError={() => setFailedSrc(src)}
@@ -108,7 +112,7 @@ export function GameCover({ art, title, shape = "tall", size = "full", priority,
             className={cx(
               "absolute inset-0 size-full object-cover",
               shape === "wide" && !art.wide && "object-top",
-              instant ? "" : "transition-opacity duration-[240ms] ease-out",
+              instant ? "" : "transition-opacity duration-[140ms] ease-out",
               loaded ? "opacity-100" : "opacity-0",
             )}
           />

@@ -186,7 +186,7 @@ public sealed class ArtCacheTests : IDisposable
     }
 
     [Fact]
-    public async Task Downloads_AreBoundedToSixAtATime()
+    public async Task Downloads_AreBoundedToTheConfiguredParallelism()
     {
         for (var i = 0; i < 30; i++)
         {
@@ -194,7 +194,8 @@ public sealed class ArtCacheTests : IDisposable
         }
 
         _fetcher.Gate = new TaskCompletionSource();
-        var cache = Cache();
+        Assert.Equal(16, new ArtCacheOptions().MaxParallel); // the default: a Library screen is ~30 covers, the CDN is HTTP/2
+        var cache = Cache(new ArtCacheOptions { MaxParallel = 6, PlaceholderPublishDelay = TimeSpan.Zero });
         var requests = Enumerable.Range(0, 30).Select(i => cache.GetAsync($"App{i}", ArtKind.TallThumb, null, CancellationToken.None)).ToList();
 
         await _fetcher.WaitForCallsAsync(6);

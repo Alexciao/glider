@@ -36,6 +36,25 @@ public sealed class ArtServiceTests
     }
 
     [Fact]
+    public async Task TheLibraryFillsTheArtCacheAheadOfTheScreen()
+    {
+        using var rig = new Rig();
+        await rig.StartWarmAsync();
+        for (var i = 0; i < 500 && rig.Service.Art.Prefetched == 0; i++)
+        {
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        // Nobody asked for a picture: the cover of every game is downloaded anyway, so the Library paints from disk.
+        var source = GameCatalog.ArtSourceOf(rig.Service.LibraryForTests.CatalogItem(Fn)!, ArtKind.TallThumb)!;
+        Assert.Contains($"{source.Url}?w=300&resize=1&quality=medium", rig.ArtFetcher.Requested);
+        var art = (await rig.SummaryAsync())!.Art;
+        var before = rig.ArtFetcher.Calls;
+        Assert.Equal(200, (await rig.Service.Art.HandleAsync(art.TallThumb!, CancellationToken.None)).Status);
+        Assert.Equal(before, rig.ArtFetcher.Calls); // a disk hit
+    }
+
+    [Fact]
     public async Task AColdStart_ServesTheCachedUrls_EvenBeforeLegendarysFilesAreRead()
     {
         string url;
@@ -74,6 +93,14 @@ public sealed class ArtServiceTests
         var service = rig.Service;
         await rig.StartWarmAsync();
         Assert.Equal(GameCatalog.Placeholder(Fn), (await rig.SummaryAsync())!.Art.Placeholder);
+
+        // The service's own cache has already prefetched the cover; start from an empty folder so this cache downloads it itself.
+        for (var i = 0; i < 500 && !service.Art.PrefetchIdle; i++)
+        {
+            await Task.Delay(10);
+        }
+
+        Directory.Delete(Path.Combine(rig.Paths.Cache, "art"), recursive: true);
 
         // The host's decoder reports a colour for the tile picture; the library publishes it as a normal delta.
         var processor = new FakeImages { Facts = new ImageFacts(300, 400, "#2a1d5e") };
