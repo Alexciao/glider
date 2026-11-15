@@ -191,12 +191,12 @@ function LiveCard({ job, className }: ActiveJobCardProps) {
                 )}
               </div>
             )}
-            <dl className="grid grid-cols-[minmax(0,10rem)_1fr] items-center gap-x-6 gap-y-2 text-sm">
-              <dt className="text-fg-muted">Task</dt>
+            <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-6 gap-y-2.5 text-sm">
+              <dt className="whitespace-nowrap text-fg-muted">Task</dt>
               <dd className="min-w-0 text-fg">{job.kind === "move" && job.targetPath ? <span className="flex min-w-0 gap-1">Move to <PathText path={job.targetPath} /></span> : <span className="block truncate">{taskOf(job)}</span>}</dd>
               {v.held?.setting && (
                 <>
-                  <dt className="text-fg-muted">While a game is running</dt>
+                  <dt className="whitespace-nowrap text-fg-muted">While a game is running</dt>
                   <dd className="flex items-center justify-between gap-4 text-fg">
                     Pause downloads
                     <Button size="sm" variant="secondary" onClick={() => goToSetting(v.held!.setting!)}>
