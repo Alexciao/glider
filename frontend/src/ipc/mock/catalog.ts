@@ -355,6 +355,10 @@ export function generateCatalog(opts: CatalogOptions): MockGame[] {
       badBytes: isBroken ? Math.round(between(rand, 40 * MiB, 2.4 * GiB)) : 0,
     };
     if (i === conflictIdx && game.saves) {
+      // Both sides changed after the last sync (that is what makes it a conflict), on different days.
+      game.saves.localModifiedAt = iso(now - 2 * DAY - 9 * HOUR);
+      game.saves.cloudModifiedAt = iso(now - 5 * HOUR);
+      game.saves.lastSyncedAt = iso(now - 6 * DAY);
       game.conflict = {
         appName,
         title,

@@ -3,11 +3,19 @@ import { HardDrive, Cloud } from "lucide-react";
 import type { SaveConflict, SaveSide } from "../../../ipc/contract.gen";
 import { rpc } from "../../../ipc/rpc";
 import { actions, pendingKey } from "../../../state/actions";
-import { formatBytes, formatRelativeTime } from "../../../state/format";
+import { calendarDaysBetween, formatBytes, formatRelativeTime } from "../../../state/format";
 import { useGame } from "../../../state/library";
 import { usePending, useUi } from "../../../state/ui";
 import { Button, Modal, cx } from "../../../ui";
 import { formatDateTime } from "../format";
+
+/** "yesterday (Nov 12, 10:20 PM)", "2 days ago (…)", or "on Oct 28" once the date is the best word for it. */
+function syncedPhrase(iso: string): string {
+  const rel = formatRelativeTime(iso);
+  const exact = formatDateTime(iso);
+  if (calendarDaysBetween(Date.parse(iso), Date.now()) >= 7) return `on ${rel}`;
+  return `${rel === "Yesterday" || rel === "Just now" ? rel.toLowerCase() : rel}${exact ? ` (${exact})` : ""}`;
+}
 
 /** One copy of the saves: where it lives, when it last changed (relative and exact), how big, and the way to keep it. */
 function SideCard({
@@ -111,7 +119,7 @@ export function SaveConflictDialog({
       title="Which saves do you want to keep?"
       description={
         c?.lastSyncedAt
-          ? `${title}'s saves changed on this PC and in the cloud since they last synced ${formatRelativeTime(c.lastSyncedAt).toLowerCase()} (${formatDateTime(c.lastSyncedAt)}).`
+          ? `${title}'s saves changed on this PC and in the cloud since they last synced ${syncedPhrase(c.lastSyncedAt)}.`
           : `${title}'s saves differ between this PC and the cloud.`
       }
       footer={

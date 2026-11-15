@@ -79,6 +79,20 @@ export function formatPercent(percent: number): string {
   return `${Math.floor(p)}%`;
 }
 
+/** Whole local calendar days from `from` to `to` (midnight to midnight, so 23:50 → 00:10 is one day). */
+export function calendarDaysBetween(from: number, to: number): number {
+  const a = new Date(from);
+  const b = new Date(to);
+  const dayA = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
+  const dayB = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.round((dayB - dayA) / 86_400_000);
+}
+
+/**
+ * One rule for "when" everywhere: minutes and hours within the same local day, then "Yesterday" and "N days ago" counted
+ * by local calendar date (never by 24-hour blocks, so two surfaces can't give one date two names), then the date itself
+ * from a week on ("Oct 28", with the year once it isn't this year's).
+ */
 export function formatRelativeTime(iso: string | null | undefined, now: number = Date.now()): string {
   if (!iso) return "—";
   const t = Date.parse(iso);
@@ -86,11 +100,12 @@ export function formatRelativeTime(iso: string | null | undefined, now: number =
   const diff = Math.max(0, now - t) / 1000;
   if (diff < 45) return "Just now";
   if (diff < 3600) return `${Math.round(diff / 60)} min ago`;
-  if (diff < 86400) return `${Math.round(diff / 3600)} h ago`;
-  const days = Math.floor(diff / 86400);
+  const days = calendarDaysBetween(t, now);
+  if (days <= 0) return `${Math.round(diff / 3600)} h ago`;
   if (days === 1) return "Yesterday";
-  if (days < 14) return `${days} days ago`;
-  return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric", year: days > 300 ? "numeric" : undefined });
+  if (days < 7) return `${days} days ago`;
+  const sameYear = new Date(t).getFullYear() === new Date(now).getFullYear();
+  return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric", year: sameYear ? undefined : "numeric" });
 }
 
 /**
