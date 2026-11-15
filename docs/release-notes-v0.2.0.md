@@ -81,6 +81,9 @@ folder and tries again at the next start. Nothing is half moved.
   launcher's record after an update or move (backed up first, atomic), so the Epic Games Launcher doesn't ask to
   download again.
 - **A readiness check** tells you when the Epic Games Launcher is safe to uninstall (below).
+- **Where**: onboarding scans every drive on the first run (all found games selected; *Locate another folder…* adds one
+  it missed). Later: Settings → Epic Games Launcher → **Import…**, or the command palette. Glider never reuses the
+  launcher's sign-in (that would sign the launcher out); you sign in to Glider on its own.
 
 ### Store, shortcuts and the rest of Windows
 - **Store tab**: the Epic Games Store inside Glider, signed in with your account. *Install* and *Play* buttons on the
@@ -118,16 +121,6 @@ Measured on one development PC (not a benchmark suite), mostly under heavy backg
 - **A slow disk, not the connection, was the real bottleneck on the test PC**: a SATA SSD that sustains about 6.5–8 MB/s
   of writes. v0.2 detects and shows that case; it can't make the drive faster.
 - The cold-start target (1.5 s) is **not confirmed**: 1.67 s was the best of several runs on a busy machine.
-
-## How to bring your Epic Games Launcher library in
-
-- **First run**: onboarding scans every drive for installed games (all selected by default), then imports them with no
-  download. *Locate another folder…* adds one the scan didn't find.
-- **Later**: Settings → Epic Games Launcher → **Import…**, or the command palette.
-- A game that is complete and ready is playable straight away. If something is in doubt (the launcher was mid-update,
-  no launcher metadata), a verify is queued and only broken files are downloaded.
-- Glider never uses the Epic Games Launcher's sign-in (importing it would sign that launcher out). You sign in to Glider
-  on its own.
 
 ## When it's safe to uninstall the Epic Games Launcher
 
