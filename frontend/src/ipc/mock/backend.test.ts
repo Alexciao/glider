@@ -701,7 +701,7 @@ describe("guards", () => {
 });
 
 describe("auth", () => {
-  it("signs in through signingIn, then signed in with the account; signOut clears the library", async () => {
+  it("signs in through signingIn, then signed in with the account; signOut keeps the library (only the session ends, like Core)", async () => {
     const h = setup({ scenario: "firstRun", latency: 1 });
     const p = h.call("auth.signIn");
     await h.advance(100);
@@ -712,8 +712,9 @@ describe("auth", () => {
     await until(h, async () => (await h.snapshot()).library.gameCount > 0);
     const out = await h.call("auth.signOut");
     expect(out).toMatchObject({ status: "signedOut", account: null });
-    expect((await h.snapshot()).library.gameCount).toBe(0);
-    expect(h.deltas.at(-1)).toMatchObject({ reset: true, upserts: [] });
+    const deltasBefore = h.deltas.length;
+    expect((await h.snapshot()).library.gameCount).toBeGreaterThan(0);
+    expect(h.deltas.length).toBe(deltasBefore);
   });
 
   it("fail=authCancelled rejects and leaves the user signed out", async () => {

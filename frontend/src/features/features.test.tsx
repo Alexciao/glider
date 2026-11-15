@@ -60,7 +60,7 @@ async function mount(scenario: ScenarioName, ui: React.ReactElement | ((b: Boote
 beforeEach(() => {
   useApp.setState({ snapshot: null });
   useLibrary.getState().reset();
-  useUi.setState({ dialog: null, errors: {}, pending: {}, readyAt: null, readyApp: null });
+  useUi.setState({ dialog: null, errors: {}, pending: {}, readyAt: null, readyApp: null, onboardingHold: false });
   useRouter.setState({ route: { page: "home" }, previous: null });
   useNotices.setState({ items: [] });
   resetProgressForTests();
@@ -164,7 +164,8 @@ describe("Library page", () => {
 describe("Home", () => {
   it("shows continue playing and updates, and nothing else that is empty", async () => {
     const { user } = await mount("returning", <Home />);
-    expect(screen.getByRole("heading", { name: /Welcome back, Marlowe/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Home" })).toBeInTheDocument(); // screen readers only: no greeting
+    expect(screen.queryByText(/Welcome back/)).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Continue playing" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Updates" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Downloads" })).not.toBeInTheDocument();
@@ -343,7 +344,7 @@ describe("Downloads", () => {
 describe("Shell routing", () => {
   it("renders the page for the route, including a game, and follows navigate()", async () => {
     await mount("returning", <Shell />);
-    expect(screen.getByRole("heading", { name: /Welcome back/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Home" })).toBeInTheDocument();
     act(() => navigate("library"));
     expect(await screen.findByRole("heading", { name: "Library" })).toBeInTheDocument();
     act(() => navigate("game/Fortnite"));
@@ -370,5 +371,16 @@ describe("Shell routing", () => {
     await mount("firstRun", <Shell />);
     expect(screen.queryByRole("navigation", { name: "Main" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Your whole Epic library/ })).toBeInTheDocument();
+  });
+
+  it("keeps setup on screen at its last step even though Core counts it completed there, until the last button is pressed", async () => {
+    const { user } = await mount("firstRunSignedIn", <Shell />);
+    await rpc().call("onboarding.setStep", { step: "done", skipped: false });
+    expect(useApp.getState().snapshot!.onboarding.completed).toBe(true); // Core completes at the last step
+    expect(await screen.findByText("You're all set")).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Main" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Go to your library" }));
+    expect(await screen.findByRole("heading", { name: "Library" })).toBeInTheDocument();
+    expect(useUi.getState().onboardingHold).toBe(false);
   });
 });

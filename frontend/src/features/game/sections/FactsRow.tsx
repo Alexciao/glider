@@ -52,7 +52,7 @@ export function FactsRow({ game, detail }: { game: GameSummary; detail: GameDeta
   } else {
     if (game.installSizeBytes) {
       items.push(
-        <Fact key="size" label="On disk">
+        <Fact key="size" label="Install size">
           <span className="tabular-nums">{formatBytes(game.installSizeBytes)}</span>
         </Fact>,
       );

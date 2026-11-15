@@ -468,13 +468,6 @@ export class MockBackend {
     this.event("library", this.resetDelta());
   }
 
-  private clearLibrary(): void {
-    this.deferred = [...this.games.values()];
-    this.games = new Map();
-    this.rev++;
-    this.event("library", this.resetDelta());
-  }
-
   // ───────────────────────────── snapshot ─────────────────────────────
 
   private free(path: string): number {
@@ -1541,8 +1534,8 @@ export class MockBackend {
     },
     "auth.signOut": async () => {
       await this.sleep(150);
+      // Like Core's AuthService.SignOutAsync: only the session ends. The cached library, installs and settings stay.
       this.auth = { status: "signedOut", account: null };
-      this.clearLibrary();
       this.emitState();
       return clone(this.auth);
     },
@@ -2025,7 +2018,7 @@ export class MockBackend {
       for (const g of this.games.values()) {
         const s = g.summary;
         if (s.kind !== "game") continue;
-        if (g.needsActivation && !this.activated.has(s.appName)) items.push({ appName: s.appName, title: s.title, severity: "blocker", message: `Link ${s.title} with ${s.thirdPartyName ?? "its store"} first. It can't start without that.` });
+        if (g.needsActivation && !this.activated.has(s.appName)) items.push({ appName: s.appName, title: s.title, severity: "blocker", message: `Link with ${s.thirdPartyName ?? "its store"} first; it can't start without that.` });
         else if (s.sharedWithEgl && s.installStatus === "installed") items.push({ appName: s.appName, title: s.title, severity: "warning", message: "Epic Games Launcher also lists this install. Glider keeps managing it after the launcher is gone." });
         else if (g.prerequisites.some((p) => !p.installed)) items.push({ appName: s.appName, title: s.title, severity: "warning", message: "Needs a one-time setup before first launch. Glider handles that on Play." });
       }

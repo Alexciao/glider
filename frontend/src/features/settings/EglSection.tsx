@@ -27,21 +27,26 @@ export function ReadinessResult({ result }: { result: EglReadiness }) {
   }
   return (
     <div role="status">
-      <p className="mt-1 text-sm text-danger-text">
+      <p className="mt-1 text-sm text-warning-text">
         {plural(blockers.length, "game")} still {blockers.length === 1 ? "needs" : "need"} it
       </p>
       <ul className="mt-2 flex flex-col">
         {blockers.map((i, n) => (
           <li key={n} className="flex min-h-9 items-center gap-3 text-sm">
-            <span className="shrink-0 font-medium text-fg">{i.title}</span>
+            {i.appName ? (
+              <button
+                type="button"
+                onClick={() => goGame(i.appName!)}
+                className="shrink-0 rounded-sm font-medium text-fg underline-offset-2 outline-none hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+              >
+                {i.title}
+              </button>
+            ) : (
+              <span className="shrink-0 font-medium text-fg">{i.title}</span>
+            )}
             <span className="min-w-0 flex-1 truncate text-fg-muted" title={i.message}>
               {i.message}
             </span>
-            {i.appName && (
-              <Button size="sm" variant="ghost" onClick={() => goGame(i.appName!)}>
-                Open
-              </Button>
-            )}
           </li>
         ))}
       </ul>

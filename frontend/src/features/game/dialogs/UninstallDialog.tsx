@@ -64,7 +64,7 @@ export function UninstallDialog({ appName, open }: { appName: string; open: bool
             void actions.uninstall(appName, mode);
           }}
         >
-          {destructive ? "Uninstall and delete files" : "Uninstall, keep files"}
+          {destructive ? "Uninstall and delete files" : "Uninstall and keep files"}
         </Button>
       }
     >

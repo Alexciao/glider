@@ -12,14 +12,17 @@ export function ErrorView({
   path,
   onDismiss,
   className,
+  noFix,
 }: {
   error: GliderError;
   retry?: () => void;
   path?: string | null;
   onDismiss?: () => void;
   className?: string;
+  /** The surface already offers the fix as its own primary button: show the message only. */
+  noFix?: boolean;
 }) {
-  const fix = error.fix;
+  const fix = noFix ? null : error.fix;
   const loading = usePending(fix ? (fix === "repair" && error.appName ? pendingKey("verify", error.appName) : (PENDING_KEY[fix] ?? "_")) : "_");
   const waiting = error.code === "eglBusy";
   // A closed sign-in window is not silent: Epic may have shown its own error that the user never reported.

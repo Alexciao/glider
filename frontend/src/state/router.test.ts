@@ -8,6 +8,9 @@ describe("parseRoute / formatRoute", () => {
     ["downloads", { page: "downloads" }],
     ["store", { page: "store" }],
     ["settings", { page: "settings" }],
+    ["settings?focus=downloadMode", { page: "settings", focus: "downloadMode" }],
+    ["#/settings?focus=speedLimit", { page: "settings", focus: "speedLimit" }],
+    ["settings?focus=nonsense", { page: "settings" }],
     ["game/Fortnite", { page: "game", appName: "Fortnite" }],
     ["/game/Fortnite", { page: "game", appName: "Fortnite" }],
     ["#/game/Fortnite", { page: "game", appName: "Fortnite" }],
@@ -23,6 +26,13 @@ describe("parseRoute / formatRoute", () => {
   it("rejects junk", () => {
     for (const bad of ["", "#", "/", "nope", "game", "game/", "downloads/extra", "library/Fortnite", null, undefined]) expect(parseRoute(bad)).toBeNull();
     for (const bad of ["game/a/b", "game/a/install/x", "game/%E0%A4%A", "store/p", "store/p/", "store/p/a/b", "store/x/y", "store/p/bad.slug", "store/p/%2e%2e", "store/p/some_game", "store/p/%E0%A4%A"]) expect(parseRoute(bad)).toBeNull();
+  });
+
+  it("a settings focus round-trips and is a different route from plain settings", () => {
+    const r: Route = { page: "settings", focus: "speedLimit" };
+    expect(formatRoute(r)).toBe("settings?focus=speedLimit");
+    expect(parseRoute(formatRoute(r))).toEqual(r);
+    expect(sameRoute(r, { page: "settings" })).toBe(false);
   });
 
   it("installIntent only fires for the /install suffix", () => {

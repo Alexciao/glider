@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useRef, useState } from "react";
-import { Gamepad2, RefreshCw, SearchX, TriangleAlert } from "lucide-react";
+import { RefreshCw, SearchX, TriangleAlert } from "lucide-react";
 import { actions } from "../../state/actions";
 import { collectionActions } from "../../state/collections";
 import { useHotkey } from "../../state/hooks";
@@ -10,6 +10,8 @@ import { useSnap } from "../../state/store";
 import { usePending } from "../../state/ui";
 import type { Collection } from "../../ipc/contract.gen";
 import { AlertModal, Button, EmptyState, IconButton, Spinner, cx } from "../../ui";
+import { LibraryEmpty } from "../common/LibraryEmpty";
+import { SignInBanner, useNeedsSignIn } from "../common/SignInBanner";
 import { CollectionDialog, useCollectionDialog } from "./collectionDialog";
 import { LibraryGrid } from "./LibraryGrid";
 import { LibrarySkeleton } from "./LibrarySkeleton";
@@ -44,6 +46,7 @@ export function LibraryPage() {
   const loaded = useLibrary((s) => s.loaded);
   const counts = useLibraryCounts();
   const refreshing = usePending("refreshLibrary");
+  const needsSignIn = useNeedsSignIn();
   const openCreate = useCollectionDialog((s) => s.openCreate);
   const openRename = useCollectionDialog((s) => s.openRename);
 
@@ -76,18 +79,7 @@ export function LibraryPage() {
   if (showSkeleton) {
     body = <LibrarySkeleton view={prefs.view} />;
   } else if (total === 0) {
-    body = (
-      <EmptyState
-        className="h-full justify-center"
-        icon={<Gamepad2 size={20} />}
-        title="Your library is empty"
-        action={
-          <Button variant="primary" loading={busySyncing} onClick={() => void actions.refreshLibrary()}>
-            Sync library
-          </Button>
-        }
-      />
-    );
+    body = <LibraryEmpty className="h-full justify-center" syncing={busySyncing} />;
   } else if (results.length === 0) {
     const named = query === "" && !collection ? FILTER_EMPTY[prefs.filter] : undefined;
     const emptyCollection = collection !== undefined && query === "" && prefs.filter === "all";
@@ -119,7 +111,7 @@ export function LibraryPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className={cx("shrink-0 overflow-y-hidden border-b px-10 pb-4 pt-8 [scrollbar-gutter:stable] transition-[border-color] duration-150 max-[1000px]:px-7 [@media(max-height:700px)]:pt-5", scrolled ? "border-border" : "border-transparent")}>
+      <header className={cx("shrink-0 overflow-y-hidden border-b px-10 pb-4 pt-8 [scrollbar-gutter:stable] transition-[border-color] duration-150 max-[1100px]:px-7 [@media(max-height:700px)]:pt-5", scrolled ? "border-border" : "border-transparent")}>
         <div className="mb-4 flex h-7 items-center justify-between gap-6 [@media(max-height:700px)]:mb-3">
           <div className="flex min-w-0 items-baseline gap-3">
             <h1 className="text-xl font-semibold tracking-tight text-fg">Library</h1>
@@ -136,12 +128,12 @@ export function LibraryPage() {
               </button>
             ) : filtered && total > 0 && !showSkeleton ? (
               <span className="text-sm tabular-nums text-fg-subtle">
-                {results.length} of {total}
+                {results.length} of {prefs.filter === "hidden" ? counts.hidden : counts.all}
               </span>
             ) : null}
           </div>
           {total > 0 && (
-            <IconButton label={busySyncing ? "Syncing library…" : "Sync library"} onClick={() => void actions.refreshLibrary()} disabled={busySyncing} className="-mr-2 disabled:opacity-100">
+            <IconButton label={busySyncing ? "Syncing library…" : "Sync library"} onClick={() => void actions.refreshLibrary()} disabled={busySyncing || needsSignIn !== null} className={cx("-mr-2", busySyncing ? "disabled:opacity-100" : undefined)}>
               {busySyncing ? <Spinner size={14} className="text-fg-muted" /> : <RefreshCw size={14} />}
             </IconButton>
           )}
@@ -158,7 +150,7 @@ export function LibraryPage() {
             view={prefs.view}
             onView={onView}
             counts={counts}
-            total={total}
+            total={counts.all || total}
             collections={collections}
             collection={collection}
             onCollection={onCollection}
@@ -167,6 +159,7 @@ export function LibraryPage() {
             onDeleteCollection={setDeleting}
           />
         )}
+        {total > 0 && <SignInBanner className="mt-3" />}
       </header>
       <div className="min-h-0 flex-1">{body}</div>
 

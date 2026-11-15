@@ -1,13 +1,16 @@
 import { memo, useState, type ReactNode } from "react";
-import { ArrowDownToLine, Check, Download, Play, TriangleAlert, Wrench } from "lucide-react";
+import { ArrowUp, Check, Download, Play, Wrench } from "lucide-react";
 import type { GameSummary } from "../../ipc/contract.gen";
 import { Button, GameCover, cx } from "../../ui";
+import { TILE_TEXT } from "./gridLayout";
 import { SharedCover } from "./SharedCover";
 import { CoverProgress } from "./CoverProgress";
 import { MoreButton } from "./GameMenu";
 import { describeState, quickAction, runQuick } from "./status";
 
-const glass = "bg-[oklch(0.14_0.006_265/0.72)] ring-1 ring-inset ring-white/10";
+/** Badges sit on arbitrary art, so they carry their own dark glass: 22 px, black at 55 % with a blur and a hairline ring. */
+const glass = "bg-black/55 backdrop-blur-sm ring-1 ring-inset ring-white/15";
+const disc = "grid size-[22px] place-items-center rounded-full";
 
 interface Badge {
   label: string;
@@ -15,16 +18,18 @@ interface Badge {
 }
 
 /**
- * The tile's single status mark, top-left of the cover: the most important thing that is true of this game. A game with a
- * job shows its progress ring instead (no badge); a game that is simply not installed shows nothing.
+ * The tile's single status mark, top-left of the cover: the most important thing that is true of this game, coloured by
+ * the shared status levels (warning for repair, accent for an update, the live dot while it runs). Installed is the
+ * ordinary state, so its check is white, not green. A game with a job shows its progress ring instead (no badge); a game
+ * that is simply not installed shows nothing.
  */
 function badgeFor(g: GameSummary): Badge | null {
   if (g.activeJobId) return null;
-  if (g.runState !== "idle") return { label: "Playing", node: <span className={cx("grid size-5 place-items-center rounded-full", glass)}><span className="size-2 animate-[g-breathe_1.8s_ease-in-out_infinite] rounded-full bg-[oklch(0.82_0.15_155)]" /></span> };
-  if (g.installStatus === "broken") return { label: "Needs repair", node: <span className={cx("grid size-5 place-items-center rounded-full text-[oklch(0.8_0.15_25)]", glass)}><TriangleAlert size={12} strokeWidth={2.5} /></span> };
-  if (g.installStatus === "installed" && g.updateAvailable) return { label: "Update available", node: <span className="grid size-5 place-items-center rounded-full bg-accent text-accent-fg ring-1 ring-inset ring-white/20"><ArrowDownToLine size={12} strokeWidth={2.5} /></span> };
-  if (g.installStatus === "installed") return { label: "Installed", node: <span className={cx("grid size-5 place-items-center rounded-full text-[oklch(0.82_0.15_155)]", glass)}><Check size={12} strokeWidth={2.75} /></span> };
-  if (g.thirdParty !== "none" && g.thirdPartyName) return { label: g.thirdPartyName, node: <span className={cx("inline-flex h-5 items-center rounded-full px-2 text-2xs font-medium text-white/90", glass)}>{g.thirdPartyName}</span> };
+  if (g.runState !== "idle") return { label: "Playing", node: <span className={cx(disc, glass)}><span className="size-2 animate-[g-breathe_1.8s_ease-in-out_infinite] rounded-full bg-[oklch(0.82_0.15_155)]" /></span> };
+  if (g.installStatus === "broken") return { label: "Needs repair", node: <span className={cx(disc, glass, "text-[oklch(0.84_0.13_80)]")}><Wrench size={12} strokeWidth={2.5} /></span> };
+  if (g.installStatus === "installed" && g.updateAvailable) return { label: "Update available", node: <span className={cx(disc, "bg-accent text-accent-fg ring-1 ring-inset ring-white/20")}><ArrowUp size={12} strokeWidth={2.75} /></span> };
+  if (g.installStatus === "installed") return { label: "Installed", node: <span className={cx(disc, glass, "text-white/90")}><Check size={12} strokeWidth={2.75} /></span> };
+  if (g.thirdParty !== "none" && g.thirdPartyName) return { label: g.thirdPartyName, node: <span className={cx("inline-flex h-[22px] items-center rounded-full px-2 text-2xs font-medium text-white/90", glass)}>{g.thirdPartyName}</span> };
   return null;
 }
 
@@ -59,7 +64,7 @@ export const GameTile = memo(function GameTile({ game, index, count, x, y, width
       aria-posinset={index + 1}
       aria-setsize={count}
       className="absolute left-0 top-0 list-none"
-      style={{ width, height: coverH + 28, transform: `translate(${x}px, ${y}px)` }}
+      style={{ width, height: coverH + TILE_TEXT, transform: `translate(${x}px, ${y}px)` }}
     >
       <div
         onPointerEnter={() => setHot(true)}
@@ -91,8 +96,10 @@ export const GameTile = memo(function GameTile({ game, index, count, x, y, width
                 </span>
               )}
             </span>
-            <span className="mt-2 flex h-5 items-center text-sm font-medium text-fg">
-              <span className="truncate" title={game.title}>{game.title}</span>
+            <span className="mt-2 block h-9 text-sm font-medium leading-[18px] text-fg">
+              <span className="line-clamp-2 [overflow-wrap:anywhere]" title={game.title}>
+                {game.title}
+              </span>
               <span className="sr-only">. {describeState(game)}</span>
             </span>
           </button>

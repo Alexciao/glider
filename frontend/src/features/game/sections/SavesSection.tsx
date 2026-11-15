@@ -5,6 +5,7 @@ import { useSnap } from "../../../state/store";
 import { usePending, useUi } from "../../../state/ui";
 import { Button, Spinner, cx, type BadgeTone } from "../../../ui";
 import { formatDateTime } from "../format";
+import { TONE_TEXT, statusTone } from "../statusLevels";
 
 export interface SaveStatusModel {
   tone: BadgeTone;
@@ -16,17 +17,17 @@ export function saveStatusModel(status: SaveSyncStatus, opts: { enabled: boolean
   if (!opts.enabled && status !== "notSupported") return { tone: "neutral", text: "Off" };
   switch (status) {
     case "inSync":
-      return { tone: "success", text: "In sync" };
+      return { tone: statusTone("inSync"), text: "In sync" };
     case "localNewer":
-      return { tone: "accent", text: "This PC is newer" };
+      return { tone: statusTone("savesNewer"), text: "This PC is newer" };
     case "cloudNewer":
-      return { tone: "accent", text: "The cloud is newer" };
+      return { tone: statusTone("savesNewer"), text: "The cloud is newer" };
     case "conflict":
-      return { tone: "danger", text: "Saves differ" };
+      return { tone: statusTone("savesDiffer"), text: "Saves differ" };
     case "syncing":
-      return { tone: "accent", text: "Syncing…" };
+      return { tone: statusTone("working"), text: "Syncing…" };
     case "error":
-      return { tone: "danger", text: "Last sync failed" };
+      return { tone: statusTone("syncFailed"), text: "Last sync failed" };
     case "disabled":
       return { tone: "neutral", text: "Off" };
     case "notSupported":
@@ -35,14 +36,6 @@ export function saveStatusModel(status: SaveSyncStatus, opts: { enabled: boolean
       return { tone: "neutral", text: opts.offline ? "Checks when you're online" : "Not checked yet" };
   }
 }
-
-const toneText: Record<BadgeTone, string> = {
-  neutral: "text-fg-muted",
-  accent: "text-accent-text",
-  success: "text-success-text",
-  warning: "text-warning-text",
-  danger: "text-danger-text",
-};
 
 /**
  * Cloud saves as one row: the state, the one number that matters ("synced 2 days ago"), and the buttons that apply.
@@ -53,6 +46,7 @@ const toneText: Record<BadgeTone, string> = {
 export function SavesSection({ game, detail }: { game: GameSummary; detail: GameDetail }) {
   const saves = detail.saves;
   const offline = useSnap((s) => s.connectivity === "offline");
+  const signedIn = useSnap((s) => s.auth.status === "signedIn");
   const globalOn = useSnap((s) => s.settings.cloudSaves);
   const openDialog = useUi((s) => s.openDialog);
   const syncing = usePending(pendingKey("sync", game.appName));
@@ -74,7 +68,7 @@ export function SavesSection({ game, detail }: { game: GameSummary; detail: Game
         </h2>
         <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-fg-muted" aria-live="polite">
           {status === "syncing" && <Spinner size={12} />}
-          <span className={cx("font-medium", toneText[model.tone])}>{model.text}</span>
+          <span className={cx("font-medium", TONE_TEXT[model.tone])}>{model.text}</span>
           {enabled && saves.lastSyncedAt && !differs && !conflict && (
             <span title={formatDateTime(saves.lastSyncedAt) ?? undefined}>Synced {formatRelativeTime(saves.lastSyncedAt)}</span>
           )}
@@ -93,7 +87,7 @@ export function SavesSection({ game, detail }: { game: GameSummary; detail: Game
           </Button>
         ) : (
           enabled && (
-            <Button size="sm" variant="ghost" loading={syncing} disabled={offline || !idle} onClick={() => void actions.syncSaves(game.appName)}>
+            <Button size="sm" variant="ghost" loading={syncing} disabled={offline || !signedIn || !idle} onClick={() => void actions.syncSaves(game.appName)}>
               Sync now
             </Button>
           )

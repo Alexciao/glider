@@ -1,5 +1,5 @@
 import { Toast as T } from "radix-ui";
-import { AlertTriangle, CheckCircle2, CircleAlert, Info, X } from "lucide-react";
+import { CircleAlert, CircleCheck, Info, TriangleAlert, X } from "lucide-react";
 import { cx } from "./cx";
 import { Button } from "./Button";
 
@@ -18,8 +18,8 @@ export interface ToastItem {
 
 const icons = {
   info: <Info size={16} className="text-accent-text" />,
-  success: <CheckCircle2 size={16} className="text-success-text" />,
-  warning: <AlertTriangle size={16} className="text-warning-text" />,
+  success: <CircleCheck size={16} className="text-success-text" />,
+  warning: <TriangleAlert size={16} className="text-warning-text" />,
   error: <CircleAlert size={16} className="text-danger-text" />,
 } satisfies Record<ToastLevel, React.ReactNode>;
 

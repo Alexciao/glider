@@ -29,14 +29,16 @@ describe("LibraryIndex filters", () => {
   it("installed / notInstalled / updates / cloudSaves / favorites / hidden", () => {
     const q = (filter: LibraryQuery["filter"]) => idx.query({ filter });
     expect(q("installed").every((g) => g.installStatus === "installed" || g.installStatus === "broken")).toBe(true);
-    expect(q("notInstalled").every((g) => g.installStatus === "notInstalled")).toBe(true);
+    expect(q("notInstalled").every((g) => g.installStatus === "notInstalled" || g.installStatus === "notInstallable")).toBe(true);
     expect(q("updates").every((g) => g.updateAvailable && g.installStatus === "installed")).toBe(true);
     expect(q("updates").length).toBeGreaterThan(0);
     expect(q("cloudSaves").every((g) => g.cloudSaves)).toBe(true);
     expect(q("favorites").every((g) => g.favorite)).toBe(true);
     expect(q("hidden").every((g) => g.hidden)).toBe(true);
     expect(q("hidden").length).toBeGreaterThan(0);
-    expect(q("installed").length + q("notInstalled").length).toBeLessThanOrEqual(q("all").length);
+    // The two halves of the library reconcile with the whole: nothing is in neither.
+    expect(q("installed").length + q("notInstalled").length).toBe(q("all").length);
+    expect(idx.counts.installed + idx.counts.notInstalled).toBe(idx.counts.all);
   });
 
   it("counts match the filtered lists", () => {

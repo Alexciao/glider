@@ -14,7 +14,7 @@ const FAST = { timeScale: 400 } as const;
 describe("Onboarding: Welcome and Sign in", () => {
   it("starts at Welcome with one headline and one sentence, and persists the step on Get started", async () => {
     const { user } = await mount("firstRun", <Onboarding />);
-    expect(screen.getByRole("heading", { name: /Your whole Epic library, one launcher/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Your whole Epic library,\s*one launcher/ })).toBeInTheDocument();
     expect(screen.queryByRole("list")).not.toBeInTheDocument(); // no feature bullets
     await user.click(screen.getByRole("button", { name: "Get started" }));
     expect(await screen.findByRole("button", { name: "Sign in with Epic" })).toBeInTheDocument();
@@ -93,13 +93,13 @@ describe("Onboarding: Find games", () => {
     await user.click(screen.getByRole("button", { name: "Import 1 game" }));
     await waitFor(() => expect(useApp.getState().snapshot!.queue.jobs.some((j) => j.kind === "import" && j.status === "running")).toBe(true), { timeout: 4000 });
     controller.failActiveJob("filesLocked");
-    expect(await screen.findByText("Failed: folder in use")).toBeInTheDocument();
+    expect(await screen.findByText("Failed · folder in use")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Try .* again/ })).toBeInTheDocument();
   });
 
   it("an empty scan is a short invitation and still lets the user continue", async () => {
     const { user } = await mount("firstRunSignedIn", <Onboarding />, { games: 0 });
-    expect(await screen.findByText("No installed games found")).toBeInTheDocument();
+    expect(await screen.findByText("No games found on this PC")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Scan all drives" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Continue" }));
     expect(await screen.findByText("Where should games install?")).toBeInTheDocument();
@@ -130,7 +130,7 @@ describe("Onboarding: Folders, Downloads, Done", () => {
     await rpc().call("onboarding.setStep", { step: "folders", skipped: false });
     expect(await screen.findByText("Where should games install?")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled(); // no library folder yet
-    await user.click(screen.getByRole("button", { name: "Add a library folder" }));
+    await user.click(screen.getByRole("button", { name: "Add folder…" }));
     const radios = await screen.findAllByRole("radio", { name: /\\/ });
     expect(radios).toHaveLength(1);
     expect(radios[0]).toBeChecked(); // the first folder is the default
@@ -144,9 +144,9 @@ describe("Onboarding: Folders, Downloads, Done", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(await screen.findByText("You're all set")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Open Glider" }));
+    await user.click(screen.getByRole("button", { name: "Go to your library" }));
     await waitFor(() => expect(onboarding().completed).toBe(true));
-    expect(useRouter.getState().route).toEqual({ page: "home" });
+    expect(useRouter.getState().route).toEqual({ page: "library" });
   });
 
   it("the stepper shows skipped steps as skipped", async () => {

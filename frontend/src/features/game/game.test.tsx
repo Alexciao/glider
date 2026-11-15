@@ -200,10 +200,10 @@ describe("Game page: hero and the one primary action", () => {
     expect(useRouter.getState().route).toEqual({ page: "library" });
   });
 
-  it("the menu has Verify, Move, Open folder, Create shortcut, Add to collection, Hide and Uninstall", async () => {
+  it("the menu has Verify files, Move, Open install folder, Create shortcut, Add to collection, Hide and Uninstall", async () => {
     const { user } = await mount("returning", (b) => <GameView appName={b.find(idleInstalled).appName} />);
     await user.click(screen.getByRole("button", { name: "More actions" }));
-    for (const name of ["Verify", "Move…", "Open folder", "Create shortcut", "Add to collection", "Hide from library", "Uninstall…"]) {
+    for (const name of ["Verify files", "Move…", "Open install folder", "Create shortcut", "Add to collection", "Hide from library", "Uninstall…"]) {
       expect(await screen.findByRole("menuitem", { name })).toBeInTheDocument();
     }
   });
@@ -334,7 +334,7 @@ describe("Install dialog", () => {
     await mount("returning", (b) => open(b, (g) => fresh(g) && g.dlcCount > 0));
     expect(await screen.findByText("Fits, with", { exact: false })).toBeInTheDocument();
     expect(screen.getByText("Download")).toBeInTheDocument();
-    expect(screen.getByText("On disk")).toBeInTheDocument();
+    expect(screen.getByText("Install size")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Install to" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Install" })).toBeEnabled();
   });
@@ -353,7 +353,7 @@ describe("Install dialog", () => {
 
   it("toggling a DLC re-plans: the totals come from Core", async () => {
     const { user } = await mount("returning", (b) => open(b, (g) => fresh(g) && g.dlcCount > 0));
-    const disk = async () => (await screen.findByText("On disk")).nextElementSibling!.textContent;
+    const disk = async () => (await screen.findByText("Install size")).nextElementSibling!.textContent;
     const before = await disk();
     const boxes = (await screen.findAllByRole("checkbox")).filter((c) => !(c as HTMLButtonElement).disabled);
     await user.click(boxes[0]!);

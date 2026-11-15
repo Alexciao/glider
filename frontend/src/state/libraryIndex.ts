@@ -76,7 +76,8 @@ function matches(g: GameSummary, filter: LibraryFilter): boolean {
   switch (filter) {
     case "all": return !g.hidden;
     case "installed": return !g.hidden && (g.installStatus === "installed" || g.installStatus === "broken");
-    case "notInstalled": return !g.hidden && g.installStatus === "notInstalled";
+    // Everything that is not on this PC, including titles that play through another launcher: Installed + Not installed = All games.
+    case "notInstalled": return !g.hidden && (g.installStatus === "notInstalled" || g.installStatus === "notInstallable");
     case "updates": return !g.hidden && g.installStatus === "installed" && g.updateAvailable;
     case "cloudSaves": return !g.hidden && g.cloudSaves;
     case "favorites": return !g.hidden && g.favorite;

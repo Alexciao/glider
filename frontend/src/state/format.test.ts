@@ -77,17 +77,33 @@ describe("formatPercent", () => {
   });
 });
 
-describe("formatRelativeTime", () => {
-  const now = Date.parse("2026-11-12T12:00:00Z");
-  const ago = (s: number) => new Date(now - s * 1000).toISOString();
+describe("formatRelativeTime (local calendar days, not 24-hour blocks)", () => {
+  // Built from local parts so the assertions hold in any time zone.
+  const now = new Date(2026, 10, 14, 12, 0).getTime();
+  const at = (day: number, h: number, min = 0) => new Date(2026, 10, day, h, min).toISOString();
   it("reads naturally", () => {
-    expect(formatRelativeTime(ago(10), now)).toBe("Just now");
-    expect(formatRelativeTime(ago(4 * 60), now)).toBe("4 min ago");
-    expect(formatRelativeTime(ago(3 * 3600), now)).toBe("3 h ago");
-    expect(formatRelativeTime(ago(30 * 3600), now)).toBe("Yesterday");
-    expect(formatRelativeTime(ago(9 * 86400), now)).toBe("9 days ago");
+    expect(formatRelativeTime(new Date(now - 10_000).toISOString(), now)).toBe("Just now");
+    expect(formatRelativeTime(new Date(now - 4 * 60_000).toISOString(), now)).toBe("4 min ago");
+    expect(formatRelativeTime(at(14, 9), now)).toBe("3 h ago");
     expect(formatRelativeTime(null, now)).toBe("—");
     expect(formatRelativeTime("nope", now)).toBe("—");
+  });
+  it("counts days by date: the same moment never gets two names", () => {
+    // 26 hours earlier on the clock, but two calendar days back.
+    const lateNov12 = new Date(2026, 10, 12, 23, 0).getTime();
+    expect(formatRelativeTime(new Date(lateNov12).toISOString(), new Date(2026, 10, 14, 1, 0).getTime())).toBe("2 days ago");
+    expect(formatRelativeTime(at(13, 22, 20), now)).toBe("Yesterday");
+    expect(formatRelativeTime(at(13, 1), now)).toBe("Yesterday");
+    expect(formatRelativeTime(at(12, 1, 57), now)).toBe("2 days ago");
+    expect(formatRelativeTime(at(9, 12), now)).toBe("5 days ago");
+  });
+  it("crossing midnight in under an hour stays in minutes; in a few hours it is yesterday", () => {
+    expect(formatRelativeTime(new Date(2026, 10, 13, 23, 50).toISOString(), new Date(2026, 10, 14, 0, 10).getTime())).toBe("20 min ago");
+    expect(formatRelativeTime(new Date(2026, 10, 13, 22, 0).toISOString(), new Date(2026, 10, 14, 0, 10).getTime())).toBe("Yesterday");
+  });
+  it("switches to the date from a week on, with the year only when it isn't this one", () => {
+    expect(formatRelativeTime(at(7, 12), now)).toMatch(/Nov|nov/i);
+    expect(formatRelativeTime(new Date(2025, 9, 28).toISOString(), now)).toMatch(/2025/);
   });
 });
 

@@ -5,14 +5,14 @@
 export const GRID_GAP = 20;
 export const MIN_TILE = 168;
 export const MAX_TILE = 232;
-/** The title line (20) and the 8 px gap above it. */
-export const TILE_TEXT = 28;
+/** Up to two title lines (2 × 18) and the 8 px gap above them. */
+export const TILE_TEXT = 44;
 export const ROW_GAP = 24;
 
 export const LIST_ROW = 64;
 
-/** Horizontal page padding for a scroller of this width (matches the other pages' gutters). */
-export const padFor = (containerWidth: number): number => (containerWidth >= 1000 ? 40 : 28);
+/** Horizontal page padding for a scroller of this width: the pages' 40 px gutter, 28 px under a 1100 px window (the content area is the window minus the 72 px rail). */
+export const padFor = (containerWidth: number): number => (containerWidth >= 1028 ? 40 : 28);
 
 export interface GridLayout {
   cols: number;

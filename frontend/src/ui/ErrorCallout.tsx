@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { AlertTriangle, ChevronRight, CircleAlert, X } from "lucide-react";
+import { ChevronRight, CircleAlert, TriangleAlert, X } from "lucide-react";
 import { cx } from "./cx";
 import { Button, IconButton } from "./Button";
 
@@ -34,7 +34,7 @@ export function ErrorCallout({
   className,
 }: ErrorCalloutProps) {
   const [open, setOpen] = useState(false);
-  const Icon = tone === "error" ? CircleAlert : AlertTriangle;
+  const Icon = tone === "error" ? CircleAlert : TriangleAlert;
   return (
     <div
       role={tone === "error" ? "alert" : "status"}

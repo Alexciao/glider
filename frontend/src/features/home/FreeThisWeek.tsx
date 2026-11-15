@@ -21,7 +21,7 @@ function FreeTile({ game }: { game: FreeGame }) {
           </span>
         </span>
         <span className="mt-3 block truncate text-base font-medium text-fg">{game.title}</span>
-        <span className={cx("mt-0.5 flex items-center gap-1.5 text-xs", game.owned ? "text-success-text" : "text-fg-muted")}>
+        <span className={cx("mt-0.5 flex items-center gap-1.5 text-xs", "text-fg-muted")}>
           {game.owned && <Check size={12} strokeWidth={2.5} aria-hidden />}
           {freeWindowLabel(game)}
         </span>

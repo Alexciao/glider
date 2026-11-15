@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ExternalLink, Lock, RotateCw, Store, WifiOff } from "lucide-react";
+import { ArrowLeft, ExternalLink, Lock, RefreshCw, Store, WifiOff } from "lucide-react";
 import type { GliderError, StoreBounds, StoreTarget } from "../../ipc/contract.gen";
 import { isHosted } from "../../ipc/client";
 import { rpc } from "../../ipc/rpc";
 import { formatRoute, useRoute } from "../../state/router";
-import { toGliderError } from "../../state/actions";
+import { actions, toGliderError } from "../../state/actions";
 import { useSnap } from "../../state/store";
+import { usePending } from "../../state/ui";
 import { Button, EmptyState, IconButton, Spinner, cx } from "../../ui";
 import { useNativeBounds } from "./useNativeBounds";
 import { useOverlayWatcher, useStoreView } from "./useStoreView";
@@ -21,6 +22,7 @@ export function StorePage() {
   const targetKey = route.page === "store" ? formatRoute(route) : "store";
   const view = useStoreView();
   const offline = useSnap((s) => s.connectivity === "offline");
+  const signingIn = usePending("signIn");
   const hostRef = useRef<HTMLDivElement>(null);
   const [failure, setFailure] = useState<GliderError | null>(null);
   const shown = useRef(false);
@@ -87,7 +89,7 @@ export function StorePage() {
           <ArrowLeft size={16} />
         </IconButton>
         <IconButton label="Reload" size="sm" onClick={reload}>
-          {view?.loading ? <Spinner size={14} /> : <RotateCw size={14} />}
+          {view?.loading ? <Spinner size={14} /> : <RefreshCw size={14} />}
         </IconButton>
         <div className="ml-2 flex min-w-0 items-center gap-1.5 text-xs text-fg-muted">
           {view?.host && (
@@ -125,17 +127,17 @@ export function StorePage() {
             icon={offline ? <WifiOff size={20} /> : <Store size={20} />}
             title={offline ? "You're offline" : "The Store didn't load"}
             description={offline ? "The Store needs an internet connection. Your library still works." : error.message}
-            onRetry={show}
-            onBrowser={openInBrowser}
+            primary={{ label: "Try again", onPress: show }}
+            // The browser is offline too: no way out there.
+            secondary={offline ? undefined : { label: "Open in browser", onPress: openInBrowser }}
           />
         ) : (
           phase === "signedOut" && (
             <Fallback
               icon={<Store size={20} />}
-              title="Sign in to the Store"
-              description="Glider couldn't sign you in to the Store automatically. Try again, or continue in your browser."
-              onRetry={reload}
-              onBrowser={openInBrowser}
+              title="Sign in to use the Store"
+              primary={{ label: "Sign in", onPress: () => void actions.signIn("settings").then((a) => a && reload()), loading: signingIn }}
+              secondary={{ label: "Open in browser", onPress: openInBrowser }}
             />
           )
         )}
@@ -144,19 +146,14 @@ export function StorePage() {
   );
 }
 
-function Fallback({
-  icon,
-  title,
-  description,
-  onRetry,
-  onBrowser,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  onRetry: () => void;
-  onBrowser: () => void;
-}) {
+interface FallbackAction {
+  label: string;
+  onPress: () => void;
+  loading?: boolean;
+}
+
+/** What the native view can't draw: a title, at most one sentence, the one thing to do, and the one other way. */
+function Fallback({ icon, title, description, primary, secondary }: { icon: React.ReactNode; title: string; description?: string; primary: FallbackAction; secondary?: FallbackAction }) {
   return (
     <div className="absolute inset-0 grid place-items-center bg-bg-elevated">
       <EmptyState
@@ -165,12 +162,14 @@ function Fallback({
         description={description}
         action={
           <div className="flex items-center gap-2">
-            <Button variant="secondary" onClick={onRetry}>
-              Try again
+            <Button variant="primary" loading={primary.loading} onClick={primary.onPress}>
+              {primary.label}
             </Button>
-            <Button variant="ghost" onClick={onBrowser}>
-              Open in browser
-            </Button>
+            {secondary && (
+              <Button variant="ghost" onClick={secondary.onPress}>
+                {secondary.label}
+              </Button>
+            )}
           </div>
         }
       />

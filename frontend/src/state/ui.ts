@@ -56,6 +56,11 @@ interface UiStore {
   logsFocus: number;
   /** User changed the theme since boot: stops a ?theme= URL override from fighting them. */
   themeTouched: boolean;
+  /**
+   * Setup is on screen. Core marks onboarding completed the moment the last step is reached, so without this the shell would
+   * swap to Home under the "You're all set" screen; the hold keeps setup up until its last button is pressed.
+   */
+  onboardingHold: boolean;
 
   /** Navigate to a page (and optionally a Settings section). Games: use `goGame` from the router. */
   go: (page: Exclude<Page, "game">, section?: SettingsSection) => void;
@@ -81,6 +86,7 @@ export const useUi = create<UiStore>((set) => ({
   readyApp: null,
   logsFocus: 0,
   themeTouched: false,
+  onboardingHold: false,
 
   go: (page, section) => {
     navigate({ page });

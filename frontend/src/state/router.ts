@@ -8,6 +8,7 @@ import type { StoreTarget } from "../ipc/contract.gen";
  *   home · library · game/<appName> · downloads · settings · store
  *   store/product/<slug> · store/bundle/<slug> · store/free-games · store/wishlist · store/browse   (a typed Store destination)
  *   store/p/<slug>  (legacy alias of store/product/<slug>: what `glider://store/p/<slug>` links and older hosts send)
+ *   settings?focus=downloadMode | settings?focus=speedLimit   (Settings → Downloads, with that row highlighted)
  *
  * `game/<appName>/install` (glider://install/<app>) shows the game page; {@link installIntent} tells the bridge to open its
  * install dialog on top. A link never starts a download by itself.
@@ -18,7 +19,11 @@ export type Route =
   | { page: "game"; appName: string }
   | { page: "downloads" }
   | { page: "store"; target?: StoreTarget }
-  | { page: "settings" };
+  | { page: "settings"; focus?: SettingsFocus };
+
+/** A Settings row a link can point at: the page opens on its section, scrolls to the row and gives it a brief highlight. */
+export type SettingsFocus = "downloadMode" | "speedLimit";
+const SETTINGS_FOCUS: readonly SettingsFocus[] = ["downloadMode", "speedLimit"];
 
 export type Page = Route["page"];
 
@@ -29,9 +34,14 @@ const SIMPLE = new Set<Page>(["home", "library", "downloads", "store", "settings
 /** Accepts "game/Fortnite", "/game/Fortnite", "#/game/Fortnite" and "#game/Fortnite"; anything unknown → null. */
 export function parseRoute(input: string | null | undefined): Route | null {
   if (!input) return null;
-  const path = input.replace(/^#?\/?/, "").replace(/\/+$/, "");
+  const [pathPart = "", query] = input.replace(/^#?\/?/, "").split("?", 2);
+  const path = pathPart.replace(/\/+$/, "");
   if (!path) return null;
   const [head, ...rest] = path.split("/");
+  if (head === "settings" && rest.length === 0) {
+    const focus = new URLSearchParams(query ?? "").get("focus");
+    return SETTINGS_FOCUS.includes(focus as SettingsFocus) ? { page: "settings", focus: focus as SettingsFocus } : { page: "settings" };
+  }
   if (head === "game") {
     if (rest.length === 2 && rest[1] !== "install") return null;
     if (rest.length < 1 || rest.length > 2) return null;
@@ -83,6 +93,7 @@ export function storeRoute(target: StoreTarget | null | undefined): Route {
 
 /** "game/Fortnite"; appNames are percent-encoded so odd characters can't break the hash. */
 export function formatRoute(r: Route): string {
+  if (r.page === "settings" && r.focus) return `settings?focus=${r.focus}`;
   if (r.page === "game") return `game/${encodeURIComponent(r.appName)}`;
   if (r.page === "store" && r.target) {
     const t = r.target;
@@ -149,4 +160,12 @@ export const usePage = (): Page => useRouter((s) => s.route.page);
 
 /** Imperative helpers for actions and non-React code. */
 export const navigate = (route: Route | string): void => useRouter.getState().go(route);
+
+/** Settings has shown the row a link asked for: forget the request, so going back to Settings later doesn't replay it. */
+export function consumeSettingsFocus(): void {
+  const { route } = useRouter.getState();
+  if (route.page !== "settings" || !route.focus) return;
+  useRouter.setState({ route: { page: "settings" } });
+  if (typeof location !== "undefined" && location.hash.includes("?")) history.replaceState(null, "", "#/settings");
+}
 export const goGame = (appName: string): void => navigate({ page: "game", appName });

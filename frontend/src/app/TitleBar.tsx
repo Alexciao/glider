@@ -144,7 +144,7 @@ function AccountMenu() {
         <DropdownMenuItem icon={<SettingsIcon size={14} />} shortcut="Ctrl+," onSelect={() => go("settings")}>
           Settings
         </DropdownMenuItem>
-        <DropdownMenuLabel>Signing out keeps your install and settings.</DropdownMenuLabel>
+        <DropdownMenuLabel>Signing out keeps your games and settings.</DropdownMenuLabel>
         <DropdownMenuItem icon={<LogOut size={14} />} onSelect={() => void actions.signOut()}>
           Sign out
         </DropdownMenuItem>

@@ -62,10 +62,36 @@ export function useGlobalHotkeys(enabled: boolean): void {
   }, [enabled]);
 }
 
+/** Warm the three lazy pages once the first paint is done and the main thread is idle, so their first visit never shows a blank area. */
+function usePrefetchPages(enabled: boolean): void {
+  useEffect(() => {
+    if (!enabled) return;
+    const load = () => {
+      void import("../features/downloads/Downloads");
+      void import("../features/settings/Settings");
+      void import("../features/store/StorePage");
+    };
+    const idle = (window as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+    if (idle) {
+      const id = idle(load, { timeout: 3000 });
+      return () => (window as { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback?.(id);
+    }
+    const t = window.setTimeout(load, 1200);
+    return () => window.clearTimeout(t);
+  }, [enabled]);
+}
+
 export function Shell() {
-  const onboarded = useSnap((s) => s.onboarding.completed);
+  const completed = useSnap((s) => s.onboarding.completed);
+  const hold = useUi((s) => s.onboardingHold);
   const route = useRoute();
+  // Setup stays up until its own last button is pressed, even though Core already counts it as completed at the last step.
+  const onboarded = completed && !hold;
+  useEffect(() => {
+    if (!completed && !hold) useUi.setState({ onboardingHold: true });
+  }, [completed, hold]);
   useGlobalHotkeys(onboarded);
+  usePrefetchPages(onboarded);
   return (
     <div className="flex h-full flex-col">
       <TitleBar minimal={!onboarded} />

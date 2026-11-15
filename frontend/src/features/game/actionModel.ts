@@ -3,6 +3,7 @@ import type { BadgeTone } from "../../ui";
 import { JOB_NOUN, PHASE_LABEL, jobVerb } from "../../state/derive";
 import { formatBytes } from "../../state/format";
 import { jobForGame } from "../../state/store";
+import { statusTone } from "./statusLevels";
 
 /**
  * What the game page's primary button does, and the one status line that goes with it. Pure: everything the page
@@ -60,7 +61,7 @@ export const canPause = (kind: JobKind): boolean => PAUSABLE.includes(kind);
 export interface ActionContext {
   session?: RunningGame;
   /** A click on one of these is in flight (between the press and the backend's first state change). */
-  pending: { launch?: boolean; update?: boolean; verify?: boolean; signIn?: boolean; close?: boolean };
+  pending: { launch?: boolean; update?: boolean; verify?: boolean; signIn?: boolean; close?: boolean; plan?: boolean };
   /** Slow-changing job facts (whole percent, phase) so the model changes about once a second, not at 10 Hz. */
   phase?: JobPhase;
 }
@@ -96,13 +97,13 @@ export function deriveGameAction(snap: AppSnapshot, game: GameSummary, ctx: Acti
   // 1. The game itself starting, running or closing outranks everything.
   switch (game.runState) {
     case "preparing":
-      return starting({ tone: "accent", text: "Preparing", spinner: true });
+      return starting({ tone: statusTone("working"), text: "Preparing", spinner: true });
     case "syncingSaves":
-      return starting({ tone: "accent", text: "Syncing saves", spinner: true });
+      return starting({ tone: statusTone("working"), text: "Syncing saves", spinner: true });
     case "installingPrerequisites":
-      return starting({ tone: "accent", text: "Installing prerequisites", sub: "Windows may ask for permission", spinner: true });
+      return starting({ tone: statusTone("working"), text: "Installing prerequisites", sub: "Windows may ask for permission", spinner: true });
     case "launching":
-      return starting({ tone: "accent", text: "Launching", spinner: true });
+      return starting({ tone: statusTone("working"), text: "Launching", spinner: true });
     case "running":
       return {
         kind: "closeGame",
@@ -113,11 +114,11 @@ export function deriveGameAction(snap: AppSnapshot, game: GameSummary, ctx: Acti
         faceKey: "closeGame",
         intent: "close",
         status: ctx.session?.untracked
-          ? { tone: "success", text: `Started in ${game.thirdPartyName ?? "its launcher"}`, sub: "Glider can't track play time here" }
-          : { tone: "success", text: "Playing", since: ctx.session?.since ?? null },
+          ? { tone: statusTone("running"), text: `Started in ${game.thirdPartyName ?? "its launcher"}`, sub: "Glider can't track play time here" }
+            : { tone: statusTone("running"), text: "Playing", since: ctx.session?.since ?? null },
       };
     case "closing":
-      return inert("closing", "Closing…", { tone: "neutral", text: "Closing", spinner: true }, { busy: true, disabled: false });
+      return inert("closing", "Closing…", { tone: statusTone("working"), text: "Closing", spinner: true }, { busy: true, disabled: false });
     case "idle":
       break;
   }
@@ -128,10 +129,10 @@ export function deriveGameAction(snap: AppSnapshot, game: GameSummary, ctx: Acti
     const base = { busy: false, disabled: false, job } as const;
     switch (job.status) {
       case "paused":
-        return { ...base, kind: "resume", label: "Resume", tone: "primary", faceKey: "resume", intent: "resume", status: { tone: "warning", text: `${JOB_NOUN[job.kind]} paused` } };
+        return { ...base, kind: "resume", label: "Resume", tone: "primary", faceKey: "resume", intent: "resume", status: { tone: statusTone("paused"), text: `${JOB_NOUN[job.kind]} paused` } };
       case "waiting": {
         const reason = (job.blockedReason ?? "Another task is using the game files").replace(/[.\s]+$/, "");
-        return { ...base, kind: "cancel", label: "Cancel", tone: "quiet", faceKey: "cancel", intent: "cancel", status: { tone: "warning", text: `${reason}, so Glider will wait` } };
+        return { ...base, kind: "cancel", label: "Cancel", tone: "quiet", faceKey: "cancel", intent: "cancel", status: { tone: statusTone("waiting"), text: `${reason}, so Glider will wait` } };
       }
       case "queued":
         return {
@@ -141,7 +142,7 @@ export function deriveGameAction(snap: AppSnapshot, game: GameSummary, ctx: Acti
           tone: "quiet",
           faceKey: "cancel",
           intent: "cancel",
-          status: { tone: "neutral", text: `${JOB_NOUN[job.kind]} queued`, sub: "Starts when the current task finishes" },
+          status: { tone: statusTone("queued"), text: `${JOB_NOUN[job.kind]} queued`, sub: "Starts when the current task finishes" },
         };
       default: {
         const pausable = canPause(job.kind);
@@ -152,7 +153,7 @@ export function deriveGameAction(snap: AppSnapshot, game: GameSummary, ctx: Acti
           tone: "quiet",
           faceKey: pausable ? "pause" : "cancel",
           intent: pausable ? "pause" : "cancel",
-          status: { tone: "accent", text: jobVerb(job.kind, phase), sub: phaseSub(job.kind, phase), spinner: true },
+          status: { tone: statusTone("working"), text: jobVerb(job.kind, phase), sub: phaseSub(job.kind, phase), spinner: true },
         };
       }
     }
@@ -173,7 +174,7 @@ export function deriveGameAction(snap: AppSnapshot, game: GameSummary, ctx: Acti
     return inert(
       "loading",
       signing ? "Signing in…" : "Loading…",
-      { tone: "neutral", text: signing ? "Finish signing in in the Epic window" : "Checking your account", spinner: true },
+      { tone: statusTone("working"), text: signing ? "Finish signing in in the Epic window" : "Checking your account", spinner: true },
       { busy: true, disabled: false },
     );
   }
@@ -187,7 +188,10 @@ export function deriveGameAction(snap: AppSnapshot, game: GameSummary, ctx: Acti
       disabled: false,
       faceKey: "signIn",
       intent: "signIn",
-      status: expired ? { tone: "warning", text: "Your session expired", sub: "Sign in to keep playing" } : { tone: "neutral", text: "Sign in with Epic to install and play" },
+      // One treatment for both: signed out is not a state to be mildly informed about, it is the next thing to do.
+      status: expired
+        ? { tone: statusTone("needsSignIn"), text: "Your session expired", sub: "Sign in to keep playing" }
+        : { tone: statusTone("needsSignIn"), text: "You're signed out", sub: "Sign in to play" },
     };
   }
 
@@ -195,7 +199,7 @@ export function deriveGameAction(snap: AppSnapshot, game: GameSummary, ctx: Acti
   switch (game.installStatus) {
     case "installed": {
       if (offline && !game.canRunOffline) {
-        return inert("unavailable", "Play", { tone: "warning", text: "Needs an internet connection" });
+        return inert("unavailable", "Play", { tone: statusTone("needsInternet"), text: "Needs an internet connection" });
       }
       if (game.updateAvailable && !offline) {
         const pending = ctx.pending.update ?? false;
@@ -207,7 +211,7 @@ export function deriveGameAction(snap: AppSnapshot, game: GameSummary, ctx: Acti
           disabled: false,
           faceKey: "update",
           intent: "update",
-          status: { tone: "accent", text: "Update available", sub: game.downloadSizeBytes ? `${formatBytes(game.downloadSizeBytes)} download` : undefined },
+          status: { tone: statusTone("updateAvailable"), text: "Update available", sub: game.downloadSizeBytes ? `${formatBytes(game.downloadSizeBytes)} download` : undefined },
         };
       }
       const pending = ctx.pending.launch ?? false;
@@ -220,8 +224,8 @@ export function deriveGameAction(snap: AppSnapshot, game: GameSummary, ctx: Acti
         faceKey: pending ? "launching" : "play",
         intent: "launch",
         status: offline
-          ? { tone: "warning", text: "You're offline", sub: "Playing without Epic's services" }
-          : { tone: "success", text: "Ready to play", quiet: true },
+          ? { tone: statusTone("offline"), text: "You're offline", sub: "Playing without Epic's services" }
+          : { tone: statusTone("ready"), text: "Ready to play", quiet: true },
       };
     }
     case "broken": {
@@ -234,7 +238,7 @@ export function deriveGameAction(snap: AppSnapshot, game: GameSummary, ctx: Acti
         disabled: false,
         faceKey: "repair",
         intent: "verify",
-        status: { tone: "danger", text: "Game files need repair", sub: "Only damaged files are downloaded again" },
+        status: { tone: statusTone("needsRepair"), text: "Game files need repair", sub: "Only damaged files are downloaded again" },
       };
     }
     case "notInstallable": {
@@ -247,21 +251,21 @@ export function deriveGameAction(snap: AppSnapshot, game: GameSummary, ctx: Acti
         disabled: false,
         faceKey: pending ? "launching" : "play",
         intent: "launch",
-        status: { tone: "neutral", text: `Plays through ${game.thirdPartyName ?? "its launcher"}` },
+        status: { tone: statusTone("ready"), text: `Plays through ${game.thirdPartyName ?? "its launcher"}` },
       };
     }
     default:
-      if (offline) return inert("unavailable", "Install", { tone: "warning", text: "You're offline", sub: "Connect to install" });
+      if (offline) return inert("unavailable", "Install", { tone: statusTone("offline"), text: "You're offline", sub: "Connect to install" });
       return {
         kind: "install",
         label: "Install",
         tone: "primary",
-        busy: false,
+        busy: ctx.pending.plan ?? false,
         disabled: false,
         faceKey: "install",
         intent: "install",
         // The Install button says what to do; the line only adds what it can't (how much it downloads).
-        status: game.downloadSizeBytes ? { tone: "neutral", text: `${formatBytes(game.downloadSizeBytes)} download` } : { tone: "neutral", text: "Not installed", quiet: true },
+        status: game.downloadSizeBytes ? { tone: statusTone("notInstalled"), text: `${formatBytes(game.downloadSizeBytes)} download` } : { tone: statusTone("notInstalled"), text: "Not installed", quiet: true },
       };
   }
 }

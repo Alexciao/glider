@@ -113,7 +113,7 @@ export function unavailableLabel(status: EglInstallStatus): string {
   }
 }
 
-/** Why an import failed, in a few lowercase words ("folder in use"), for "Failed: folder in use". */
+/** Why an import failed, in a few lowercase words ("folder in use"), for "Failed · folder in use". */
 export function shortFailure(error: GliderError | null, message: string | null): string {
   switch (error?.code) {
     case "filesLocked":
@@ -142,7 +142,7 @@ export function shortFailure(error: GliderError | null, message: string | null):
   return t.length > 0 && t.length <= 28 ? t.charAt(0).toLowerCase() + t.slice(1) : "see logs";
 }
 
-/** The short phrase beside a game in the results: "Imported", "Needs repair: 12 files", "Failed: folder in use". */
+/** The short phrase beside a game in the results: "Imported", "Needs repair · 12 files", "Failed · folder in use". */
 export function resultPhrase(result: RowResult, job: JobInfo | null): string {
   switch (result.state) {
     case "waiting":
@@ -153,19 +153,40 @@ export function resultPhrase(result: RowResult, job: JobInfo | null): string {
       return "Imported";
     case "needsRepair": {
       const bad = job?.verify?.filesBad ?? 0;
-      return bad > 0 ? `Needs repair: ${bad} ${bad === 1 ? "file" : "files"}` : "Needs repair";
+      return bad > 0 ? `Needs repair · ${bad} ${bad === 1 ? "file" : "files"}` : "Needs repair";
     }
     case "failed":
-      return `Failed: ${shortFailure(result.error, result.message)}`;
+      return `Failed · ${shortFailure(result.error, result.message)}`;
     case "cancelled":
       return "Cancelled";
   }
 }
 
-/** One headline for a batch: "Importing 3 of 8", "8 games imported", "7 of 8 imported". */
+/**
+ * One headline for a batch: "Importing 3 of 8", "8 games imported", and when some need a follow-up it counts what is ready
+ * and what is not ("6 games ready, 2 need a repair") instead of calling everything imported.
+ */
 export function batchHeadline(s: BatchSummary): string {
   if (!s.settled) return `Importing ${s.total - s.pending} of ${s.total}`;
   const linked = linkedCount(s);
   if (linked === 0) return "Nothing was imported";
-  return linked === s.total ? `${linked} ${linked === 1 ? "game" : "games"} imported` : `${linked} of ${s.total} imported`;
+  const games = (n: number) => `${n} ${n === 1 ? "game" : "games"}`;
+  if (s.needsRepair === 0) return linked === s.total ? `${games(linked)} imported` : `${linked} of ${s.total} imported`;
+  const parts: string[] = [];
+  if (s.imported > 0) parts.push(`${games(s.imported)} ready`);
+  parts.push(s.imported > 0 ? `${s.needsRepair} ${s.needsRepair === 1 ? "needs" : "need"} a repair` : `${games(s.needsRepair)} ${s.needsRepair === 1 ? "needs" : "need"} a repair`);
+  if (s.failed > 0) parts.push(`${s.failed} failed`);
+  return parts.join(", ");
+}
+
+/** The line under a settled batch's headline: what was (not) downloaded, and what a repair does. */
+export function batchNote(s: BatchSummary): string | null {
+  if (!s.settled || linkedCount(s) === 0) return null;
+  return s.needsRepair > 0 ? "Nothing was downloaded. Repairs re-download only damaged files." : "Nothing was downloaded.";
+}
+
+/** What to do when the scan found nothing. Without the launcher on this PC, say so first. */
+export function emptyBody(launcherInstalled: boolean): string {
+  const next = "Scan your drives or point Glider to a folder.";
+  return launcherInstalled ? next : `Epic Games Launcher isn't installed. ${next}`;
 }

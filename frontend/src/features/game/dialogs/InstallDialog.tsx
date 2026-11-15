@@ -5,6 +5,7 @@ import type { InstallPlan } from "../../../ipc/contract.gen";
 import { actions, pendingKey } from "../../../state/actions";
 import { driveOf, formatBytes } from "../../../state/format";
 import { useGame } from "../../../state/library";
+import { peekInstallPlan } from "../../../state/installPlan";
 import { usePending, useUi } from "../../../state/ui";
 import { Button, Modal, cx } from "../../../ui";
 import { ErrorView } from "../../common/ErrorView";
@@ -59,12 +60,17 @@ export function InstallDialog({ appName, open }: { appName: string; open: boolea
 
   const [base, setBase] = useState<string | null>(null);
   const [dlc, setDlc] = useState<string[] | null>(null);
-  const [answer, setAnswer] = useState<{ key: string; plan: InstallPlan | null } | null>(null);
-  const requested = useRef(false);
+  // Opened from Install: the default plan is usually already here (it was asked for on hover or press), so no loading state.
+  const [answer, setAnswer] = useState<{ key: string; plan: InstallPlan | null } | null>(() => {
+    const early = peekInstallPlan(appName);
+    return early ? { key: JSON.stringify([null, null]), plan: early } : null;
+  });
+  const requested = useRef(answer !== null);
 
   const key = JSON.stringify([base, dlc]);
   useEffect(() => {
     let alive = true;
+    if (answer?.key === key && answer.plan) return;
     // The first plan goes out at once; later ones wait a beat so a run of ticks makes one request.
     const t = setTimeout(
       () => {
@@ -79,7 +85,7 @@ export function InstallDialog({ appName, open }: { appName: string; open: boolea
       alive = false;
       clearTimeout(t);
     };
-    // `key` encodes base/dlc.
+    // `key` encodes base/dlc; an answer already in hand for it is not asked for twice.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appName, key]);
   useEffect(() => () => useUi.getState().setError("install", undefined), []);
@@ -149,6 +155,7 @@ export function InstallDialog({ appName, open }: { appName: string; open: boolea
       open={open}
       onOpenChange={(o) => !o && !starting && close()}
       size="lg"
+      anchor="top"
       title={`Install ${title}`}
       footer={
         <>
@@ -187,13 +194,27 @@ export function InstallDialog({ appName, open }: { appName: string; open: boolea
           verdict={verdict}
           stats={[
             { label: "Download", value: plan ? formatBytes(plan.downloadSizeBytes) : null },
-            { label: "On disk", value: plan ? formatBytes(plan.installSizeBytes) : null },
+            { label: "Install size", value: plan ? formatBytes(plan.installSizeBytes) : null },
           ]}
         />
 
         <section aria-label="Install to">
           <FolderChooser label="Install to" options={optionsWithPlan} value={chosen} neededBytes={needed} onChange={(p) => setBase(p)} onChooseOther={() => void chooseOther()} disabled={starting} />
         </section>
+
+        {/* A plan that is still on its way reserves the DLC block (the summary knows how many there are), so the dialog doesn't grow and re-centre when it lands. */}
+        {!plan && (game?.dlcCount ?? 0) > 0 && (
+          <section aria-hidden>
+            <h3 className="mb-1 text-sm font-semibold text-fg">DLC</h3>
+            <div className="flex flex-col">
+              {Array.from({ length: Math.min(game?.dlcCount ?? 0, 2) }, (_, i) => (
+                <div key={i} className="flex h-8 items-center">
+                  <span className="g-skeleton h-3.5 rounded-sm" style={{ width: `${62 - i * 12}%` }} />
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {installable.length > 0 && (
           <Group title="DLC">

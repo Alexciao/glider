@@ -1,13 +1,11 @@
-import { useMemo } from "react";
-import type { AppSnapshot, GameSummary, JobProgress, LibraryDelta } from "../ipc/contract.gen";
+import type { AppSnapshot, JobProgress, LibraryDelta } from "../ipc/contract.gen";
 import { rpc } from "../ipc/rpc";
 import { hasSettingsInFlight } from "./actions";
-import { deriveHero, type HeroModel } from "./derive";
 import { useLibrary } from "./library";
 import { pushNotice } from "./notices";
-import { ingestProgress, pruneProgress, seedProgress, useProgress } from "./progress";
+import { ingestProgress, pruneProgress, seedProgress } from "./progress";
 import { installIntent, navigate } from "./router";
-import { isActiveJob, jobForGame, useApp } from "./store";
+import { isActiveJob, useApp } from "./store";
 import { useUi } from "./ui";
 
 /**
@@ -121,17 +119,4 @@ export async function startBridge(): Promise<() => void> {
     sync.dispose();
     offs.forEach((off) => off());
   };
-}
-
-/** The hero model for one game, re-derived only when the snapshot, the game or the whole-percent/phase changes. */
-export function useHero(game: GameSummary): HeroModel {
-  const snap = useApp((s) => s.snapshot as AppSnapshot);
-  const job = jobForGame(snap.queue.jobs, game.appName);
-  const jobId = job?.id;
-  const phase = useProgress((s) => (jobId ? s.latest[jobId]?.phase : undefined));
-  const percent = useProgress((s) => (jobId ? Math.floor(s.latest[jobId]?.percent ?? job?.progress?.percent ?? 0) : 0));
-  return useMemo(
-    () => deriveHero(snap, game, { phase: phase ?? job?.progress?.phase, percent }),
-    [snap, game, phase, percent, job?.progress?.phase],
-  );
 }
