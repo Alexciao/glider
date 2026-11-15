@@ -368,7 +368,7 @@ export function cardOf(job: JobInfo, p: JobProgress | null, ctx: CardContext): C
   } else if (held) {
     lead = { kind: "state", text: held.lead };
     // The bytes so far, then the promise; a lone promise is a sentence.
-    line = p && bytes ? [bytes, held.line] : [`${held.line}.`];
+    line = p && bytes ? [bytes, held.line] : [held.line]; // step lines never end in a period, alone or after bytes
   } else if (!p) {
     lead = { kind: "state", text: "Starting…" };
   } else if (phase === "finalizing" || phase === "preparing" || phase === "removing" || phase === "importing" || eta == null) {

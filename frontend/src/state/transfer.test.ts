@@ -203,7 +203,7 @@ describe("cardOf: waiting, never 'Queued'", () => {
   it("a job that never started under a game hold is 'queued' in Core and reads as waiting for the game", () => {
     const v = card(job({ status: "queued", progress: null, phase: null }), null, { hold: game });
     expect(v.lead).toEqual({ kind: "state", text: "Waiting for Fortnite to close" });
-    expect(v.line).toEqual(["Downloads pause while you play and continue on their own."]);
+    expect(v.line).toEqual(["Downloads pause while you play and continue on their own"]);
     expect(v.held?.setting).toBe("whilePlaying");
     expect(v.started).toBe(false);
     expect(v.indeterminate).toBe(false);
@@ -222,12 +222,12 @@ describe("cardOf: waiting, never 'Queued'", () => {
   it("offline, Epic launcher and others each have their own words and no setting unless the player chose it", () => {
     expect(card(job({ status: "queued", progress: null }), null, { hold: { kind: "offline", subject: null } })).toMatchObject({
       lead: { text: "Waiting for an internet connection" },
-      line: ["Continues on its own when you're back online."],
+      line: ["Continues on its own when you're back online"],
       held: { setting: null },
     });
     const egl = card(job({ status: "waiting", progress: null, blockedReason: "Epic Games Launcher is updating this game, so Glider will wait and continue automatically." }), null, { hold: { kind: "egl", subject: null } });
     expect(egl.lead.text).toBe("Waiting for Epic Games Launcher");
-    expect(egl.line).toEqual(["It's updating this game. Glider continues on its own."]);
+    expect(egl.line).toEqual(["It's updating this game. Glider continues on its own"]);
     expect(holdCopy({ kind: "egl", subject: null }, "Epic Games Launcher is installing this game").line).toContain("installing");
     expect(holdCopy({ kind: "game", subject: null }).lead).toBe("Waiting for a game to close");
     expect(holdCopy({ kind: "other", subject: "Waiting for Fortnite's cloud saves to sync." }).lead).toBe("Waiting for Fortnite's cloud saves to sync");

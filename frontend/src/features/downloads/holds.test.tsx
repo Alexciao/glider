@@ -40,7 +40,7 @@ describe("Downloads while a game runs, and offline: the card says why, in place"
     });
     const region = await screen.findByRole("region", { name: other.title });
     expect(within(region).getByText("Waiting for Fortnite to close")).toBeInTheDocument();
-    expect(region).toHaveTextContent("Downloads pause while you play and continue on their own.");
+    expect(region).toHaveTextContent("Downloads pause while you play and continue on their own");
     expect(within(region).queryByText(/queued/i)).toBeNull();
     // The page has no second sentence for the same hold.
     expect(screen.queryByText("Paused while Fortnite is running.")).toBeNull();
@@ -59,7 +59,7 @@ describe("Downloads while a game runs, and offline: the card says why, in place"
     });
     const region = await screen.findByRole("region", { name: game.title });
     expect(within(region).getByText("Waiting for an internet connection")).toBeInTheDocument();
-    expect(region).toHaveTextContent("Continues on its own when you're back online.");
+    expect(region).toHaveTextContent("Continues on its own when you're back online");
     expect(screen.queryByText("You're offline.")).toBeNull();
     expect(within(region).queryByRole("button", { name: "Change" })).toBeNull();
     expect(useApp.getState().snapshot!.queue.holdReason).toBe("Waiting for an internet connection");
