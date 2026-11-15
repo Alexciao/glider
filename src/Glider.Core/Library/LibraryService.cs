@@ -67,6 +67,7 @@ internal sealed class LibraryService : IArtSource, IDisposable
     private bool _disposed;
     private Task _syncTask = Task.CompletedTask;
     private Task _sizesTask = Task.CompletedTask;
+    private bool _sizesRerun; // a rebuild asked while a measurement ran: look again once it finishes
 
     public LibraryService(ServiceContext context)
     {
@@ -690,6 +691,7 @@ internal sealed class LibraryService : IArtSource, IDisposable
         {
             if (!_sizesTask.IsCompleted)
             {
+                _sizesRerun = true; // an update published mid-measurement must not wait for an unrelated rebuild
                 return;
             }
 
@@ -737,6 +739,20 @@ internal sealed class LibraryService : IArtSource, IDisposable
                     }
                 }
             });
+            _sizesTask.ContinueWith(_ =>
+            {
+                bool rerun;
+                lock (_gate)
+                {
+                    rerun = _sizesRerun;
+                    _sizesRerun = false;
+                }
+
+                if (rerun)
+                {
+                    Invalidate(); // the rebuild calls MeasureUpdateSizes again, now that the task has completed
+                }
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         }
     }
 
