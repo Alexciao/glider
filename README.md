@@ -3,20 +3,18 @@
 A fast, quiet Windows launcher for your whole Epic Games library. Sign in, bring in the games you already have (nothing
 re-downloads), then install, update, repair and play without opening the Epic Games Launcher.
 
-<!-- TODO(screenshots): shoot these from the real app (1280x800, dark theme) and save them in docs/screenshots/readme/:
-       home.png, library.png, game.png, downloads.png, settings.png, store.png
-     then replace the placeholder block below with the <p><img ...></p> grid. Until then the images are broken links. -->
-
 ## Screenshots
 
 <p>
-  <img src="docs/screenshots/readme/home.png" width="49%" alt="Home: continue playing, updates, free this week">
-  <img src="docs/screenshots/readme/library.png" width="49%" alt="Library, grid view">
-  <img src="docs/screenshots/readme/game.png" width="49%" alt="A game's page, ready to play">
-  <img src="docs/screenshots/readme/downloads.png" width="49%" alt="Downloads: an install with live speed and chart">
-  <img src="docs/screenshots/readme/settings.png" width="49%" alt="Settings">
-  <img src="docs/screenshots/readme/store.png" width="49%" alt="The Epic Games Store tab">
+  <img src="docs/screenshots/dark-solid-1280x800/home.png" width="49%" alt="Home: continue playing, updates, free this week">
+  <img src="docs/screenshots/dark-solid-1280x800/library-grid.png" width="49%" alt="Library, grid view">
+  <img src="docs/screenshots/dark-solid-1280x800/game-page.png" width="49%" alt="A game's page, ready to play">
+  <img src="docs/screenshots/dark-solid-1280x800/downloads.png" width="49%" alt="Downloads: an install in progress, time left as the headline">
+  <img src="docs/screenshots/dark-solid-1280x800/settings.png" width="49%" alt="Settings, Downloads section">
+  <img src="docs/screenshots/light-solid-1280x800/onboarding-scan.png" width="49%" alt="First run: games found on this PC, light theme">
 </p>
+
+Rendered from the app with its mock backend (`pnpm screenshots:readme` in `frontend/`).
 
 > Glider is an unofficial, independent project. It is not affiliated with or endorsed by Epic Games.
 > Fortnite and Epic Games are trademarks of Epic Games, Inc.
