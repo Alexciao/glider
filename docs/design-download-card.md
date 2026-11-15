@@ -11,6 +11,15 @@ fonts and ui kit). `frontend/e2e/mockups/vite.config.mjs` swaps `Downloads.tsx`'
 No product code changed. Screenshots: [`screenshots/download-card-redesign/`](screenshots/download-card-redesign/).
 Mock values (sizes, speeds, a 58.8 MB/s connection) are the mock's. The slow-drive case is forced with `?bottleneck=disk`.
 
+> **Status: direction D is implemented** (`frontend/src/features/downloads/ActiveJobCard.tsx`, `CardBand.tsx`, `state/transfer.ts`;
+> Core: whole-job ETA, `NetworkStats.CeilingBytesPerSecond`, `QueueState.Hold`). The scratch mockups this document describes
+> (`frontend/e2e/mockups/`: A, B, C, D, their model and the shoot/contrast scripts) were deleted once the real card existed, and
+> A–C can no longer run (the helpers they sketched were replaced). They are in git history: `git show 6dcd763:frontend/e2e/mockups/README.md`,
+> or check out `6dcd763` to run them. The real card has its own tooling: `e2e/tools/downloads-shots.mjs` (every state, both themes and
+> sizes), `e2e/tools/film-card.mjs` (pause/resume/phase filmstrips), `e2e/card-contrast.spec.ts` (the band's AA, enforced) and the
+> focus-ring check in `e2e/focus.spec.ts`. Final shots: [`screenshots/download-card-final/`](screenshots/download-card-final/). Where
+> the shipped card differs from this proposal, `DECISIONS.md` ("Download card, as built") says how and why.
+
 ## Verdict
 
 The card is clean and honest per phase. But it answers the wrong question first, and it's at its worst in the case that
