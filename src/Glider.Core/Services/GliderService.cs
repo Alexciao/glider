@@ -478,6 +478,25 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _c.Host.OpenUrl(uri.AbsoluteUri);
     });
 
+    /// <summary>A fixed shell URI, never caller-supplied.</summary>
+    public Task OpenSecurity() => Rpc(nameof(OpenSecurity), () =>
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw new GliderException(Errors.NotAvailableYet("Windows Security"));
+        }
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("windowsdefender://threathistory") { UseShellExecute = true })?.Dispose();
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            _c.Log.Warn("app", "couldn't open Windows Security", e);
+            throw new GliderException(Errors.InvalidRequest("Windows Security couldn't be opened. Open it from the Start menu."));
+        }
+    });
+
     /// <summary>Folders anywhere; files only inside Glider's data directory (opening an arbitrary file could run it).</summary>
     public Task OpenPath(PathRequest request) => Rpc(nameof(OpenPath), () =>
     {

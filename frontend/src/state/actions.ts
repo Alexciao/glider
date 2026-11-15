@@ -510,6 +510,9 @@ export function runFix(fix: FixAction, ctx: FixContext = {}): void {
       ui.go("settings", "advanced");
       ui.focusLogs();
       return;
+    case "openSecurity":
+      void run("openSecurity", () => rpc().call("app.openSecurity"), asToast());
+      return;
     case "waitForEgl":
       ui.go("downloads");
       return;

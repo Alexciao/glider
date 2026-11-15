@@ -169,7 +169,7 @@ public class LegendaryGameConfigTests
 
     [Fact]
     public void TheValueDropsEmptyAndDuplicateTags() =>
-        Assert.Equal("Startup,FortniteBR", LegendaryConfigFile.InstallTagsValue(["Startup", "", "FortniteBR", "Startup", " "]));
+        Assert.Equal("Startup,FortniteBR", LegendaryConfigFile.InstallTagsValue(["Startup", "", "FortniteBR", "Startup", " ", "Bad,Tag"]));
 
     [Fact]
     public async Task EnsureWritesQueuedGameValuesWithTheManagedKeys()

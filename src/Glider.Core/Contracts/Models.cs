@@ -986,10 +986,12 @@ public enum ErrorCode
     OverlayFailed,
     Cancelled,
     Timeout,
+    /// <summary>Windows Security (Defender) blocked or stopped legendary.exe, typically a false positive on the PyInstaller build.</summary>
+    BlockedByAntivirus,
 }
 
 [JsonConverter(typeof(CamelEnumConverter<FixAction>))]
-public enum FixAction { SignIn, FreeSpace, Repair, Retry, ChooseFolder, OpenLogs, CloseGame, WaitForEgl, Activate, ResolveSaves, InstallPrerequisites, PlayOffline, Update }
+public enum FixAction { SignIn, FreeSpace, Repair, Retry, ChooseFolder, OpenLogs, CloseGame, WaitForEgl, Activate, ResolveSaves, InstallPrerequisites, PlayOffline, Update, OpenSecurity }
 
 /// <summary>A human-readable failure with an optional one-click fix. Detail is technical (for logs/copy).</summary>
 public sealed record GliderError(

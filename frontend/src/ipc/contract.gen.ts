@@ -163,9 +163,9 @@ export interface EglState {
   lastScan: string | null;
 }
 
-export type ErrorCode = "unknown" | "invalidRequest" | "notSignedIn" | "authExpired" | "authFailed" | "authCancelled" | "insufficientSpace" | "network" | "offline" | "cdnUnavailable" | "filesLocked" | "permissionDenied" | "eglBusy" | "gameRunning" | "gameBusy" | "notFound" | "notOwned" | "notInstalled" | "alreadyInstalled" | "invalidFolder" | "corrupted" | "busy" | "legendaryMissing" | "legendaryFailed" | "legendaryLocked" | "eacSetupFailed" | "prerequisiteFailed" | "launchFailed" | "thirdPartyRequired" | "activationRequired" | "saveConflict" | "saveSyncFailed" | "overlayFailed" | "cancelled" | "timeout";
+export type ErrorCode = "unknown" | "invalidRequest" | "notSignedIn" | "authExpired" | "authFailed" | "authCancelled" | "insufficientSpace" | "network" | "offline" | "cdnUnavailable" | "filesLocked" | "permissionDenied" | "eglBusy" | "gameRunning" | "gameBusy" | "notFound" | "notOwned" | "notInstalled" | "alreadyInstalled" | "invalidFolder" | "corrupted" | "busy" | "legendaryMissing" | "legendaryFailed" | "legendaryLocked" | "eacSetupFailed" | "prerequisiteFailed" | "launchFailed" | "thirdPartyRequired" | "activationRequired" | "saveConflict" | "saveSyncFailed" | "overlayFailed" | "cancelled" | "timeout" | "blockedByAntivirus";
 
-export type FixAction = "signIn" | "freeSpace" | "repair" | "retry" | "chooseFolder" | "openLogs" | "closeGame" | "waitForEgl" | "activate" | "resolveSaves" | "installPrerequisites" | "playOffline" | "update";
+export type FixAction = "signIn" | "freeSpace" | "repair" | "retry" | "chooseFolder" | "openLogs" | "closeGame" | "waitForEgl" | "activate" | "resolveSaves" | "installPrerequisites" | "playOffline" | "update" | "openSecurity";
 
 export interface FolderValidation {
   valid: boolean;
@@ -822,6 +822,7 @@ export interface RpcMethods {
   "app.getSnapshot": { params: void; result: AppSnapshot };
   "app.openExternal": { params: UrlRequest; result: void };
   "app.openPath": { params: PathRequest; result: void };
+  "app.openSecurity": { params: void; result: void };
   "app.pickFolder": { params: PickFolderRequest; result: PickFolderResult };
   "app.quit": { params: void; result: void };
   "app.ready": { params: void; result: void };
@@ -922,6 +923,7 @@ export const RPC_METHODS = [
   "app.getSnapshot",
   "app.openExternal",
   "app.openPath",
+  "app.openSecurity",
   "app.pickFolder",
   "app.quit",
   "app.ready",

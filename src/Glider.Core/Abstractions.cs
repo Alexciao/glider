@@ -318,7 +318,12 @@ public sealed record InstallRecord(
     bool AdoptedFromEgl,
     /// <summary>EGL InstallationGuid when the folder is shared with EGL.</summary>
     string? EglInstallationGuid,
-    bool NeedsVerification);
+    bool NeedsVerification,
+    /// <summary>
+    /// Glider has handed EGL's optional-pack list to Legendary for this install (at import or by the one-time backfill), so it
+    /// never overrides a selection the user makes afterwards. Absent in older games.json files = false.
+    /// </summary>
+    bool EglTagsCarried = false);
 
 /// <summary>Everything Glider stores about one game (installed or not).</summary>
 public sealed record GameEntry(

@@ -212,3 +212,23 @@ public class LegendaryCliParsingTests
             LegendaryCli.InstallArguments(new InstallArgs("Fortnite", InstallMode.Repair, null, 0, 0, ""), installed: true, 0, true));
     }
 }
+
+public class AntivirusBlockTests
+{
+    [Theory]
+    [InlineData(225, true)]  // ERROR_VIRUS_INFECTED: "Il file contiene un virus o software potenzialmente indesiderato"
+    [InlineData(226, true)]  // ERROR_VIRUS_DELETED
+    [InlineData(2, false)]   // file not found stays "Glider is damaged"
+    [InlineData(5, false)]
+    public void AStartRefusedByWindowsSecurityIsRecognised(int nativeError, bool blocked) =>
+        Assert.Equal(blocked, LegendaryProcessRunner.IsBlockedByAntivirus(new System.ComponentModel.Win32Exception(nativeError)));
+
+    [Fact]
+    public void TheErrorPointsAtWindowsSecurity()
+    {
+        var e = Errors.BlockedByAntivirus("detail");
+        Assert.Equal(ErrorCode.BlockedByAntivirus, e.Code);
+        Assert.Equal(FixAction.OpenSecurity, e.Fix);
+        Assert.Contains("false positive", e.Message);
+    }
+}

@@ -132,4 +132,5 @@ export const FIX_LABELS: Record<FixAction, string> = {
   installPrerequisites: "Set up now",
   playOffline: "Play offline",
   update: "Update",
+  openSecurity: "Open Windows Security",
 };

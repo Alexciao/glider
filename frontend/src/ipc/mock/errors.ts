@@ -119,6 +119,8 @@ export const Errors = {
     err("overlayFailed", "Overlay setup failed", "The Epic overlay couldn't be installed. Try again; the games work without it.", "retry", detail),
   cancelled: () => err("cancelled", "Canceled", "The task was canceled.", null),
   timeout: (what: string) => err("timeout", "Timed out", `${what} took too long to respond. Check your connection and retry.`, "retry"),
+  blockedByAntivirus: (detail: string | null = null) =>
+    err("blockedByAntivirus", "Windows Security blocked Legendary", "It flagged Glider's download tool (legendary.exe) and stopped it. This is a false positive: allow it in Protection history, then try again. Progress is kept.", "openSecurity", detail),
 } as const;
 
 /** A representative error for any code, used by `fail=` / `failNext` / `failActiveJob`. */
@@ -159,6 +161,7 @@ export function errorForCode(code: ErrorCode, title?: string, appName: string | 
     case "overlayFailed": return Errors.overlayFailed("EOSOverlayRenderer: download interrupted");
     case "cancelled": return Errors.cancelled();
     case "timeout": return Errors.timeout("Epic's servers");
+    case "blockedByAntivirus": return Errors.blockedByAntivirus("mock: injected failure");
   }
 }
 

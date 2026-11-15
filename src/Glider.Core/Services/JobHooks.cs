@@ -215,7 +215,8 @@ internal sealed class JobHooks : IJobHooks, IJobGate
         var verify = InstallService.DecideVerify(mode, item, latest) || installed.NeedsVerification;
         var old = _c.Games.Get(app).Install;
         var rec = new InstallRecord(app, installed.InstallPath, installed.Version, installed.InstallSizeBytes, old?.InstalledAt ?? _c.Now,
-            AdoptedFromEgl: item is not null, EglInstallationGuid: item?.InstallationGuid ?? old?.EglInstallationGuid, NeedsVerification: verify);
+            AdoptedFromEgl: item is not null, EglInstallationGuid: item?.InstallationGuid ?? old?.EglInstallationGuid, NeedsVerification: verify,
+            EglTagsCarried: item is not null);
         await _c.SaveRecordAsync(app, rec);
         _c.Sizes.Request(app, filesChanged: false);
         _c.Log.Info("game", $"imported {app} at {rec.InstallPath} v{rec.Version} (egl={item is not null}, verify={verify}, mode={mode})");

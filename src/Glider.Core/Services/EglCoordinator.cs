@@ -37,13 +37,14 @@ internal sealed class EglCoordinator
     /// <summary>
     /// Installs imported before Glider recorded EGL's optional packs (v0.2.1 and earlier, and every EOSH-only install) have no
     /// install_tags in Legendary, so the next verify or update would treat the packs EGL skipped as missing (an 11 GB "repair" on
-    /// a fine Fortnite). Fill them in from EGL's record of the same folder. Idempotent: an unchanged value isn't rewritten.
+    /// a fine Fortnite). Fill them in from EGL's record of the same folder, once per install (<see cref="InstallRecord.EglTagsCarried"/>),
+    /// so a pack selection the user makes later is never overridden by EGL's.
     /// </summary>
     internal async Task BackfillInstallTagsAsync(CancellationToken ct)
     {
         foreach (var (app, entry) in _c.Games.Current)
         {
-            if (entry.Install is not { } rec)
+            if (entry.Install is not { } rec || rec.EglTagsCarried)
             {
                 continue;
             }
@@ -56,10 +57,17 @@ internal sealed class EglCoordinator
                     continue;
                 }
 
-                if (_c.Egl.FindByLocation(installed.InstallPath, app) is { InstallTags: { Count: > 0 } tags })
+                if (_c.Egl.FindByLocation(installed.InstallPath, app) is not { } item)
+                {
+                    continue; // EGL doesn't know this folder (yet): try again on a later rescan
+                }
+
+                if (item.InstallTags is { Count: > 0 } tags)
                 {
                     await _c.Legendary.SetInstallTagsAsync(app, tags, ct);
                 }
+
+                await _c.SaveRecordAsync(app, rec with { EglTagsCarried = true });
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or GliderException)
             {

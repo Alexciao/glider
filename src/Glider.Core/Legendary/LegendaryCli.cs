@@ -392,7 +392,7 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
                 return Fail(Errors.Network("Couldn't download the game's file list (SDL data) from api.legendary.gl. Nothing was changed."));
             }
 
-            var error = ErrorClassifier.Classify(kind, run, FreeBytes(location));
+            var error = Refine(ErrorClassifier.Classify(kind, run, FreeBytes(location)));
             if (error is null && kind != LegendaryCommandKind.Repair && await GetInstalledAsync(args.AppName, ct) is null)
             {
                 error = Errors.LegendaryFailed("Legendary finished but did not register the install.");
@@ -477,14 +477,34 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
             StallTimeout = _options.StallTimeout,
             Timeout = Timeout.InfiniteTimeSpan,
         }, progress, ct);
-        var error = ErrorClassifier.Classify(LegendaryCommandKind.Verify, run);
+        var error = Refine(ErrorClassifier.Classify(LegendaryCommandKind.Verify, run));
         var f = run.Facts;
         return new LegendaryOutcome(error is null, error, null, null, new VerifyCounts(f.VerifyFilesChecked, f.VerifyCorrupted, f.VerifyMissing));
+    }
+
+    /// <summary>
+    /// A long run that ended with no result from Legendary (exit 0, no success marker) may have been killed by Windows Security,
+    /// which looks like a silent exit from inside; if a fresh start is refused as a virus, say so instead of "stopped unexpectedly".
+    /// </summary>
+    private GliderError? Refine(GliderError? error)
+    {
+        if (error is { Code: ErrorCode.LegendaryFailed } && error.Detail?.StartsWith("No success marker", StringComparison.Ordinal) == true && Runner.IsLegendaryBlocked())
+        {
+            _log.Warn("legendary", "Windows Security refuses to start legendary.exe; the run was most likely stopped by it.");
+            return Errors.BlockedByAntivirus(error.Detail);
+        }
+
+        return error;
     }
 
     public async Task SetInstallTagsAsync(string appName, IReadOnlyList<string> tags, CancellationToken ct)
     {
         var value = LegendaryConfigFile.InstallTagsValue(tags);
+        if (tags.Any(t => t.Contains(',', StringComparison.Ordinal)))
+        {
+            _log.Warn("legendary", $"Skipped install tags of {appName} that contain a comma (Legendary's format can't hold them).");
+        }
+
         if (value.Length == 0)
         {
             return;
@@ -503,7 +523,7 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
             UsesLogin = true,
             Timeout = _options.ImportTimeout,
         }, null, ct);
-        var error = ErrorClassifier.Classify(LegendaryCommandKind.Import, run);
+        var error = Refine(ErrorClassifier.Classify(LegendaryCommandKind.Import, run));
         var installed = error is null ? await GetInstalledAsync(appName, ct) : null;
         if (error is null && installed is null)
         {
@@ -1011,7 +1031,7 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
         }
 
         var run = await RunAsync(new LegendaryCommand(LegendaryCommandKind.Move, args) { Exclusive = true, Timeout = _options.ImportTimeout }, null, ct);
-        var error = ErrorClassifier.Classify(LegendaryCommandKind.Move, run);
+        var error = Refine(ErrorClassifier.Classify(LegendaryCommandKind.Move, run));
         if (error is not null && run.Facts.MoveCrossDrive)
         {
             error = error with { Detail = "different drive" };

@@ -133,6 +133,11 @@ public static class Errors
     public static GliderError LegendaryMissing(string? detail = null) => new(ErrorCode.LegendaryMissing,
         "Glider is damaged", "A required component is missing. Reinstall Glider to fix it.", FixAction.OpenLogs, detail);
 
+    public static GliderError BlockedByAntivirus(string? detail = null) => new(ErrorCode.BlockedByAntivirus,
+        "Windows Security blocked Legendary",
+        "It flagged Glider's download tool (legendary.exe) and stopped it. This is a false positive: allow it in Protection history, then try again. Progress is kept.",
+        FixAction.OpenSecurity, detail);
+
     public static GliderError LegendaryFailed(string? detail = null) => new(ErrorCode.LegendaryFailed,
         "The task failed", "The operation stopped unexpectedly. Progress is kept.", FixAction.Retry, detail);
 

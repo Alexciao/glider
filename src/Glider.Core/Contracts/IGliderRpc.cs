@@ -20,6 +20,8 @@ public interface IGliderRpc
     // ---- app ----
     [RpcMethod("app.getSnapshot")] Task<AppSnapshot> GetSnapshot();
     [RpcMethod("app.openExternal")] Task OpenExternal(UrlRequest request);
+    /// <summary>Opens Windows Security's Protection history (where a blocked legendary.exe can be allowed).</summary>
+    [RpcMethod("app.openSecurity")] Task OpenSecurity();
     [RpcMethod("app.openPath")] Task OpenPath(PathRequest request);
     [RpcMethod("app.pickFolder")] Task<PickFolderResult> PickFolder(PickFolderRequest request);
     [RpcMethod("app.getLogs")] Task<LogsResult> GetLogs(LogsRequest request);

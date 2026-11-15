@@ -192,6 +192,44 @@ internal sealed class LegendaryProcessRunner : IDisposable
         }
     }
 
+    /// <summary>ERROR_VIRUS_INFECTED (225) / ERROR_VIRUS_DELETED (226): Windows Security refused to start the file.</summary>
+    internal static bool IsBlockedByAntivirus(Win32Exception e) => e.NativeErrorCode is 225 or 226;
+
+    /// <summary>
+    /// After a run that ended without Legendary's result (no success marker, nothing classified): would Windows Security still
+    /// refuse to start legendary.exe? A Defender kill looks like a silent exit 0 from inside; a refused start is unambiguous.
+    /// </summary>
+    public bool IsLegendaryBlocked()
+    {
+        if (!OperatingSystem.IsWindows() || !File.Exists(_paths.LegendaryExe))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo(_paths.LegendaryExe, "--version")
+            {
+                UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
+            });
+            p?.WaitForExit(15_000);
+            if (p is { HasExited: false })
+            {
+                p.Kill(entireProcessTree: true);
+            }
+
+            return false;
+        }
+        catch (Win32Exception e)
+        {
+            return IsBlockedByAntivirus(e);
+        }
+        catch (Exception e) when (e is InvalidOperationException or IOException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>Number of Legendary processes currently alive (config.ini is only written at zero).</summary>
     public int ActiveProcesses => Volatile.Read(ref _active);
 
@@ -356,6 +394,10 @@ internal sealed class LegendaryProcessRunner : IDisposable
             try
             {
                 process.Start();
+            }
+            catch (Win32Exception e) when (IsBlockedByAntivirus(e))
+            {
+                throw new GliderException(Errors.BlockedByAntivirus($"{_paths.LegendaryExe}: {e.Message}"), e);
             }
             catch (Win32Exception e)
             {

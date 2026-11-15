@@ -58,6 +58,7 @@ public class ImportTests
 
         Assert.Equal(["Startup", "FortniteBR", "Langde", ""], rig.Legendary.InstallTagsSet[FortniteLayout.AppName]);
         Assert.Single(rig.Jobs.Requests); // complete and up to date: still no verify
+        Assert.True(rig.Games.Record()!.EglTagsCarried);
     }
 
     [Fact]
@@ -68,10 +69,18 @@ public class ImportTests
         await RunImport(rig, job); // v0.2.1: imported, no tags known
         Assert.Empty(rig.Legendary.InstallTagsSet);
 
+        await rig.Games.UpdateAsync(FortniteLayout.AppName, e => e with { Install = e.Install! with { EglTagsCarried = false } }); // a v0.2.1 record
         rig.Egl.Item = rig.Egl.Item! with { InstallTags = ["FortniteBR"] };
         await rig.Service.RescanEgl();
 
         Assert.Equal(["FortniteBR"], rig.Legendary.InstallTagsSet[FortniteLayout.AppName]);
+        Assert.True(rig.Games.Record()!.EglTagsCarried);
+
+        // Once only: a later EGL selection (or the user's own choice in Legendary) is never overridden by another rescan.
+        rig.Legendary.InstallTagsSet.Clear();
+        rig.Egl.Item = rig.Egl.Item! with { InstallTags = ["FortniteBR", "Langfr"] };
+        await rig.Service.RescanEgl();
+        Assert.Empty(rig.Legendary.InstallTagsSet);
     }
 
     [Fact]

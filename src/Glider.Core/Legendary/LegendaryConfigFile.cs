@@ -69,8 +69,9 @@ internal static class LegendaryConfigFile
     }
 
     /// <summary>Legendary's <c>install_tags</c> value: comma-separated, empty tags dropped (cli.py:971, verify splits on ',').</summary>
+    /// <remarks>A tag containing a comma can't be expressed in Legendary's format (it would split into two); such tags are dropped.</remarks>
     public static string InstallTagsValue(IEnumerable<string> tags) =>
-        string.Join(",", tags.Where(t => t.Trim().Length > 0).Select(t => t.Trim()).Distinct(StringComparer.Ordinal));
+        string.Join(",", tags.Select(t => t.Trim()).Where(t => t.Length > 0 && !t.Contains(',', StringComparison.Ordinal)).Distinct(StringComparer.Ordinal));
 
     /// <summary>Returns the new file content, or null when nothing needs to change. Pure (unit-tested).</summary>
     public static string? Apply(string? existing, IReadOnlyList<KeyValuePair<string, string>> values, string section = Section)
