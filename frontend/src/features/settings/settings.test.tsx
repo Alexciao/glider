@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { useApp } from "../../state/store";
+import { goToSetting, useSettingsFocus } from "../../state/settingsFocus";
 import { useUi } from "../../state/ui";
 import { mount, installCleanStores } from "../../test/harness";
 import { isHostName } from "./DownloadsSection";
@@ -59,6 +60,24 @@ describe("Settings structure", () => {
       goto(section);
       expect(await screen.findByRole("heading", { level: 2, name: heading })).toBeInTheDocument();
     }
+  });
+});
+
+describe("Settings: focus hook for other pages", () => {
+  it("goToSetting opens Downloads with that row focused, once (a later visit starts calm)", async () => {
+    await mount("returning", <Settings />);
+    act(() => goToSetting("speedLimit"));
+    const limit = await screen.findByRole("combobox", { name: "Speed limit" });
+    await waitFor(() => expect(limit).toHaveFocus());
+    expect(useSettingsFocus.getState().target).toBeNull();
+    // The row is tinted for a moment, then settles.
+    expect(limit.closest("[class*='bg-accent-soft']")).not.toBeNull();
+  });
+
+  it("focuses the mode control for the mode row", async () => {
+    await mount("returning", <Settings />);
+    act(() => goToSetting("downloadMode"));
+    await waitFor(() => expect(within(screen.getByRole("radiogroup", { name: "Download mode" })).getAllByRole("radio").some((r) => r === document.activeElement)).toBe(true));
   });
 });
 

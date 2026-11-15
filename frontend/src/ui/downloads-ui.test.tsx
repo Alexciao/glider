@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MiniSparkline, PhaseStepper, ReorderList, StatGroups, ThroughputChart, monotonePath, nearestIndex, niceCeil, slotOffset, type ChartData } from "./index";
+import { MiniSparkline, PhaseStepper, ReorderList, ThroughputChart, monotonePath, nearestIndex, niceCeil, slotOffset, type ChartData } from "./index";
 
 describe("niceCeil", () => {
   it("rounds up to a clean axis maximum", () => {
@@ -95,6 +95,71 @@ describe("ThroughputChart", () => {
     expect(screen.getByRole("group", { name: /Speed over time\. Network now 30 B\/s, Disk write now 7 B\/s\./ })).toBeInTheDocument();
   });
 
+  describe("as a card chart (live readouts are the legend)", () => {
+    const series = [
+      { key: "n", label: "Download", color: "red", area: true },
+      { key: "d", label: "Disk write", color: "blue" },
+    ];
+    const t = [0, 1, 2];
+    const net = [10, 20, 30];
+    const disk = [5, 6, 7];
+    const draw = (extra: Partial<React.ComponentProps<typeof ThroughputChart>>, average = 20) =>
+      render(
+        <ThroughputChart
+          series={series}
+          read={() => ({ t, values: [net, disk] })}
+          subscribe={() => () => {}}
+          format={(v) => `${v} B/s`}
+          formatTime={(x) => `${x}s`}
+          markers={() => ({ average, peak: 30 })}
+          label="Speed over time"
+          {...extra}
+        />,
+      );
+    const chip = (c: HTMLElement) => [...c.querySelectorAll<HTMLElement>("span")].find((e) => e.textContent?.startsWith("Average"));
+    const peakLabel = (c: HTMLElement) => [...c.querySelectorAll<HTMLElement>("span")].find((e) => e.textContent?.startsWith("Peak") && e.className.includes("whitespace-nowrap"));
+
+    it("drops the legend list", () => {
+      draw({ legend: false });
+      expect(screen.queryByRole("list", { name: "Series" })).toBeNull();
+    });
+
+    it("peak is the dot only; its value moves to the hover tooltip", () => {
+      const { container } = draw({ peakLabel: false });
+      expect(peakLabel(container)!.style.opacity).toBe("0");
+      const plot = screen.getByRole("group", { name: /Speed over time/ });
+      act(() => plot.focus());
+      expect(container.textContent).toContain("Peak");
+      expect(container.textContent).toContain("30 B/s");
+    });
+
+    it("the average chip shows only when the latest value is 5% or more away from the average", () => {
+      const away = draw({ averageLabel: "whenDifferent" }, 20);
+      expect(chip(away.container)!.style.opacity).toBe("1"); // now 30 vs avg 20
+      away.unmount();
+      const steady = draw({ averageLabel: "whenDifferent" }, 29.5);
+      expect(chip(steady.container)!.style.opacity).toBe("0"); // 30 is within 5% of 29.5: the dashed line is enough
+      steady.unmount();
+      const never = draw({ averageLabel: "never" }, 20);
+      expect(chip(never.container)!.style.opacity).toBe("0");
+    });
+
+    it("pausing hides the chip on the same chart: the prop change redraws without waiting for a new sample", () => {
+      const props = { series, read: () => ({ t, values: [net, disk] }), subscribe: () => () => {}, format: (v: number) => `${v} B/s`, formatTime: (x: number) => `${x}s`, markers: () => ({ average: 20, peak: 30 }), label: "Speed over time" };
+      const { container, rerender } = render(<ThroughputChart {...props} averageLabel="whenDifferent" />);
+      expect(chip(container)!.style.opacity).toBe("1");
+      rerender(<ThroughputChart {...props} averageLabel="never" />);
+      expect(chip(container)!.style.opacity).toBe("0");
+    });
+
+    it("draws a quiet line at the opacity it is given", () => {
+      const { container } = draw({ series: [{ ...series[0]!, area: false, opacity: 0.4 }, { ...series[1]!, area: true }], markerSeries: 1 });
+      const lines = [...container.querySelectorAll("svg path[stroke]")];
+      expect(lines.find((p) => p.getAttribute("stroke") === "red")!.getAttribute("stroke-opacity")).toBe("0.4");
+      expect(lines.find((p) => p.getAttribute("stroke") === "blue")!.getAttribute("stroke-opacity")).toBe("1");
+    });
+  });
+
   it("does not draw or listen while inactive (hidden window), and repaints on activation", () => {
     const { view, read, notify, ui } = setup(false);
     expect(read).not.toHaveBeenCalled();
@@ -156,34 +221,6 @@ describe("PhaseStepper", () => {
   it("marks nothing current when the phase is not in the list", () => {
     render(<PhaseStepper steps={steps} current="zzz" />);
     expect(document.querySelector("[aria-current]")).toBeNull();
-  });
-});
-
-describe("StatGroups", () => {
-  it("renders titled groups as label/value definition lists", () => {
-    render(
-      <StatGroups
-        groups={[
-          { id: "speed", title: "Speed", rows: [{ key: "now", label: "Now", value: "48.2 MB/s" }] },
-          { id: "time", title: "Time", rows: [{ key: "el", label: "Elapsed", value: "4:12" }] },
-        ]}
-      />,
-    );
-    expect(screen.getByRole("region", { name: "Speed" })).toHaveTextContent("Now48.2 MB/s");
-    expect(screen.getByRole("region", { name: "Time" })).toHaveTextContent("Elapsed4:12");
-  });
-  it("stacks groups into the requested columns and drops unnamed ones", () => {
-    render(
-      <StatGroups
-        columns={[["b"], ["a"]]}
-        groups={[
-          { id: "a", title: "A", rows: [{ key: "x", label: "x", value: "1" }] },
-          { id: "b", title: "B", rows: [{ key: "y", label: "y", value: "2" }] },
-          { id: "c", title: "C", rows: [{ key: "z", label: "z", value: "3" }] },
-        ]}
-      />,
-    );
-    expect(screen.getAllByRole("region").map((r) => r.getAttribute("aria-label"))).toEqual(["B", "A"]);
   });
 });
 

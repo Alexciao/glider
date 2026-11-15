@@ -1,5 +1,6 @@
+import { useEffect, useState } from "react";
 import { AnimatePresence, m } from "motion/react";
-import { Clock, Pause } from "lucide-react";
+import { ArrowDownToLine, Clock, Pause } from "lucide-react";
 import type { JobInfo } from "../ipc/contract.gen";
 import { jobVerb } from "../state/derive";
 import { formatPercent, formatSpeed } from "../state/format";
@@ -10,12 +11,20 @@ import { activeJobs, currentJob, useSnap } from "../state/store";
 import { useUi } from "../state/ui";
 import { Spinner, cx, spring } from "../ui";
 
+/** The pill spins for its first moments, so a new task is noticed, then rests: a spinner that runs for hours is noise. */
+const SPIN_MS = 2000;
+
 function PillBody({ job, more }: { job: JobInfo; more: number }) {
+  const [spinning, setSpinning] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setSpinning(false), SPIN_MS);
+    return () => clearTimeout(t);
+  }, []);
   const progress = useJobProgress(job.id, job.progress);
   const percent = progress?.percent ?? 0;
   const running = job.status === "running";
 
-  let icon = <Spinner size={14} className="text-accent" />;
+  let icon = spinning ? <Spinner size={14} className="text-accent" /> : <ArrowDownToLine size={14} className="text-accent" />;
   let text: string = `${jobVerb(job.kind, progress?.phase ?? job.phase)} ${job.title}`;
   let detail: string | null = null;
   if (job.status === "paused") {
@@ -74,7 +83,7 @@ export function ActivityPill() {
           transition={spring.snappy}
           className="app-no-drag pointer-events-auto relative flex h-7 items-center gap-2 overflow-hidden rounded-full border border-border-strong bg-surface-2 px-3.5 text-xs transition-colors duration-150 hover:bg-surface-3 active:scale-[0.98]"
         >
-          <PillBody job={job} more={more} />
+          <PillBody key={job.id} job={job} more={more} />
         </m.button>
       )}
     </AnimatePresence>

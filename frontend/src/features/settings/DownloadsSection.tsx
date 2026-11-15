@@ -5,6 +5,7 @@ import { DOWNLOAD_MODES, modeSummary } from "../../state/downloadModes";
 import { formatBytes } from "../../state/format";
 import { useSnap } from "../../state/store";
 import { Disclosure, SegmentedControl, Select, TextField } from "../../ui";
+import { FocusRow } from "./FocusRow";
 import { AutoNumberRow, Block, Group, Line, Setting, SwitchRow, useSettingsQuery } from "./parts";
 import { sectionById } from "./sections";
 
@@ -38,6 +39,7 @@ function CdnRow({ s }: { s: SettingsT }) {
     } else if (isHostName(v) && v !== s.preferredCdn) void set({ preferredCdn: v });
   };
   return (
+    <FocusRow id="cdn">
     <Setting label="Download server" find="cdn host content delivery manual automatic region">
       <Line
         label="Download server"
@@ -77,6 +79,7 @@ function CdnRow({ s }: { s: SettingsT }) {
         )}
       </Line>
     </Setting>
+    </FocusRow>
   );
 }
 
@@ -91,6 +94,7 @@ export function DownloadsSection({ s }: { s: SettingsT }) {
   return (
     <Block id="downloads" title={def.label}>
       <Group>
+        <FocusRow id="downloadMode">
         <Setting label="Download mode" find="background balanced full priority cpu disk">
           <Line
             label="Download mode"
@@ -106,10 +110,14 @@ export function DownloadsSection({ s }: { s: SettingsT }) {
             }
           />
         </Setting>
+        </FocusRow>
+        <FocusRow id="speedLimit">
         <Setting label="Speed limit" find="cap bandwidth throttle mb/s">
           <Line label="Speed limit" control={<Select aria-label="Speed limit" minWidth={190} value={limit} onValueChange={(v) => void set({ speedLimitBytesPerSecond: v === "none" ? null : Number(v) })} options={limitOptions} />} />
         </Setting>
+        </FocusRow>
         <SwitchRow label="Full speed when I'm away" find="idle away afk" description="While the PC is idle and no game is running." checked={s.idleFullSpeed} onChange={(v) => void set({ idleFullSpeed: v })} />
+        <FocusRow id="whilePlaying">
         <Setting label="While a game is running" find="playing pause throttle continue gaming">
           <Line
             label="While a game is running"
@@ -128,6 +136,7 @@ export function DownloadsSection({ s }: { s: SettingsT }) {
             }
           />
         </Setting>
+        </FocusRow>
       </Group>
 
       <div data-group>
