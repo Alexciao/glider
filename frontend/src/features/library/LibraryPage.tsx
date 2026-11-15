@@ -128,7 +128,7 @@ export function LibraryPage() {
               </button>
             ) : filtered && total > 0 && !showSkeleton ? (
               <span className="text-sm tabular-nums text-fg-subtle">
-                {results.length} of {total}
+                {results.length} of {prefs.filter === "hidden" ? counts.hidden : counts.all}
               </span>
             ) : null}
           </div>
