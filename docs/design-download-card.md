@@ -31,6 +31,12 @@ from the same slot.
 
 ![Today vs B, same moment](screenshots/download-card-redesign/00-compare-current-vs-b-slow.png)
 
+**Owner follow-up:** "I really like B's philosophy, but C looks better." **Direction D, B×C (§7)** keeps B's information
+model and behaviour in C's look: the game's wide art as a band, time left over it, and the bar on its edge. It's now the
+proposal; §5 stays its behavioural spec, and §7 lists only what changes.
+
+![D](screenshots/download-card-redesign/70-d-slow-dark.png)
+
 ---
 
 ## 1. What the card is for
@@ -393,6 +399,131 @@ glance surface for that is **taskbar progress** (`ITaskbarList3::SetProgressValu
 indeterminate). Explorer, Edge and Chrome use it, and Glider doesn't (`MainWindow.Chrome.cs`). It's a few lines in the
 host, fed by the same whole-job percent. Worth doing alongside this.
 
+---
+
+## 7. Direction D: B×C (the proposal after owner feedback)
+
+B's model, unchanged: time left as the headline, one whole-job bar, one line for the current step ending in the disclosure,
+the panel with why, the chart against the connection's ceiling and what to do, and waiting/held/offline/ready in place.
+C's look: the game's wide art as a band, white text over it, the bar along its bottom edge. The owner's refinements on the
+first D pass are folded in: icon-only controls, no task/version line on the band, a smaller title, and lighter, scoped
+shades. 200 px closed, the same as B.
+
+![D, states](screenshots/download-card-redesign/71-d-states-dark.png)
+
+### 7.1 Where the headline goes: left, not right
+
+The first D pass put the time left bottom-right, mirroring the title bottom-left (C's composition). It looked balanced
+but was wrong for B's model:
+- In a left-to-right UI the right edge is where secondary figures and actions live (in B, the percent). Moving the
+  headline there demoted it while keeping its size.
+- The eye enters at the title. With the time on the right it crossed ~600 px of art, then zig-zagged back left for the
+  step line. On the left it's one vertical scan: title → time → bar start → step line.
+- Every other element on the page aligns to the left gutter.
+- Long leads ("Waiting for an internet connection") right-aligned have a ragged start and squeeze the title.
+
+So the band carries B's two rows over the art. The top row has the title left and controls right (B's header row). The
+bottom row has time left on the left and the percent on the right (B's lead row), directly above the bar.
+
+### 7.2 Spec deltas from B (§5)
+
+| | B | D |
+|---|---|---|
+| Picture | 96×128 cover beside the column | **Band, 148 px tall, full card width**: `art.wide`, `bg-cover bg-center`, `data-theme="dark"` in both themes (the band is a dark island in light theme, like the game hero) |
+| Title | `text-md` 600 in the column | `text-md font-semibold leading-6 tracking-tight text-white`, top-left (`inset-x-5 top-4`), **capped at 46 % of the band** (truncates, `title` attr), so it never leaves its shade |
+| Meta (`Install · 3.8.9`) | under the title | **Off the band.** It's a **Task** field in Details: "Install, version 3.8.9" / "Update, 2.5.1 → 2.5.2" / "Move to E:\…" / "Verify files, repair what's damaged" |
+| Controls | `Button` Pause (labelled) + ghost X | **Icon buttons, 32 px, side by side, top-right:** Pause and X share one glass treatment (`oklch(0.15 0.006 265 / 0.58)` fill, `border-white/15`, `backdrop-blur-md`, white glyph, tooltips "Pause" / "Cancel download"). **Paused: Resume is the same square in white** with a dark glyph and a 1 px `ink / 0.28` ring, so its edge survives white art. That's a judgement call: it's the paused card's next step. If the owner wants it as quiet as Pause, give it the glass too. Ready: a labelled primary **Play** (the payoff, not demoted). |
+| Headline | lead row in the column | bottom-left over the art (`inset-x-5 bottom-[18px]`), `TimeLead` in white: digits `text-2xl` 600, units and "left" `text-lg` 500 `white/70`. States in words at `text-xl` 600 white. |
+| Percent | `text-sm text-fg-muted`, right of the lead | `text-sm font-medium tabular-nums text-white`, bottom-right, baseline-aligned with the headline |
+| Bar | `md` (6 px) in the column | `sm` (4 px), full-bleed on the band's bottom edge, `rounded-none`, track `white/10` under the token track. Accent while working, graphite when paused or held (unchanged). |
+| Step line | under the bar, in the column | its own 52 px row under the band (`px-5`). Same content and copy as B. |
+| Disclosure | cause or "Details", hidden when there's nothing behind it | **Always present** (Details always holds the Task field). A **real bottleneck (drive, processor, server) is amber**: `text-warning-text`, amber `Gauge` icon, `hover:bg-warning-soft`, and the soft amber fill stays while open. **A limit the player chose** (speed limit, Background mode, slowed while playing) is `text-fg`. No cause: "Details" in `text-fg-muted`. |
+| Held by a game | "Change" link at the end of the step line | the line keeps the sentence. "Change" moves into Details as a field: **While a game is running · Pause downloads · [Change]**, so the step line has one control in every state. |
+| Details panel | why · chart · advice · link | the same, then a `dl` (`grid-cols-[minmax(0,10rem)_1fr]`, `text-sm`, labels `text-fg-muted`): **Task**, plus **While a game is running** when held by a game |
+| Height | 202 px | 200 px (148 band + 52 line). Open with a slow-drive explanation: 517 px. |
+
+Unchanged from B: every copy string in §5.5, the state table (§5.4) apart from where things sit, motion (§5.6; the art
+never animates and the sheen runs on the 4 px bar), data (§5.9; D only adds `art.wide`, `art.tall` and `art.placeholder`,
+which the snapshot already has), and the removals (§5.10).
+
+**On amber.** I'd argued for no amber on the active card. I've applied the owner's split (fault = amber, choice =
+neutral) and it doesn't hurt: it's one small label in one corner, the words still name the cause, and paused/held stay
+graphite, so amber only ever means "something outside your control is slowing this down". One caveat: on this PC the drive
+label will be amber for the whole download. That's honest, and the soft amber fill only appears while the panel is open.
+
+### 7.3 Readability over art
+
+Text over key art Glider doesn't control keeps AA through **three scoped shades, not a full-band scrim**. Each is a soft
+ellipse anchored at the corner its text sits in, in the dark ink `oklch(0.15 0.006 265)`:
+
+| Shade | Gradient | Carries |
+|---|---|---|
+| Top-left | `radial-gradient(ellipse 80% 112px at 0% 0%, ink/0.80 0%, ink/0.66 60%, ink/0 100%)` | title |
+| Bottom-left | `radial-gradient(ellipse 80% 120px at 0% 100%, ink/0.82 0%, ink/0.66 60%, ink/0 100%)` | headline |
+| Bottom-right | `radial-gradient(ellipse 26% 84px at 100% 100%, ink/0.70 0%, ink/0.58 55%, ink/0 100%)` | percent |
+
+The two left ellipses merge into one smooth column. The right two-thirds of the art and the whole top-right are untouched.
+The controls carry their own glass, so they need no shade (`73-d-art-fallbacks.png`).
+
+**Measured, not eyeballed.** `frontend/e2e/mockups/contrast-card.mjs` is the band version of `e2e/hero-legibility.spec.ts`.
+It collects every text box in the band (clipped to what a truncated line shows), repaints with the text transparent,
+composites semi-transparent text over each pixel, and takes the 2nd-percentile WCAG ratio. Cases: green Scarlet Sanctum II,
+purple Vault & Thorned Co., flat white, bright, busy, no wide art, no art, the longest held lead on white, Ready, and a
+36-character title on white. All in dark and light: **112 text boxes, 0 below AA.**
+
+| Text | Worst case | Ratio (needs) |
+|---|---|---|
+| Title, 16 px 600 | 36-character title on flat white | 5.41 (4.5) |
+| Units ("min left"), 20 px 500 at `white/70` | same | 4.87 (4.5) |
+| Percent, 13 px 500 | same | 4.96 (4.5) |
+| Long lead, 24 px 600 | "Waiting for an internet connection" on flat white | 4.28 (3) |
+| Title on the real green art | Scarlet Sanctum II | 8.08 on flat white, higher on the art |
+
+Icons: a white glyph on the 0.58 glass over flat white is about 4.5:1, computed rather than measured (non-text needs 3:1).
+
+**How it got here** (worth knowing if someone retunes it):
+1. A full-band bottom-up scrim passed everything but left the art visible only in the top 40 %.
+2. Top + bottom scrims for the two text rows left the art as a lit stripe across the middle: a light leak on flat white.
+3. Masked rectangles behind each text block showed their edges as grey slabs.
+4. Corner ellipses won: smooth, scoped, and still AA.
+
+The 12 px task line was the hardest text to keep legible over art. Moving it into Details (owner) is also what let the
+shades get this light.
+
+### 7.4 When the art is missing
+
+1. **Wide art** → the band as specified.
+2. **No wide art, tall cover present** → the cover, `blur-2xl`, scaled 110 % (so the blur doesn't vignette), 90 %
+   opacity, on `art.placeholder`. It reads as an intentional wash, not a stretched crop. It's a static layer, painted once,
+   with nothing animating over it.
+3. **No art at all** (`art=none`) → `linear-gradient(115deg, oklch(0.46 0.08 h), oklch(0.30 0.05 h) 55%, oklch(0.22 0.03 h))`
+   with `h = hueOf(title)`, the same hue the `ArtThumb` monogram uses, so the game keeps its colour across the app.
+
+The same shades apply in all three, and all three were in the contrast run.
+
+### 7.5 Widths
+
+The page column caps the card at **820 px at both 1280×800 and 960×600**, so the two window sizes give identical cards.
+The narrowest real card comes from the window minimum (`MainWindow.MinWidth = 900`): **761 px**. There, the longest leads
+("Waiting for Fortnite to close", "Waiting for an internet connection") still sit clear of the percent
+(`74-d-narrow-900.png`). B's under-620 px rules never trigger and can be dropped from the implementation.
+
+### 7.6 Accessibility deltas
+
+- Band art and shades are `aria-hidden`. The title stays the section's `h2`.
+- Icon buttons keep accessible names and tooltips ("Pause", "Resume", "Cancel download"). The disclosure keeps its visible
+  label plus ", show details".
+- **Not verified yet:** the keyboard focus ring over art. The accent ring can sit on blue or purple art; implementation
+  should add a 1 px dark halo outside the ring for controls on the band and check it on `art=bright` and `art=busy`.
+
+### 7.7 Cost and risks
+
+More than B: the band, three shades, the fallback chain, and keeping AA on art Glider doesn't control (port
+`contrast-card.mjs` into the e2e suite next to `hero-legibility.spec.ts`, enforced). The band uses the same key art the
+game page hero does, so the two surfaces echo each other. That's good for identity, but a game with weak wide art looks
+weak in two places. Busy art (`73`, top-left of the second row) passes AA but is visibly noisy behind the title. Real
+Epic key art is rarely that busy.
+
 ## Screenshot index
 
 All in [`screenshots/download-card-redesign/`](screenshots/download-card-redesign/).
@@ -411,14 +542,21 @@ All in [`screenshots/download-card-redesign/`](screenshots/download-card-redesig
 | `09-current-offline-dark.png` | Today: offline fails the job (Core will hold it instead) |
 | `10-current-film-pause.png`, `11-current-film-phase.png` | Today's pause and phase change, frame by frame |
 | `20-direction-a.png` | A: downloading, slow, paused, slow in light |
-| `30-direction-c.png`, `31-c-slow-page-dark.png` | C: downloading, slow (headroom meter), paused, offline in light; in context |
+| `30-direction-c.png` | C: downloading, slow (headroom meter), paused, offline in light |
 | `40`–`48` | B dark: downloading, slow, slow + details, paused, installing, verifying, held by a game, offline, ready |
 | `50`–`53` | B light: downloading, slow + details, paused, held (not started) |
 | `60-b-page-dark.png`, `61-b-960-dark.png`, `62-b-960-details-light.png` | B in context at 1280 and 960 |
 | `63-b-states-dark.png`, `64-b-states-light.png` | B: every other state |
-| `65-b-film-pause.png`, `66-b-film-phase.png` | B's pause and phase change (only the lead and step line change) |
+| `65-b-film-pause.png`, `66-b-film-phase.png` | B's pause and phase change (only the lead and step line change); D behaves the same |
+| `70-d-slow-dark.png` | D, slow drive: collapsed and with details open |
+| `71-d-states-dark.png` | D dark: downloading, slow, paused, installing, verifying, held by a game, offline, ready |
+| `72-d-states-light.png` | D light: the same eight, plus slow with details open and held with details open (Task + the setting) |
+| `73-d-art-fallbacks.png` | D over flat white, bright, busy and green art; no wide art (blurred cover); no art (hue gradient) |
+| `74-d-narrow-900.png` | D at the 900 px window minimum (761 px card), longest leads, dark and light |
+| `75-d-page-960-dark.png` | D in context at 960×600 |
 
 Reproduce: `cd frontend && pnpm exec vite --config e2e/mockups/vite.config.mjs --port 5988`, then open
-`http://localhost:5988/?scenario=queue&freeze=1&seek=0.42&timescale=1&bottleneck=disk&card=b` (`card=a|b|c`; `details=1`
-opens B's panel; `hold=playing|offline` fakes a hold; `done=1` shows Ready). Shots: `GLIDER_E2E_PORT=5988 CARD=b node
-e2e/mockups/shoot-current.mjs <outDir>`.
+`http://localhost:5988/?scenario=queue&freeze=1&seek=0.42&timescale=1&bottleneck=disk&card=d` (`card=a|b|c|d`; `details=1`
+opens the panel; `hold=playing|offline` fakes a hold; `done=1` shows Ready; `nowide=1` drops the wide art; `art=white|bright|busy|none`
+swaps all art). Shots: `GLIDER_E2E_PORT=5988 CARD=d node e2e/mockups/shoot-current.mjs <outDir>`. Contrast:
+`GLIDER_E2E_PORT=5988 node e2e/mockups/contrast-card.mjs`.

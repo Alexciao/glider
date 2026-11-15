@@ -48,6 +48,13 @@ export const SCENES = [
   { name: "m-held", q: "scenario=playing&hold=playing", setup: async (p) => { await p.evaluate(() => window.__glider.rpc("library.updateAll").catch(() => {})); await wait(600); } },
   { name: "m-held-started", q: "scenario=queue&freeze=1&seek=0.42&timescale=1&hold=playing" },
   { name: "m-done", q: `${DL}&done=1` },
+  // Art fallbacks and worst-case art (D): no wide art (tall cover blurred), no art at all, flat white, bright, busy.
+  { name: "art-nowide", q: `${DL}&nowide=1` },
+  { name: "art-none", q: `${DL}&art=none` },
+  { name: "art-white", q: `${DL}&art=white` },
+  { name: "art-bright", q: `${DL}&art=bright&bottleneck=disk` },
+  { name: "art-busy", q: `${DL}&art=busy` },
+  { name: "m-held-open", q: "scenario=queue&freeze=1&seek=0.42&timescale=1&hold=playing&details=1" },
   { name: "m-offline", q: "scenario=queue&freeze=1&seek=0.42&timescale=1&hold=offline" },
 ];
 

@@ -82,7 +82,8 @@ export function useWideArt(job) {
   return { wide: game?.art.wide ?? null, tall: game?.art.tall ?? null, placeholder: game?.art.placeholder ?? null };
 }
 
-export function PauseButton({ job, size = "md", className }) {
+/** `glass`: over key art. A ghost button on its own dark fill (inline, so no Button variant's fill competes with it). */
+export function PauseButton({ job, size = "md", className, glass = false }) {
   const busy = usePending(`job:${job.id}`);
   const paused = job.status === "paused";
   if (!(job.status === "running" || paused) || !PAUSABLE_KINDS.includes(job.kind)) return null;
@@ -90,9 +91,10 @@ export function PauseButton({ job, size = "md", className }) {
   return (
     <Button
       size={size}
-      variant={paused ? "primary" : "secondary"}
+      variant={paused ? "primary" : glass ? "ghost" : "secondary"}
       loading={busy}
-      className={className}
+      className={cx(glass && !paused && "border border-white/20 text-white backdrop-blur-md hover:text-white", className)}
+      style={glass && !paused ? { backgroundColor: "oklch(0.15 0.006 265 / 0.72)" } : undefined}
       icon={<Icon size={size === "sm" ? 12 : 14} fill="currentColor" strokeWidth={0} />}
       onClick={() => void (paused ? actions.resumeJob(job.id) : actions.pauseJob(job.id))}
     >
