@@ -442,17 +442,35 @@ const RAW_STATES: ShotState[] = [
       await wait(900);
     },
   },
-  // The speed status beside the live speeds: a slow drive (amber, with its reason), a limit the user chose (muted), and the dialog behind it.
+  // What holds the speed back is named on the card (amber for a drive, the processor or the server) and explained in place under Details.
   { name: "downloads-slow", query: "scenario=downloading&freeze=1&seek=0.42&timescale=1&bottleneck=disk", setup: async (p) => go(p, "downloads"), settle: 900 },
   {
-    name: "downloads-slow-dialog",
+    name: "downloads-slow-details",
     query: "scenario=downloading&freeze=1&seek=0.42&timescale=1&bottleneck=disk",
     setup: async (p) => {
       await go(p, "downloads");
-      await btn(p, "Slow download").click();
+      await btn(p, /^Limited by drive/).click();
     },
     settle: 700,
   },
+  { name: "downloads-details", query: "scenario=downloading&freeze=1&seek=0.42&timescale=1", setup: async (p) => { await go(p, "downloads"); await btn(p, /^Details/).click(); }, settle: 700 },
+  // The end state: the install finished while the page was open, so the card stays as "Ready to play" with Play.
+  {
+    name: "downloads-ready",
+    query: "scenario=downloading&seek=0.97&timescale=40",
+    setup: async (p) => {
+      await go(p, "downloads");
+      await p.getByText("Ready to play").first().waitFor({ timeout: 15_000 });
+    },
+    settle: 700,
+  },
+  // Art fallbacks and the worst key art under the band's text: the blurred cover, the hue gradient, flat white, bright, busy.
+  ...(["noWide", "none", "white", "bright", "busy"] as const).map<ShotState>((art) => ({
+    name: `downloads-art-${art.toLowerCase()}`,
+    query: `scenario=downloading&freeze=1&seek=0.42&timescale=1&art=${art}`,
+    setup: async (p) => go(p, "downloads"),
+    settle: 900,
+  })),
   {
     name: "downloads-limited",
     query: "scenario=downloading&freeze=1&seek=0.42&timescale=1",
