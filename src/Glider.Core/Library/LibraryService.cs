@@ -47,6 +47,11 @@ internal sealed class LibraryService : IArtSource, IDisposable
     private readonly ITimer _flushTimer;
     private readonly ITimer _cacheTimer;
     private readonly HashSet<(string App, string Installed, string Latest)> _sizeTried = [];
+    private readonly Dictionary<(string App, string Installed, string Latest), (int Count, long FailedAtMs)> _sizeFailures = []; // failed dry runs per update
+    private const int MaxSizeAttempts = 3; // a transient failure is retried on later rebuilds, a persistent one stops asking
+
+    /// <summary>Wait before re-asking a failed dry run (doubles per failure). Start-up alone runs several rebuilds in a second.</summary>
+    internal TimeSpan SizeRetryDelay { get; set; } = TimeSpan.FromMinutes(2);
     private LegendaryLibrary _lib = LegendaryLibrary.Empty;
     private bool _filesRead;
     private readonly TaskCompletionSource _filesReadSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -695,6 +700,15 @@ internal sealed class LibraryService : IArtSource, IDisposable
                 return;
             }
 
+            var nowMs = Environment.TickCount64;
+            foreach (var (key, failure) in _sizeFailures)
+            {
+                if (failure.Count < MaxSizeAttempts && nowMs - failure.FailedAtMs >= (SizeRetryDelay * Math.Pow(2, failure.Count - 1)).TotalMilliseconds)
+                {
+                    _sizeTried.Remove(key); // due for another try
+                }
+            }
+
             foreach (var g in map.Values)
             {
                 if ((onlyApp is null || g.AppName == onlyApp) && g.UpdateAvailable && g.DownloadSizeBytes is null && g.InstalledVersion is { } i && g.LatestVersion is { } l && _sizeTried.Add((g.AppName, i, l)))
@@ -732,10 +746,15 @@ internal sealed class LibraryService : IArtSource, IDisposable
                             _c.Hub.Mutate(s => s with { UpdateSizes = s.UpdateSizes.SetItem(app, new UpdateSize(installed, latest, sizes.DownloadBytes)) });
                             Invalidate();
                         }
+                        else
+                        {
+                            ForgetFailedSizeAttempt((app, installed, latest));
+                        }
                     }
                     catch (Exception e) when (e is not OperationCanceledException || !_c.Shutdown.IsCancellationRequested)
                     {
                         _c.Log.Warn("update", $"couldn't measure the update size of {app}", e);
+                        ForgetFailedSizeAttempt((app, installed, latest));
                     }
                 }
             });
@@ -753,6 +772,15 @@ internal sealed class LibraryService : IArtSource, IDisposable
                     Invalidate(); // the rebuild calls MeasureUpdateSizes again, now that the task has completed
                 }
             }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }
+    }
+
+    /// <summary>A dry run failed or said nothing: a rebuild after <see cref="SizeRetryDelay"/> (doubling) asks again, up to <see cref="MaxSizeAttempts"/> attempts per update.</summary>
+    private void ForgetFailedSizeAttempt((string App, string Installed, string Latest) key)
+    {
+        lock (_gate)
+        {
+            _sizeFailures[key] = (_sizeFailures.GetValueOrDefault(key).Count + 1, Environment.TickCount64); // stays in _sizeTried until due
         }
     }
 

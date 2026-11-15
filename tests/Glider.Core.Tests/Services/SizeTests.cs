@@ -69,6 +69,58 @@ public class DownloadSizeTests
     }
 
     [Fact]
+    public async Task PendingUpdate_ADryRunThatFailed_IsAskedAgainAfterABackoff_ButNotForever()
+    {
+        using var rig = new Rig();
+        rig.Settings.Set(Settings.Default with { AutoUpdate = AutoUpdatePolicy.Never });
+        rig.Install("v1");
+        rig.Legendary.UpdateSizes = null; // the dry run says nothing (a transient Legendary/metadata failure)
+        var library = rig.Service.LibraryForTests;
+        library.SizeRetryDelay = TimeSpan.FromHours(1);
+        await rig.StartWarmAsync();
+        await library.SizesTask;
+
+        async Task RebuildAsync()
+        {
+            library.Invalidate();
+            await library.FlushAsync();
+            await library.SizesTask;
+            await library.FlushAsync(); // a measured size reaches the summary through one more rebuild
+        }
+
+        await RebuildAsync();
+        Assert.Equal(1, rig.Calls.Count("legendary.updateSizes:Fortnite")); // start-up's many rebuilds and this one: not before the backoff
+
+        library.SizeRetryDelay = TimeSpan.Zero; // the backoff has passed
+        await RebuildAsync(); // attempt 2
+        await RebuildAsync(); // attempt 3, the last
+        await RebuildAsync();
+        Assert.Equal(3, rig.Calls.Count("legendary.updateSizes:Fortnite"));
+        Assert.Null((await rig.SummaryAsync())!.DownloadSizeBytes);
+    }
+
+    [Fact]
+    public async Task PendingUpdate_ARetriedDryRunThatSucceeds_ShowsTheSize()
+    {
+        using var rig = new Rig();
+        rig.Settings.Set(Settings.Default with { AutoUpdate = AutoUpdatePolicy.Never });
+        rig.Install("v1");
+        rig.Legendary.UpdateSizes = null;
+        var library = rig.Service.LibraryForTests;
+        library.SizeRetryDelay = TimeSpan.FromHours(1);
+        await rig.StartWarmAsync();
+        await library.SizesTask;
+
+        library.SizeRetryDelay = TimeSpan.Zero; // the backoff has passed
+        rig.Legendary.UpdateSizes = new LegendarySizes(1_200_000_000, 100_000_000_000);
+        library.Invalidate();
+        await library.FlushAsync();
+        await library.SizesTask;
+        await library.FlushAsync();
+        Assert.Equal(1_200_000_000, (await rig.SummaryAsync())!.DownloadSizeBytes);
+    }
+
+    [Fact]
     public async Task PendingUpdate_WithoutADryRunResult_IsUnknownRatherThanTheFullGameSize()
     {
         using var rig = new Rig();
