@@ -569,3 +569,12 @@ Reproduce: `cd frontend && pnpm exec vite --config e2e/mockups/vite.config.mjs -
 opens the panel; `hold=playing|offline` fakes a hold; `done=1` shows Ready; `nowide=1` drops the wide art; `art=white|bright|busy|none`
 swaps all art). Shots: `GLIDER_E2E_PORT=5988 CARD=d node e2e/mockups/shoot-current.mjs <outDir>`. Contrast:
 `GLIDER_E2E_PORT=5988 node e2e/mockups/contrast-card.mjs`.
+
+## Final screenshots (as built)
+
+[`screenshots/download-card-final/`](screenshots/download-card-final/): the production build against the mock backend, `node e2e/tools/downloads-shots.mjs`
+(every state at 1280×800 and 960×600, dark and light; the sheets crop each card) and `e2e/tools/film-card.mjs`. `01`–`02` are whole
+pages, `03`–`10` every card state (running, slow and limited with Details open, paused, every phase, held by Epic's launcher or a game,
+offline, ready, art fallbacks and worst-case art), `11`–`12` the 761 px card at the 900 px window minimum, `13`–`15` the page at
+960×600, `16` the keyboard focus ring on green, purple, blue, white and bright art, `17` Ready, `18`–`21` pause and resume frame by frame
+(the card does not move).
