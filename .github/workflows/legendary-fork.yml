@@ -84,9 +84,11 @@ jobs:
         shell: pwsh
         working-directory: legendary-src
         env:
-          UV_SYSTEM_PYTHON: 1
           PYINSTALLER_COMPILE_BOOTLOADER: 1
         run: |
+          # uv sync put the locked dependencies into legendary-src/.venv: use that interpreter everywhere below.
+          $py = (Resolve-Path .venv/Scripts/python.exe).Path
+          "PYI_PYTHON=$py" >> $env:GITHUB_ENV
           $lock = Get-Content uv.lock -Raw
           $m = [regex]::Match($lock, '(?ms)^name = "pyinstaller"\r?\nversion = "(?<v>[^"]+)".*?sdist = \{ url = "[^"]+", hash = "sha256:(?<h>[0-9a-f]{64})"')
           if (-not $m.Success) { throw "could not read the locked PyInstaller sdist from uv.lock" }
@@ -94,19 +96,19 @@ jobs:
           Write-Host "PyInstaller $ver, sdist sha256 $hash"
           "version=$ver" >> $env:GITHUB_OUTPUT
 
-          $site = (python -c "import PyInstaller, pathlib; print(pathlib.Path(PyInstaller.__file__).parent)").Trim()
+          $site = (& $py -c "import PyInstaller, pathlib; print(pathlib.Path(PyInstaller.__file__).parent)").Trim()
           $boot = Join-Path $site 'bootloader/Windows-64bit-intel'
           $before = (Get-FileHash (Join-Path $boot 'run.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Host "prebuilt run.exe (wheel): $before"
 
           Set-Content req-pyinstaller.txt "pyinstaller==$ver --hash=sha256:$hash"
-          uv pip install --no-binary pyinstaller --reinstall-package pyinstaller --no-deps --require-hashes -r req-pyinstaller.txt
+          uv pip install --python $py --no-binary pyinstaller --reinstall-package pyinstaller --no-deps --require-hashes -r req-pyinstaller.txt
           if ($LASTEXITCODE -ne 0) { throw "building PyInstaller from the sdist failed" }
 
           $after = (Get-FileHash (Join-Path $boot 'run.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Host "compiled run.exe (sdist): $after"
           if ($after -eq $before) { throw "the bootloader is byte-identical to the prebuilt one: it was not compiled from source" }
-          python -m PyInstaller --version
+          & $py -m PyInstaller --version
 
       - name: The fork's own version parses where Legendary compares versions
         working-directory: legendary-src
@@ -115,7 +117,7 @@ jobs:
         # 0.21.1-glider.1 shipped with int('1-glider') raising ValueError in every forced update check (auth, status):
         # Glider showed it as "Can't reach Epic". Exercise the comparison with the literal version this build reports.
         run: >-
-          python -c "from legendary import __version__ as v; from legendary.core import _version_tuple as t;
+          & $env:PYI_PYTHON -c "from legendary import __version__ as v; from legendary.core import _version_tuple as t;
           assert t(v) == (0, 21, 1), (v, t(v)); assert t('0.21.2') > t(v) and not t('0.21.1') > t(v); print('version ok', v, t(v))"
 
       - name: Windows version resource
@@ -136,7 +138,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/legendary-src
         # Like upstream's build-base.yml, but --onedir (no self-extraction), --noupx (never packed) and a version resource.
         run: >-
-          python -m PyInstaller --onedir --noupx --noconfirm --name legendary -i ../assets/windows_icon.ico
+          & $env:PYI_PYTHON -m PyInstaller --onedir --noupx --noconfirm --name legendary -i ../assets/windows_icon.ico
           --version-file glider-version-info.txt cli.py
 
       - name: Smoke test the exe (no login)
