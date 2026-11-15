@@ -340,7 +340,10 @@ internal static class ErrorClassifier
 
         if (f.Traceback || f.PyInstallerCrash)
         {
-            if (f.NetworkException || f.VersionCheckCrash)
+            // A crash inside Legendary's version check is a network problem only when the exception says so (or says nothing): a
+            // ValueError/TypeError/KeyError there is a bug, and calling it "Can't reach Epic" sends the user to check a working
+            // connection (0.21.1-glider.1 parsed its own version with int('1-glider')).
+            if (f.NetworkException || (f.VersionCheckCrash && !IsCodeError(f.ExceptionLine)))
             {
                 return Errors.Network(f.ExceptionLine);
             }
@@ -385,4 +388,11 @@ internal static class ErrorClassifier
     }
 
     private static string Tail(LegendaryRunResult run) => Infrastructure.SecretRedactor.Redact(string.Join(" | ", run.Tail.TakeLast(5)));
+
+    private static readonly string[] CodeErrors =
+        ["ValueError", "TypeError", "KeyError", "IndexError", "AttributeError", "NameError", "UnboundLocalError", "AssertionError", "ZeroDivisionError"];
+
+    /// <summary>The exception is a programming error in Legendary, not something the network or the user caused.</summary>
+    internal static bool IsCodeError(string? exceptionLine) =>
+        exceptionLine is not null && CodeErrors.Any(e => exceptionLine.StartsWith(e + ":", StringComparison.Ordinal) || exceptionLine == e);
 }

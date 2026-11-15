@@ -134,6 +134,20 @@ public class ErrorClassifierTests
     }
 
     [Fact]
+    public void ACodeErrorInsideTheVersionCheckIsNotCalledANetworkProblem()
+    {
+        // 0.21.1-glider.1: Legendary's update check ran int('1-glider') and crashed; Glider showed "Can't reach Epic".
+        var run = Fixture.Replay("status-version-parse-crash.stderr.txt").Run;
+        Assert.True(run.Facts.VersionCheckCrash);
+        var error = ErrorClassifier.Classify(LegendaryCommandKind.Status, run)!;
+        Assert.Equal(ErrorCode.LegendaryFailed, error.Code);
+        Assert.Contains("1-glider", error.Detail);
+
+        var network = ErrorClassifier.Classify(LegendaryCommandKind.Status, Fixture.Replay("status-network-failure.stderr.txt").Run)!;
+        Assert.Equal(ErrorCode.Network, network.Code); // a real connection failure in the same place still is one
+    }
+
+    [Fact]
     public void WriteFailuresBeatTheSuccessMarker()
     {
         var run = Fixture.Replay("synthetic-install-diskfull.stderr.txt").Run;

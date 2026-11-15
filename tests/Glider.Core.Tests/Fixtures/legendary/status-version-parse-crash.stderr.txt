@@ -1,0 +1,9 @@
+[cli] INFO: Logging in...
+Traceback (most recent call last):
+  File "legendary\cli.py", line 3218, in <module>
+  File "legendary\cli.py", line 3207, in main
+  File "legendary\cli.py", line 1611, in status
+  File "legendary\core.py", line 304, in check_for_updates
+  File "legendary\core.py", line 295, in version_tuple
+ValueError: invalid literal for int() with base 10: '1-glider'
+[PYI-12345:ERROR] Failed to execute script 'cli' due to unhandled exception!
