@@ -48,7 +48,7 @@ function FirstGame() {
               className="group/pick block w-full rounded-lg text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-focus"
             >
               <span className="block rounded-lg transition-transform duration-150 ease-out group-hover/pick:-translate-y-[3px]">
-                <GameCover art={g.art} title={g.title} className="rounded-lg shadow-[inset_0_0_0_1px_var(--g-border-strong)]" />
+                <GameCover art={g.art} title={g.title} size="thumb" className="rounded-lg shadow-[inset_0_0_0_1px_var(--g-border-strong)]" />
               </span>
               <span className="mt-2 block truncate text-sm font-medium text-fg">{g.title}</span>
             </button>

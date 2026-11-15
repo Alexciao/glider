@@ -63,7 +63,7 @@ export const LibraryGrid = memo(function LibraryGrid({ games, view, resetKey, on
   const rowH = isGrid ? layout.rowH : LIST_ROW;
   const rowCount = Math.ceil(games.length / cols);
   const head = isGrid ? GRID_TOP : LIST_HEADER;
-  const win = computeRange(Math.max(0, vp.top - head), vp.height, rowH, rowCount, 1);
+  const win = computeRange(Math.max(0, vp.top - head), vp.height, rowH, rowCount, 2);
   const total = rowCount * rowH + head + BOTTOM;
   const listCols = useMemo(() => listColumns(vp.width), [vp.width]);
 

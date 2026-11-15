@@ -32,8 +32,9 @@ function useLoaded(): [boolean, boolean, (el: HTMLImageElement | null) => void, 
  * no scrim, the scrims fade in over the last stretch of the morph, and the wide key art crossfades in once it has landed.
  */
 export function HeroArt({ appName, art }: { appName: string; art: GameArt | null }) {
-  const tall = art?.tall ?? art?.tallThumb ?? null;
   const wide = art?.wide ?? null;
+  // The morph's stand-in is the picture the Library tile already decoded (its 300 px cover); with no wide art the cover IS the hero, so it gets the big one.
+  const tall = (wide ? (art?.tallThumb ?? art?.tall) : (art?.tall ?? art?.tallThumb)) ?? null;
   // Wide art is the hero; a tall box is a fine stand-in (cropped); nothing at all falls back to the composition below.
   const [tallLoaded, tallInstant, tallRef, onTall] = useLoaded();
   const [wideLoaded, wideInstant, wideRef, onWide] = useLoaded();

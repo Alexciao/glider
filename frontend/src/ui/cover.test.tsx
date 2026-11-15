@@ -22,6 +22,19 @@ describe("GameCover", () => {
     expect(full.className).toContain("opacity-100");
   });
 
+  it("a thumb-size cover is one download: the 300 px image, no blurred twin", () => {
+    const { container } = render(<GameCover art={art()} title="Atlas" size="thumb" />);
+    const imgs = container.querySelectorAll("img");
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0]).toHaveAttribute("src", "data:image/svg+xml,thumb");
+    expect(container.querySelector<HTMLElement>("[data-cover]")!.style.backgroundImage).toContain("color-mix");
+  });
+
+  it("fetches above-the-fold covers at high priority", () => {
+    const { container } = render(<GameCover art={art()} title="Atlas" size="thumb" priority />);
+    expect(container.querySelector("img")).toHaveAttribute("fetchpriority", "high");
+  });
+
   it("is eager when it is above the fold", () => {
     const { container } = render(<GameCover art={art()} title="Atlas" priority />);
     expect(container.querySelectorAll("img")[1]).toHaveAttribute("loading", "eager");

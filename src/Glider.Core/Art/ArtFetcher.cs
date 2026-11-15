@@ -61,7 +61,8 @@ public sealed class HttpArtFetcher : IArtFetcher, IDisposable
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
             ConnectTimeout = TimeSpan.FromSeconds(8),
             PooledConnectionLifetime = TimeSpan.FromMinutes(5),
-            MaxConnectionsPerServer = 8,
+            MaxConnectionsPerServer = 16,
+            EnableMultipleHttp2Connections = true, // a screenful of covers is more streams than one connection's limit on a slow edge
         })
         {
             Timeout = timeout ?? TimeSpan.FromSeconds(20),

@@ -85,7 +85,7 @@ export const GameTile = memo(function GameTile({ game, index, count, x, y, width
                 aria-hidden
                 className="pointer-events-none absolute inset-0 rounded-lg opacity-0 shadow-[0_14px_28px_-10px_oklch(0_0_0/0.55)] transition-opacity duration-150 group-hover/tile:opacity-100"
               />
-              <GameCover art={game.art} title={game.title} priority={priority} className="rounded-lg" style={{ height: coverH }}>
+              <GameCover art={game.art} title={game.title} size="thumb" priority={priority} className="rounded-lg" style={{ height: coverH }}>
                 <span aria-hidden className="pointer-events-none absolute inset-0 rounded-[inherit] shadow-[inset_0_0_0_1px_var(--g-border-strong)]" />
                 {game.activeJobId && <CoverProgress jobId={game.activeJobId} />}
               </GameCover>

@@ -35,8 +35,18 @@ public sealed record ArtPlaceholder(string Hash, string Color);
 
 public sealed record ArtCacheOptions
 {
-    /// <summary>Concurrent downloads (design: bounded parallelism).</summary>
-    public int MaxParallel { get; init; } = 6;
+    /// <summary>
+    /// Concurrent downloads. A Library screen asks for ~30 covers at once and a cold cache has hundreds to fetch; Epic's CDN is HTTP/2
+    /// (many streams over one connection) and a 300 px cover is ~25 KB, so the limit is latency, not bandwidth: 6 made a cold screen
+    /// wait in rounds (docs/perf.md, DECISIONS "art speed").
+    /// </summary>
+    public int MaxParallel { get; init; } = 16;
+
+    /// <summary>How many of those slots background prefetching may hold at once: the rest stay free for what the screen asks for.</summary>
+    public int PrefetchParallel { get; init; } = 3;
+
+    /// <summary>Prefetching stops for the run after this many failures in a row (offline, a CDN outage): the next library change tries again.</summary>
+    public int PrefetchGiveUpAfter { get; init; } = 8;
 
     /// <summary>Thumbnails on disk are trimmed (oldest use first) to 90 % of this. A 500-game library is ~100 MB.</summary>
     public long MaxBytes { get; init; } = 384L * 1024 * 1024;
@@ -94,6 +104,11 @@ public sealed class ArtCache : IDisposable
     private ImmutableDictionary<string, ArtPlaceholder> _placeholders = ImmutableDictionary<string, ArtPlaceholder>.Empty;
     private bool _placeholdersDirty;
     private bool _publishArmed;
+    private readonly Lock _prefetchGate = new();
+    private readonly Queue<(string App, ArtKind Kind)> _prefetchQueue = new();
+    private readonly HashSet<string> _prefetchSeen = new(StringComparer.Ordinal);
+    private int _prefetchWorkers;
+    private int _prefetchFailures;
     private int _writesSincePrune;
     private int _pruning;
     private int _fetched;
@@ -230,6 +245,126 @@ public sealed class ArtCache : IDisposable
         }
 
         PlaceholdersChanged?.Invoke();
+    }
+
+    // ------------------------------------------------------------------ prefetch
+
+    /// <summary>Pictures <see cref="Prefetch"/> found on disk or downloaded this session (diagnostics / tests).</summary>
+    public int Prefetched => Volatile.Read(ref _prefetched);
+
+    private int _prefetched;
+
+    /// <summary>No prefetch download is running or waiting (tests).</summary>
+    public bool PrefetchIdle
+    {
+        get
+        {
+            lock (_prefetchGate)
+            {
+                return _prefetchWorkers == 0 && _prefetchQueue.Count == 0;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Fills the cache ahead of the screen: each (game, variant) whose picture is not on disk is downloaded a few at a time, in the
+    /// order given (the caller puts what the player is most likely to see first). Requests from the page share these downloads
+    /// (one file, one download) and are never queued behind more than <see cref="ArtCacheOptions.PrefetchParallel"/> of them. Offline
+    /// or after a run of failures it stops quietly; the next call starts again. Returns at once.
+    /// </summary>
+    public void Prefetch(IEnumerable<(string App, ArtKind Kind)> items)
+    {
+        var added = false;
+        lock (_prefetchGate)
+        {
+            foreach (var item in items)
+            {
+                if (!ArtUrls.IsValidApp(item.App) || _source.Resolve(item.App, item.Kind) is not { } src)
+                {
+                    continue;
+                }
+
+                if (_prefetchSeen.Add($"{item.App}/{(int)item.Kind}/{ArtUrls.HashOf(src.Url)}"))
+                {
+                    _prefetchQueue.Enqueue(item);
+                    added = true;
+                }
+            }
+
+            if (!added || _stop.IsCancellationRequested)
+            {
+                return;
+            }
+
+            _prefetchFailures = 0;
+            var want = Math.Max(1, Math.Min(_options.PrefetchParallel, _options.MaxParallel - 1)) - _prefetchWorkers;
+            for (; want > 0; want--)
+            {
+                _prefetchWorkers++;
+                _ = Task.Run(PrefetchWorkerAsync);
+            }
+        }
+    }
+
+    private async Task PrefetchWorkerAsync()
+    {
+        try
+        {
+            while (!_stop.IsCancellationRequested)
+            {
+                (string App, ArtKind Kind) item;
+                lock (_prefetchGate)
+                {
+                    if (_options.IsOffline?.Invoke() == true || _prefetchFailures >= _options.PrefetchGiveUpAfter)
+                    {
+                        _prefetchQueue.Clear();
+                        _prefetchSeen.Clear(); // the next library change starts over
+                        return;
+                    }
+
+                    if (!_prefetchQueue.TryDequeue(out item))
+                    {
+                        return;
+                    }
+                }
+
+                try
+                {
+                    var file = await GetAsync(item.App, item.Kind, null, _stop.Token).ConfigureAwait(false);
+                    if (file is null)
+                    {
+                        Interlocked.Increment(ref _prefetchFailures);
+                    }
+                    else
+                    {
+                        Interlocked.Exchange(ref _prefetchFailures, 0);
+                        Interlocked.Increment(ref _prefetched);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                catch (Exception e)
+                {
+                    _log.Debug(Category, $"prefetch of {item.App} failed: {e.GetType().Name}");
+                    Interlocked.Increment(ref _prefetchFailures);
+                }
+            }
+        }
+        finally
+        {
+            lock (_prefetchGate)
+            {
+                _prefetchWorkers--;
+                // Something was queued while the last worker was finishing: keep going.
+                if (_prefetchQueue.Count > 0 && _prefetchWorkers == 0 && !_stop.IsCancellationRequested)
+                {
+                    _prefetchWorkers++;
+                    _ = Task.Run(PrefetchWorkerAsync);
+                }
+            }
+        }
     }
 
     // ------------------------------------------------------------------ requests
