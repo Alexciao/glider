@@ -106,8 +106,13 @@ const GAME_AUTO_EXIT_MS = 120_000;
 const spaceMargin = (installBytes: number): number => Math.max(2 * GiB, Math.floor((installBytes * 3) / 100));
 /** Jobs that wait for their game to close and for its saves to sync (`ServiceContext.IsWriteJob`: everything but import; the overlay has its own gate). */
 const GAME_GATED_KINDS: readonly JobKind[] = ["install", "update", "repair", "verify", "modify", "move", "uninstall"];
-/** Jobs whose Legendary run needs Epic's servers: with no connection they fail with `network`. */
-const NETWORK_KINDS: readonly JobKind[] = ["install", "update", "repair", "modify", "overlay"];
+/** `QueuePolicy.OfflineHold`: with no connection the queue holds instead of failing every job in turn. */
+const OFFLINE_HOLD = "Waiting for an internet connection";
+/** `GliderService.MaxNetworkResumes` / `OfflineSpellSlack`: "Epic is back" resumes what the outage failed, a few times at most. */
+const MAX_NETWORK_RESUMES = 3;
+const OFFLINE_SPELL_SLACK_MS = 120_000;
+/** A hold's own wording ("Paused while Fortnite is running", the offline one), to tell a job the hold stopped from one with another gate. */
+const isHoldText = (r: string | null): boolean => r === OFFLINE_HOLD || (r?.startsWith("Paused while ") ?? false);
 /** `JobPlan.CanPause`. */
 const PAUSABLE: readonly JobKind[] = ["install", "update", "repair", "verify", "modify"];
 /** Session states `QueuePolicy.Playing` counts as "a game is running". */
@@ -185,6 +190,9 @@ export class MockBackend {
   private finished: JobInfo[] = [];
   /** The sim and meta of failed jobs, so "resume" can retry them like Core does. */
   private failedEntries = new Map<string, JobEntry>();
+  /** When the latest offline spell began (`ConnectivityMonitor.OfflineSince`), and how often "Epic is back" resumed each job. */
+  private offlineSince = 0;
+  private networkResumes = new Map<string, number>();
   private histories = new Map<string, JobSample[]>();
   private queuePaused = false;
 
@@ -506,8 +514,9 @@ export class MockBackend {
       .sort((a, b) => (a.since ? Date.parse(a.since) : Infinity) - (b.since ? Date.parse(b.since) : Infinity))[0];
   }
 
-  /** `QueuePolicy.HoldReason`: while a game runs and "while playing" is Pause, pausable jobs don't run. */
+  /** `QueuePolicy.HoldReason`: no connection, or a game runs and "while playing" is Pause: pausable jobs don't run. */
   private holdReason(): string | null {
+    if (this.connectivity === "offline") return OFFLINE_HOLD;
     const p = this.playing();
     return p && this.settings.whilePlaying === "pause" ? `Paused while ${p.title} is running` : null;
   }
@@ -541,7 +550,7 @@ export class MockBackend {
 
   private queueState(): QueueState {
     const { mode, reason } = this.effectiveMode();
-    return { jobs: [...this.queue.map((e) => this.view(e)), ...this.finished.slice(0, MAX_FINISHED_JOBS)], paused: this.queuePaused, effectiveMode: mode, modeReason: reason };
+    return { jobs: [...this.queue.map((e) => this.view(e)), ...this.finished.slice(0, MAX_FINISHED_JOBS)], paused: this.queuePaused, effectiveMode: mode, modeReason: reason, holdReason: this.holdReason() };
   }
 
   private eglState(): EglState {
@@ -685,7 +694,7 @@ export class MockBackend {
         return { ...base, uninstallSeconds: meta.uninstallMode === "deleteFiles" ? (seed?.uninstallSeconds ?? 1.8) : 0.6 };
       case "import": {
         const inst = meta.eglInstallId ? this.egl.installs.find((i) => i.id === meta.eglInstallId) : undefined;
-        return { ...base, installBytes: inst?.sizeBytes ?? g?.fullInstallBytes ?? 8 * GiB, importVerify: meta.verifyMode === "full" };
+        return { ...base, installBytes: inst?.sizeBytes ?? g?.fullInstallBytes ?? 8 * GiB, importVerify: false };
       }
       default:
         return base;
@@ -832,7 +841,7 @@ export class MockBackend {
       } else {
         reason = this.gateReason(e);
         // A job the hold stopped stays waiting until the hold lifts.
-        if (!reason && hold && s === "waiting" && PAUSABLE.includes(e.info.kind) && e.info.blockedReason === hold) reason = hold;
+        if (!reason && hold && s === "waiting" && PAUSABLE.includes(e.info.kind) && isHoldText(e.info.blockedReason)) reason = hold;
       }
       if (reason && s !== "waiting") {
         e.info = { ...e.info, status: "waiting", blockedReason: reason };
@@ -906,11 +915,6 @@ export class MockBackend {
       this.ticker = null;
       return;
     }
-    // Core has no offline gate: Legendary can't reach Epic and the job fails (Retry resumes it).
-    if (this.connectivity === "offline" && NETWORK_KINDS.includes(e.info.kind)) {
-      this.failJob(e, Errors.network("Couldn't connect to Epic's servers.", e.info.appName));
-      return;
-    }
     // The environment (mode, speed limit) applies to a frozen job too: it only stops the clock.
     e.sim.setEnv(this.jobEnv());
     if (!this.cfg.freeze) {
@@ -960,24 +964,29 @@ export class MockBackend {
     const verbs: Record<JobKind, string> = {
       install: "Installed", update: "Updated", repair: "Repaired", verify: "Verified", move: "Moved", uninstall: "Removed", import: "Added", modify: "Updated", overlay: "Epic overlay installed",
     };
+    // An import that queued a check isn't a warning: Core says so quietly and the verify job reports the result.
+    const checking = info.kind === "import" && outcome?.kind === "needsRepair";
     this.notice({
-      level: outcome?.kind === "needsRepair" ? "warning" : "success",
+      level: checking ? "info" : outcome?.kind === "needsRepair" ? "warning" : "success",
       title: info.kind === "overlay" ? verbs.overlay : `${verbs[info.kind]} ${info.title}`,
-      message: outcome?.message ?? null,
-      action: outcome?.kind === "needsRepair" ? "repair" : null,
+      message: checking ? "Glider is checking its files in the background." : (outcome?.message ?? null),
+      action: outcome?.kind === "needsRepair" && !checking ? "repair" : null,
       appName: info.appName,
       jobId: info.id,
     });
     this.reconcile();
   }
 
+  /** `InstallService.DecideVerify`: Auto skips the check only for an EGL install that is complete and at the latest version; Background and Full always check. */
+  private importNeedsVerify(e: JobEntry): boolean {
+    const inst = this.egl.installs.find((i) => i.id === e.meta.eglInstallId);
+    return (e.meta.verifyMode ?? "auto") !== "auto" || (inst?.drift ?? "unknown") !== "none";
+  }
+
+  /** `JobHooks.AfterImportAsync`: an import that needs a check queues a verify job and reports "needs repair" while that runs (the result is the verify job's). */
   private completionOutcome(e: JobEntry): JobOutcome | null {
     if (e.info.kind !== "import") return null;
-    const inst = this.egl.installs.find((i) => i.id === e.meta.eglInstallId);
-    const outdated = inst?.drift === "eglNewer" && e.meta.verifyMode !== "full";
-    return outdated
-      ? { kind: "needsRepair", message: `Epic's copy is an older version (${inst?.version ?? "unknown"}). Glider will fix it with an update.` }
-      : { kind: "success", message: "Imported without downloading anything." };
+    return this.importNeedsVerify(e) ? { kind: "needsRepair", message: "Imported; verifying the files." } : { kind: "success", message: "Imported" };
   }
 
   private applyCompletion(e: JobEntry, info: JobInfo): void {
@@ -1055,10 +1064,10 @@ export class MockBackend {
           updateAvailable: outdated,
           downloadSizeBytes: outdated ? g.updateDownloadBytes : null,
           sharedWithEgl: inst.source !== "manual",
-          needsVerification: e.meta.verifyMode === "background",
+          needsVerification: this.importNeedsVerify(e),
         });
         this.egl.installs = this.egl.installs.map((i) => (i.id === inst.id ? { ...i, status: "imported" } : i));
-        if (e.meta.verifyMode === "background") this.createJob("verify", appName);
+        if (this.importNeedsVerify(e)) this.createJob("verify", appName);
         break;
       }
       case "modify":
@@ -1090,6 +1099,23 @@ export class MockBackend {
     }
     this.notice({ level: "error", title: error.title, message: error.message, action: error.fix, appName: info.appName, jobId: info.id });
     this.reconcile();
+  }
+
+  /**
+   * `GliderService.ResumeNetworkCasualties`: Epic is reachable again, so jobs the outage failed (network or download-server error that
+   * ended during the spell) are resumed, at most three times each; a paused queue stays paused, other failures stay in "Couldn't finish".
+   */
+  private resumeNetworkCasualties(): void {
+    if (this.queuePaused) return;
+    const from = this.offlineSince - OFFLINE_SPELL_SLACK_MS;
+    for (const j of [...this.finished]) {
+      const code = j.error?.code;
+      if (j.status !== "failed" || (code !== "network" && code !== "cdnUnavailable") || !j.finishedAt || Date.parse(j.finishedAt) < from) continue;
+      const n = this.networkResumes.get(j.id) ?? 0;
+      if (n >= MAX_NETWORK_RESUMES) continue;
+      this.networkResumes.set(j.id, n + 1);
+      void this.handlers["jobs.resume"]({ jobId: j.id });
+    }
   }
 
   private cancelEntry(e: JobEntry): JobInfo {
@@ -1212,7 +1238,7 @@ export class MockBackend {
       throw fail(Errors.gameBusy(s.title, s.appName, JOB_NOUN[own.info.kind] ?? "the current task"));
     }
     if (this.egl.busyApps.includes(s.appName)) throw fail(Errors.eglBusy(s.title, null, s.appName));
-    if (s.installStatus === "broken") throw fail(Errors.corrupted(s.title, null, s.appName));
+    if (s.installStatus === "broken") throw fail(Errors.corrupted(null, s.appName));
     // Core decides offline from the mode and the connection, then tries: it never refuses up front for being offline.
     const mode = req.mode ?? g.settings.launchMode;
     const wantOffline = mode === "offline" || (mode === "auto" && this.connectivity === "offline" && s.canRunOffline);
@@ -1299,9 +1325,12 @@ export class MockBackend {
       },
       setEglBusy: (busy, appName) => this.setEglBusy(busy, appName),
       setConnectivity: (c) => {
+        const cameOnline = this.connectivity === "offline" && c === "online";
+        if (c === "offline" && this.connectivity !== "offline") this.offlineSince = Date.now();
         this.connectivity = c;
         this.syncError = c === "offline" ? Errors.offline("Syncing your library") : null;
-        this.reconcile();
+        this.reconcile(); // offline stops what runs and holds the rest; online lets them go
+        if (cameOnline) this.resumeNetworkCasualties();
       },
       setFreeSpace: (letter, freeBytes) => {
         const d = this.drives.find((x) => x.letter === letter.toUpperCase());

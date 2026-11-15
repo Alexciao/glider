@@ -350,7 +350,7 @@ const RAW_STATES: ShotState[] = [
       await wait(700);
       await g(p, (h) => {
         h.mock.emitNotice({ level: "success", title: "Fortnite is ready to play", message: "Version 40.20 installed.", action: null });
-        h.mock.emitNotice({ level: "error", title: "Can't reach Epic", message: "Check your internet connection, then try again. Progress is kept.", action: "retry" });
+        h.mock.emitNotice({ level: "error", title: "Can't reach Epic", message: "Check your internet connection. Progress is kept.", action: "retry" });
       });
       await wait(900);
     },

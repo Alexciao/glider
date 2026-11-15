@@ -258,7 +258,8 @@ function history(games: MockGame[], seed: number): SeedJob[] {
     ["verify", "completed"],
     ["update", "completed"],
     ["import", "completed"],
-    ["update", "failed"],
+    // No failure in the default world: it would put a red dot on the Downloads rail in every screenshot. The `errors` scenario has them.
+    ["update", "completed"],
     ["install", "cancelled"],
     ["move", "completed"],
     ["verify", "completed"],

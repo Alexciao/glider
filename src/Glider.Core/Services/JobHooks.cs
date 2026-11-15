@@ -337,8 +337,15 @@ internal sealed class JobHooks : IJobHooks, IJobGate
             await _c.SaveRecordAsync(job.AppName, rec with { NeedsVerification = true });
         }
 
+        if (e.Code == ErrorCode.Network)
+        {
+            // Epic's CDN couldn't be reached at all: the PC is offline. Say so, so the queue holds instead of failing every job
+            // in turn, and so the probe that finds the connection again can resume this one.
+            _c.Network?.ReportOffline();
+        }
+
         var message = job.Kind == JobKind.Verify && job.Verify is { FilesBad: > 0 } r && e.Code == ErrorCode.Corrupted
-            ? $"Checked {N(r.FilesChecked)} files: {N(r.FilesBad)} damaged or missing, {N(r.FilesFixed)} fixed, {N(r.FilesBad - r.FilesFixed)} still bad. Try again, or check your disk."
+            ? $"Checked {N(r.FilesChecked)} files: {N(r.FilesBad)} damaged or missing, {N(r.FilesFixed)} fixed, {N(r.FilesBad - r.FilesFixed)} still bad. Check your disk."
             : e.Message;
         _c.Notify(NoticeLevel.Error, e.Title, message, e.Fix, appName: job.AppName, jobId: job.Id);
         await _c.Library.ReloadAsync();

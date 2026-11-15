@@ -576,6 +576,7 @@ export interface QueueState {
   paused: boolean;
   effectiveMode: DownloadMode;
   modeReason: string | null;
+  holdReason: string | null;
 }
 
 export interface ReadinessItem {

@@ -493,7 +493,12 @@ public sealed record QueueState(
     /// <summary>Mode currently in effect (Settings.DownloadMode, or Background while a game runs, or Full while idle).</summary>
     DownloadMode EffectiveMode,
     /// <summary>Why the effective mode differs from the setting, e.g. "Paused while Fortnite is running".</summary>
-    string? ModeReason);
+    string? ModeReason,
+    /// <summary>
+    /// Why queued downloads aren't starting although nothing is paused by the user: "Paused while Fortnite is running"
+    /// (Settings.WhilePlaying = Pause) or "Waiting for an internet connection". Null when nothing holds the queue.
+    /// </summary>
+    string? HoldReason = null);
 
 /// <summary>
 /// Live job progress (event <c>progress</c>, ≤10 Hz). Groups are null when they don't apply to the current phase:

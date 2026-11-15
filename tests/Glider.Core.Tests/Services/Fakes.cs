@@ -510,6 +510,9 @@ public sealed class FakeJobQueue(CallLog log) : IJobQueue
 
     public int ReevaluateCount { get; private set; }
 
+    /// <summary>The user paused the whole queue.</summary>
+    public bool Paused { get; set; }
+
     public IReadOnlyList<JobInfo> Snapshot()
     {
         lock (_jobs)

@@ -477,8 +477,17 @@ internal sealed class QueuePolicy : IQueuePolicy
         .OrderBy(s => s.Since ?? DateTimeOffset.MaxValue)
         .FirstOrDefault();
 
+    /// <summary>What <see cref="HoldReason"/> says while Epic can't be reached; the UI shows it as is.</summary>
+    internal const string OfflineHold = "Waiting for an internet connection";
+
+    /// <summary>
+    /// Why pausable jobs don't run: no connection (a download would only fail, and "Couldn't finish" would pile up), else a game
+    /// is running with "While a game is running" = Pause.
+    /// </summary>
     public string? HoldReason =>
-        _c.Settings.WhilePlaying == WhilePlayingPolicy.Pause && Playing is { } p ? $"Paused while {p.Title} is running" : null;
+        _c.Hub.State.Connectivity == Connectivity.Offline
+            ? OfflineHold
+            : _c.Settings.WhilePlaying == WhilePlayingPolicy.Pause && Playing is { } p ? $"Paused while {p.Title} is running" : null;
 
     public DownloadMode EffectiveMode => Effective().Mode;
 
@@ -511,6 +520,6 @@ internal sealed class QueuePolicy : IQueuePolicy
         var unfinished = all.Where(StateHub.IsActive).ToList();
         var finished = all.Where(j => !StateHub.IsActive(j)).Take(20);
         var (mode, reason) = Effective();
-        return new QueueState([.. unfinished, .. finished], jobs.Paused, mode, reason);
+        return new QueueState([.. unfinished, .. finished], jobs.Paused, mode, reason, HoldReason);
     }
 }

@@ -271,7 +271,7 @@ describe("errors", () => {
   });
 
   it("names the game instead of hard-coding Fortnite", () => {
-    expect(Errors.filesLocked("Orchard Tactics").message).toContain("Orchard Tactics");
+    expect(Errors.eglBusy("Orchard Tactics").message).toContain("Orchard Tactics");
     expect(Errors.gameRunning("Orchard Tactics").title).toBe("Orchard Tactics is running");
   });
 });
