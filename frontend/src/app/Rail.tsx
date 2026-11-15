@@ -90,17 +90,18 @@ export function Rail() {
       <div className="flex flex-col gap-1">
         <RailItem page="home" label="Home" shortcut="Ctrl+1" icon={<House size={20} strokeWidth={1.75} />} />
         <RailItem page="library" label="Library" shortcut="Ctrl+2" icon={<Gamepad2 size={20} strokeWidth={1.75} />} badge={<UpdatesBadge />} status={updates > 0 ? "updates available" : undefined} />
+        <RailItem page="store" label="Store" shortcut="Ctrl+3" icon={<Store size={20} strokeWidth={1.75} />} />
+      </div>
+      {/* Places on top; the utilities (Downloads, Settings) at the bottom, where Epic Games Launcher users look for them. */}
+      <div className="mt-auto flex flex-col gap-1">
         <RailItem
           page="downloads"
           label="Downloads"
-          shortcut="Ctrl+3"
+          shortcut="Ctrl+4"
           icon={<Download size={20} strokeWidth={1.75} />}
           badge={<DownloadsBadge tone={tone} />}
           status={railDotStatus(tone)}
         />
-        <RailItem page="store" label="Store" shortcut="Ctrl+4" icon={<Store size={20} strokeWidth={1.75} />} />
-      </div>
-      <div className="mt-auto">
         <RailItem page="settings" label="Settings" shortcut="Ctrl+5" icon={<SettingsIcon size={20} strokeWidth={1.75} />} />
       </div>
     </nav>

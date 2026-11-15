@@ -252,8 +252,8 @@ export function buildCommands(ctx: PaletteContext): PaletteItem[] {
   items.push(
     cmd("go-home", "pages", "Home", <House size={sz} />, () => ctx.go("home"), { shortcut: "Ctrl+1", keywords: "go open" }),
     cmd("go-library", "pages", "Library", <Gamepad2 size={sz} />, () => ctx.go("library"), { shortcut: "Ctrl+2", keywords: "go open games" }),
-    cmd("go-downloads", "pages", "Downloads", <Download size={sz} />, () => ctx.go("downloads"), { shortcut: "Ctrl+3", keywords: "go open queue" }),
-    cmd("go-store", "pages", "Store", <Store size={sz} />, () => ctx.go("store"), { shortcut: "Ctrl+4", keywords: "go open epic games store shop buy free games" }),
+    cmd("go-store", "pages", "Store", <Store size={sz} />, () => ctx.go("store"), { shortcut: "Ctrl+3", keywords: "go open epic games store shop buy free games" }),
+    cmd("go-downloads", "pages", "Downloads", <Download size={sz} />, () => ctx.go("downloads"), { shortcut: "Ctrl+4", keywords: "go open queue" }),
     cmd("go-settings", "pages", "Settings", <SettingsIcon size={sz} />, () => ctx.go("settings"), { shortcut: "Ctrl+5", keywords: "go open preferences options" }),
     ...SECTIONS.map((s) => cmd(`settings-${s.id}`, "settings", s.label, s.icon, () => ctx.go("settings", s.id), { hint: "Settings", keywords: `settings preferences ${s.keywords}` })),
   );

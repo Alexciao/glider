@@ -44,8 +44,8 @@ export function useGlobalHotkeys(enabled: boolean): void {
       const pages: Record<string, "home" | "library" | "downloads" | "store" | "settings"> = {
         "1": "home",
         "2": "library",
-        "3": "downloads",
-        "4": "store",
+        "3": "store",
+        "4": "downloads",
         "5": "settings",
         ",": "settings",
       };
