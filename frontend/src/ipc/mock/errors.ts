@@ -34,7 +34,8 @@ const err = (
   fix: GliderError["fix"],
   detail: string | null = null,
   appName: string | null = null,
-): GliderError => ({ code, title, message, fix, detail, appName });
+  space: { requiredBytes: number; drive: string | null } | null = null,
+): GliderError => ({ code, title, message, fix, detail, appName, requiredBytes: space?.requiredBytes ?? null, drive: space?.drive ?? null });
 
 const game = (name?: string): string => name ?? "the game";
 
@@ -55,7 +56,7 @@ export const Errors = {
     err("authFailed", "Sign-in failed", "Epic didn't accept the sign-in. Try again.", "signIn", detail),
   authCancelled: () =>
     err("authCancelled", "Sign-in was canceled", "The sign-in window was closed before you finished. If Epic showed an error, copy the diagnostic logs so it can be looked into.", null),
-  insufficientSpace: (requiredBytes: number, freeBytes: number, detail: string | null = null, appName: string | null = null) =>
+  insufficientSpace: (requiredBytes: number, freeBytes: number, detail: string | null = null, appName: string | null = null, drive: string | null = null) =>
     err(
       "insufficientSpace",
       "Not enough disk space",
@@ -63,6 +64,7 @@ export const Errors = {
       "freeSpace",
       detail,
       appName,
+      { requiredBytes, drive },
     ),
   network: (detail: string | null = null, appName: string | null = null) =>
     err("network", "Can't reach Epic", "Check your internet connection, then try again. Progress is kept.", "retry", detail, appName),

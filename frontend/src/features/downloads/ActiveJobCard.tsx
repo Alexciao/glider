@@ -2,26 +2,34 @@ import { useCallback, useEffect } from "react";
 import { Pause, Play, X } from "lucide-react";
 import type { JobInfo } from "../../ipc/contract.gen";
 import { actions } from "../../state/actions";
-import { formatClock, formatEta, formatSpeed, formatSpeedCompact } from "../../state/format";
+import { formatClock, formatSpeed } from "../../state/format";
 import { useWindowVisible } from "../../state/hooks";
 import { historyHasNetwork, loadHistory, readChart, readHistory, subscribeHistory, useJobProgressThrottled, useProgress } from "../../state/progress";
 import { goGame } from "../../state/router";
-import { useSnap } from "../../state/store";
-import { PHASE_STATE, describeLimiter, figuresOf, metaOf, stateOf } from "../../state/transfer";
+import { useApp, useSnap } from "../../state/store";
+import { PHASE_STATE, figuresOf, headlineOf, metaOf, speedStatusOf, stateOf, timeOf, type Readout } from "../../state/transfer";
 import { usePending, useUi } from "../../state/ui";
-import { Button, MiniSparkline, PhaseStepper, ProgressBar, StatGroups, StatusDot, Surface, ThroughputChart, cx, type ChartSeries } from "../../ui";
+import { Button, MiniSparkline, PhaseStepper, ProgressBar, StatusDot, Surface, ThroughputChart, Tooltip, cx, type ChartSeries } from "../../ui";
 import { PathText } from "../common/PathText";
 import { JobArt } from "./JobArt";
+import { SpeedStatus } from "./SpeedStatus";
 import { PAUSABLE_KINDS } from "./kindIcon";
 
 export { KIND_ICON } from "./kindIcon";
 
-/** Beside the chart the groups stack in two balanced columns. */
-const STAT_COLUMNS = [["progress", "disk"], ["speed", "time"]] as const;
-
-const NET: ChartSeries = { key: "network", label: "Network", color: "var(--g-chart-net)", area: true };
+const NET: ChartSeries = { key: "network", label: "Download", color: "var(--g-chart-net)", area: true };
 const DISK: ChartSeries = { key: "disk", label: "Disk write", color: "var(--g-chart-disk)", area: true };
 const DISK_LINE: ChartSeries = { ...DISK, area: false };
+/** The finished download while the files are installed: context, not a live line. */
+const NET_QUIET: ChartSeries = { ...NET, area: false, opacity: 0.4 };
+
+const SERIES = {
+  /** Downloading, repairing: the download is the area, the drive's writes a line over it. */
+  download: [NET, DISK_LINE],
+  /** Installing after a download: the drive's writes lead and the finished download stays faintly behind. */
+  install: [NET_QUIET, DISK],
+  diskOnly: [DISK],
+} as const;
 
 /** Announces progress to assistive tech at 10% steps and phase changes, not at 10 Hz. */
 function ProgressAnnouncer({ job }: { job: JobInfo }) {
@@ -35,29 +43,56 @@ function ProgressAnnouncer({ job }: { job: JobInfo }) {
 }
 
 /** Speed history of one job over its lifetime, seeded from the backend and extended by live events. */
-function JobChart({ job, withNetwork, active }: { job: JobInfo; withNetwork: boolean; active: boolean }) {
+function JobChart({ job, kind, withNetwork, active, paused }: { job: JobInfo; kind: "download" | "install" | "diskOnly"; withNetwork: boolean; active: boolean; paused: boolean }) {
   useEffect(() => {
     void loadHistory(job.id);
   }, [job.id]);
   const subscribe = useCallback((n: () => void) => subscribeHistory(job.id, n), [job.id]);
   const read = useCallback(() => readChart(job.id, withNetwork), [job.id, withNetwork]);
+  // The average line and peak dot belong to the line the readouts lead with: the download while downloading, else the drive.
+  const onNetwork = kind === "download";
   const markers = useCallback(() => {
     const p = useProgress.getState().latest[job.id];
-    const s = withNetwork ? p?.network : p?.disk;
+    const s = onNetwork ? p?.network : p?.disk;
     return s ? { average: s.averageBytesPerSecond, peak: s.peakBytesPerSecond } : null;
-  }, [job.id, withNetwork]);
+  }, [job.id, onNetwork]);
   return (
     <ThroughputChart
-      key={withNetwork ? "net" : "disk"}
-      series={withNetwork ? [NET, DISK_LINE] : [DISK]}
+      key={`${kind}-${withNetwork}`}
+      className={cx("transition-opacity duration-200", paused && "opacity-60")}
+      series={SERIES[kind]}
+      markerSeries={kind === "install" ? 1 : 0}
       read={read}
       subscribe={subscribe}
       active={active}
-      format={formatSpeedCompact}
+      format={formatSpeed}
       formatTime={formatClock}
       markers={markers}
-      label={withNetwork ? "Network and disk speed over time" : "Disk speed over time"}
+      legend={false}
+      peakLabel={false}
+      averageLabel={paused ? "never" : "whenDifferent"}
+      minSpan={20}
+      plotClassName="h-20 @max-[720px]:h-16"
+      label={withNetwork ? "Download and disk speed over time" : "Disk speed over time"}
     />
+  );
+}
+
+/** One live speed, number big and unit quiet, with its name under it. The names are the chart's legend. */
+function ReadoutItem({ r }: { r: Readout }) {
+  const at = r.bytesPerSecond > 0 || r.average ? formatSpeed(r.bytesPerSecond) : "0 B/s";
+  const split = at.indexOf(" ");
+  return (
+    <div className="flex flex-col-reverse">
+      <dt className="mt-1 flex items-center gap-1.5 text-xs text-fg-muted">
+        {r.series && <span aria-hidden className="h-0.5 w-3.5 rounded-full" style={{ background: r.series === "network" ? "var(--g-chart-net)" : "var(--g-chart-disk)", opacity: r.average ? 0.6 : 1 }} />}
+        {r.label}
+      </dt>
+      <dd className={cx("text-lg font-semibold leading-7 tracking-tight tabular-nums", r.average ? "text-fg-subtle" : "text-fg")}>
+        {at.slice(0, split)}
+        <span className="ml-1 text-sm font-medium text-fg-subtle">{at.slice(split + 1)}</span>
+      </dd>
+    </div>
   );
 }
 
@@ -91,6 +126,20 @@ function Headline({ text }: { text: string }) {
   );
 }
 
+/** Time left beside the big percentage (or elapsed, when there is no estimate). Elapsed time rides in the tooltip. */
+function TimeLeft({ text, tip }: { text: string; tip: string | null }) {
+  const label = <span className="whitespace-nowrap text-base tabular-nums text-fg-muted">{text}</span>;
+  if (!tip) return label;
+  return (
+    <Tooltip content={tip}>
+      <span className="cursor-default whitespace-nowrap text-base tabular-nums text-fg-muted">
+        {text}
+        <span className="sr-only">, {tip}</span>
+      </span>
+    </Tooltip>
+  );
+}
+
 export interface ActiveJobCardProps {
   job: JobInfo;
   /** `compact` is the Home row: art, title, state, one bar and a single line of figures. */
@@ -99,17 +148,22 @@ export interface ActiveJobCardProps {
 }
 
 /**
- * The running job. One title (the game), one state, a stepper of the planned phases, one progress bar with a single
- * headline line, then the figures that belong to the phase it is in (only the ones with a value), the speed history
- * while bytes are moving, and, when it is not the network, what limits speed. All of it comes from `figuresOf`, so a
- * verify can never show a download speed.
+ * The running job, top to bottom: the game and what it is doing, the percentage with the time left, the bar with the
+ * bytes of this phase, the stepper of planned phases under the bar, then the live speeds (they are the chart's legend), the
+ * speed history while bytes are moving and, at the right end of the speeds, what is holding the speed back. Every figure
+ * comes from `figuresOf` / `speedStatusOf`, so a verify can never show a download speed, and no fact appears twice.
  */
 export function ActiveJobCard({ job, variant = "full", className }: ActiveJobCardProps) {
   const visible = useWindowVisible();
+  // The one thing that keeps moving on a long download is the bar's sheen, and only while someone could be looking at it.
+  const focused = useApp((s) => s.window.focused);
   // The figures are read, not watched: 2 Hz, and not at all while the window is hidden. The chart and bar feed on their own.
   const p = useJobProgressThrottled(job.id, job.progress, visible);
   const openDialog = useUi((s) => s.openDialog);
   const speedLimit = useSnap((s) => s.settings.speedLimitBytesPerSecond);
+  const chosenMode = useSnap((s) => s.settings.downloadMode);
+  const effectiveMode = useSnap((s) => s.queue.effectiveMode);
+  const modeReason = useSnap((s) => s.queue.modeReason);
   const state = stateOf(job, p);
   const meta = metaOf(job, p);
   const fig = figuresOf(job, p);
@@ -119,11 +173,14 @@ export function ActiveJobCard({ job, variant = "full", className }: ActiveJobCar
   const percent = Math.floor(Math.min(100, Math.max(0, p?.percent ?? 0)));
   const phase = p?.phase ?? job.phase;
   const withNetwork = fig.chart === "network+disk" || (fig.chart === "disk" && historyHasNetwork(job.id));
+  const chartKind = fig.chart === "network+disk" ? "download" : withNetwork ? "install" : "diskOnly";
   const showChart = fig.chart !== null && p !== null;
   const net = p?.network ?? null;
   const live = running ? (net?.bytesPerSecond ?? p?.disk?.bytesPerSecond ?? p?.verify?.readBytesPerSecond ?? null) : null;
-  const limiter = running ? describeLimiter(p, fig.throughput, { speedLimitBytesPerSecond: speedLimit, path: job.targetPath }) : null;
-  const left = running && p && p.etaSeconds != null ? `${formatEta(p.etaSeconds)} left` : null;
+  const speedContext = { speedLimitBytesPerSecond: speedLimit, path: job.targetPath, chosenMode, effectiveMode, modeReason };
+  const speedStatus = speedStatusOf(job, p, fig.throughput, speedContext);
+  const time = timeOf(job, p);
+  const headline = headlineOf(fig);
   const tone = state.tone === "accent" ? "accent" : state.tone;
   // A job that has not started (waiting, queued) has no steps, percent or bar to show: just why it is not running.
   const started = p !== null;
@@ -162,12 +219,13 @@ export function ActiveJobCard({ job, variant = "full", className }: ActiveJobCar
           tone={paused || waiting ? "warning" : "accent"}
           paused={paused}
           speed={live}
+          still={!focused}
           label={`${state.label} ${job.title}`}
         />
         <p className="mt-2 truncate text-xs tabular-nums text-fg-muted">
           {running && live != null && <span className="text-fg">{formatSpeed(live)} · </span>}
-          {fig.headline && <>{fig.headline} · </>}
-          {percent}%{left && ` · ${left}`}
+          {headline && <>{headline} · </>}
+          {percent}%{time?.tip && ` · ${time.text}`}
         </p>
       </Surface>
     );
@@ -211,49 +269,59 @@ export function ActiveJobCard({ job, variant = "full", className }: ActiveJobCar
         </div>
       </header>
 
-      {steps && (
-        <div className="px-5 pt-5">
-          <PhaseStepper steps={job.phases.map((id) => ({ id, label: PHASE_STATE[id] }))} current={phase} paused={paused} />
-        </div>
-      )}
-
       {started && (
-      <div className="px-5 pt-5">
-        <div className="flex items-end justify-between gap-4">
-          <p className="text-2xl font-semibold leading-none tracking-tighter tabular-nums text-fg" aria-hidden>
-            {percent}
-            <span className="ml-0.5 text-lg font-medium text-fg-subtle">%</span>
-          </p>
-          <p className="pb-0.5 text-sm tabular-nums text-fg-muted">
-            {fig.headline && p && <Headline text={fig.headline} />}
-            {p && !fig.headline && `${formatClock(p.elapsedSeconds)} elapsed`}
-            {left && <>{fig.headline || p ? " · " : ""}{left}</>}
-          </p>
-        </div>
-        <ProgressBar
-          className="mt-3"
-          size="lg"
-          value={percent}
-          tone={paused || waiting ? "warning" : "accent"}
-          paused={paused}
-          speed={live}
-          label={`${state.label} ${job.title}`}
-        />
-      </div>
-      )}
-
-      {p && fig.groups.length > 0 && (
-        <div className={cx("grid gap-x-12 gap-y-6 px-5 pt-6", showChart && "@[900px]:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]")}>
-          {showChart && <JobChart job={job} withNetwork={withNetwork} active={visible} />}
-          {showChart ? (
-            <StatGroups groups={fig.groups} columns={STAT_COLUMNS} className="content-start" />
-          ) : (
-            <StatGroups groups={fig.groups} className="content-start" />
-          )}
+        <div className="px-5 pt-5">
+          <div className="flex items-baseline justify-between gap-4">
+            <div className="flex min-w-0 items-baseline gap-3">
+              <p className="text-2xl font-semibold leading-none tracking-tighter tabular-nums text-fg" aria-hidden>
+                {percent}
+                <span className="ml-0.5 text-lg font-medium text-fg-subtle">%</span>
+              </p>
+              {time && <TimeLeft text={time.text} tip={time.tip} />}
+            </div>
+            {headline && (
+              <p className="shrink-0 text-sm tabular-nums text-fg-muted">
+                <Headline text={headline} />
+              </p>
+            )}
+          </div>
+          <ProgressBar
+            className="mt-3"
+            size="lg"
+            value={percent}
+            tone={paused || waiting ? "warning" : "accent"}
+            paused={paused}
+            speed={live}
+            still={!focused}
+            label={`${state.label} ${job.title}`}
+          />
+          {steps && <PhaseStepper className="mt-4" steps={job.phases.map((id) => ({ id, label: PHASE_STATE[id] }))} current={phase} paused={paused} />}
         </div>
       )}
 
-      {limiter && <p className={cx("px-5 pt-5 text-xs", limiter.tone === "warning" ? "text-warning-text" : "text-fg-muted")}>{limiter.text}</p>}
+      {p && (fig.readouts.length > 0 || fig.damaged) && (
+        <div className="mt-6 flex flex-wrap items-end justify-between gap-x-8 gap-y-2 px-5">
+          <dl className="flex items-end gap-x-8" aria-label="Speed">
+            {fig.readouts.map((r) => (
+              <ReadoutItem key={r.key} r={r} />
+            ))}
+          </dl>
+          {fig.damaged ? (
+            <p className="pb-0.5 text-xs font-medium tabular-nums text-warning-text">{fig.damaged}</p>
+          ) : speedStatus ? (
+            <div className="pb-0.5">
+              <SpeedStatus status={speedStatus} progress={p} context={speedContext} />
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {showChart && (
+        <div className="mt-3 px-5">
+          <JobChart job={job} kind={chartKind} withNetwork={withNetwork} active={visible} paused={!running} />
+        </div>
+      )}
+
       <div className="h-5" />
     </Surface>
   );

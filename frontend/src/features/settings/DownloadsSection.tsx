@@ -38,7 +38,7 @@ function CdnRow({ s }: { s: SettingsT }) {
     } else if (isHostName(v) && v !== s.preferredCdn) void set({ preferredCdn: v });
   };
   return (
-    <Setting label="Download server" find="cdn host content delivery manual automatic region">
+    <Setting label="Download server" id="cdn" find="cdn host content delivery manual automatic region">
       <Line
         label="Download server"
         control={
@@ -110,7 +110,7 @@ export function DownloadsSection({ s }: { s: SettingsT }) {
           <Line label="Speed limit" control={<Select aria-label="Speed limit" minWidth={190} value={limit} onValueChange={(v) => void set({ speedLimitBytesPerSecond: v === "none" ? null : Number(v) })} options={limitOptions} />} />
         </Setting>
         <SwitchRow label="Full speed when I'm away" find="idle away afk" description="While the PC is idle and no game is running." checked={s.idleFullSpeed} onChange={(v) => void set({ idleFullSpeed: v })} />
-        <Setting label="While a game is running" find="playing pause throttle continue gaming">
+        <Setting label="While a game is running" id="whilePlaying" find="playing pause throttle continue gaming">
           <Line
             label="While a game is running"
             control={

@@ -12,7 +12,6 @@ export { Sparkline } from "./Sparkline";
 export { MiniSparkline, type MiniSparklineProps } from "./MiniSparkline";
 export { ThroughputChart, niceCeil, nearestIndex, monotonePath, type ChartData, type ChartSeries, type ThroughputChartProps } from "./ThroughputChart";
 export { PhaseStepper, type Step, type PhaseStepperProps } from "./PhaseStepper";
-export { StatGroups, type StatGroupData, type StatRowData } from "./Stats";
 export { ReorderList, slotOffset, type ReorderCtx, type ReorderListProps } from "./ReorderList";
 export { Switch } from "./Switch";
 export { Select, type SelectOption } from "./Select";

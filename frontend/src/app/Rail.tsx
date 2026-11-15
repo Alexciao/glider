@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 import { Download, Gamepad2, House, Settings as SettingsIcon, Store } from "lucide-react";
+import type { JobInfo } from "../ipc/contract.gen";
 import { useLibraryCounts } from "../state/libraryIndex";
 import { usePage } from "../state/router";
 import { currentJob, useSnap } from "../state/store";
 import { useUi } from "../state/ui";
-import { Tooltip, cx } from "../ui";
+import { Kbd, Tooltip, cx } from "../ui";
 
 function RailItem({
   page,
@@ -24,7 +25,7 @@ function RailItem({
   const active = current === page || (page === "library" && current === "game");
   const go = useUi((s) => s.go);
   return (
-    <Tooltip content={label} shortcut={shortcut} side="right">
+    <Tooltip content={<Kbd>{shortcut}</Kbd>} side="right">
       <button
         type="button"
         aria-label={label}
@@ -54,18 +55,18 @@ function RailItem({
   );
 }
 
-function DownloadsBadge() {
-  const status = useSnap((s) => currentJob(s.queue.jobs)?.status);
+/** Downloads at a glance: red when something couldn't finish (it wins), blue while a job runs, amber while one is paused or waiting. Static: nothing on the rail moves for hours. */
+export function railDotTone(jobs: readonly JobInfo[]): "danger" | "accent" | "warning" | null {
+  if (jobs.some((j) => j.status === "failed")) return "danger";
+  const status = currentJob(jobs)?.status;
   if (!status) return null;
-  return (
-    <span
-      aria-hidden
-      className={cx(
-        "absolute -right-1 -top-1 size-2 rounded-full ring-2 ring-[var(--g-bg-elevated)]",
-        status === "running" ? "animate-[g-breathe_1.8s_ease-in-out_infinite] bg-accent" : "bg-warning",
-      )}
-    />
-  );
+  return status === "running" ? "accent" : "warning";
+}
+
+function DownloadsBadge() {
+  const tone = useSnap((s) => railDotTone(s.queue.jobs));
+  if (!tone) return null;
+  return <span aria-hidden data-tone={tone} className={cx("absolute -right-1 -top-1 size-2 rounded-full ring-2 ring-[var(--g-bg-elevated)]", { danger: "bg-danger", accent: "bg-accent", warning: "bg-warning" }[tone])} />;
 }
 
 /** A quiet dot on Library when installed games have updates waiting. */

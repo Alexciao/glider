@@ -36,6 +36,8 @@ const ETA_ALPHA = 0.02;
 const AVG_FILE_BYTES = 6 * 1024 ** 2;
 /** Disk writes trail the network by this much until the network is done (the rest is the "Installing" tail). */
 const WRITE_LAG = 0.86;
+/** What a slow drive writes (bytes/s), for the `bottleneck: "disk"` option: about 7.8 MB/s, like the SATA SSD in docs/download-perf.md. */
+const SLOW_DRIVE_WRITE = 7.8 * 1024 * 1024;
 
 interface SpeedConfig {
   nominal: number;
@@ -138,6 +140,8 @@ export interface JobSimInit {
   uninstallSeconds?: number;
   /** Import jobs: also verify (Full), else only link. */
   importVerify?: boolean;
+  /** Mock only: pretend the drive, the processor or the download server is the weak link (screenshots, dev). */
+  bottleneck?: "disk" | "cpu" | "cdn" | null;
 }
 
 const filesOf = (bytes: number): number => Math.max(1, Math.round(bytes / AVG_FILE_BYTES));
@@ -280,6 +284,16 @@ export class JobSim {
     return base * MODE_FACTOR[this.env.mode];
   }
 
+  /** What a slow drive lets through of the download (bytes/s of network), when the drive is the mock's bottleneck. */
+  private netCap(ratio: number): number {
+    return this.init.bottleneck === "disk" ? SLOW_DRIVE_WRITE / Math.max(0.01, ratio) : Infinity;
+  }
+
+  /** What a slow drive writes (bytes/s), when the drive is the mock's bottleneck. */
+  private diskCap(): number {
+    return this.init.bottleneck === "disk" ? SLOW_DRIVE_WRITE : Infinity;
+  }
+
   /**
    * Jump into a phase at `fraction` (0..1) of it, as if the job had been running for a while: earlier phases count as
    * done. Without `phase` it picks the main byte phase (download, else verify, else the first byte phase).
@@ -355,8 +369,9 @@ export class JobSim {
       const warm = Math.min(1, s / 3);
       this.samples.push({
         t: s,
-        networkBytesPerSecond: kind === "network" ? Math.round(ema * warm) : 0,
-        diskBytesPerSecond: Math.round((kind === "network" ? ema * ratio * WRITE_LAG : ema) * warm),
+        // A slow drive only pushes back once its write queue is full: the first seconds still run at the connection's pace.
+        networkBytesPerSecond: kind === "network" ? Math.round((s > 6 ? Math.min(ema, this.netCap(ratio)) : ema) * warm) : 0,
+        diskBytesPerSecond: Math.round(Math.min(kind === "network" ? (s > 6 ? Math.min(ema, this.netCap(ratio)) : ema) * ratio * WRITE_LAG : ema, s > 6 ? this.diskCap() : Infinity) * warm),
       });
     }
   }
@@ -376,9 +391,10 @@ export class JobSim {
         this.dl.step(dt);
         this.netTime += dt;
         const limit = this.env.speedLimit;
-        const net = Math.min(this.rate(this.dl.raw), limit ?? Infinity);
         const total = spec.bytes ?? 0;
         const ratio = ratioOf(spec);
+        // A slow drive holds the whole download down to what it can write.
+        const net = Math.min(this.rate(this.dl.raw), limit ?? Infinity, this.netCap(ratio));
         this.downloaded = Math.min(total, this.downloaded + net * dt * this.scale);
         const diskRaw = net * ratio * (1 + (this.rng() - 0.5) * 0.24);
         this.diskEma += ALPHA * (diskRaw - this.diskEma);
@@ -439,8 +455,8 @@ export class JobSim {
     const net = spec?.kind === "network";
     return {
       t,
-      networkBytesPerSecond: net ? Math.round(this.rate(this.dl.ema)) : 0,
-      diskBytesPerSecond: Math.round(net ? this.diskEma : spec?.kind === "verify" ? this.vf.ema : spec?.kind === "write" ? this.wr.ema : spec?.kind === "move" ? this.mv.ema : 0),
+      networkBytesPerSecond: net ? Math.round(Math.min(this.rate(this.dl.ema), this.netCap(ratioOf(spec)))) : 0,
+      diskBytesPerSecond: Math.round(net ? Math.min(this.diskEma, this.diskCap()) : spec?.kind === "verify" ? this.vf.ema : spec?.kind === "write" ? this.wr.ema : spec?.kind === "move" ? this.mv.ema : 0),
     };
   }
 
@@ -499,6 +515,7 @@ export class JobSim {
         const cap = this.env.speedLimit;
         if (cap !== null && this.rate(this.dl.raw) >= cap) return "speedLimit";
         if (this.env.mode === "background") return "mode";
+        if (this.init.bottleneck) return this.init.bottleneck;
         if (this.dl.dipping) return "cdn";
         return "network";
       }
@@ -557,12 +574,13 @@ export class JobSim {
       case "network": {
         const total = spec.bytes ?? 0;
         const raw = this.rate(this.dl.ema);
+        const netNow = Math.min(raw, this.env.speedLimit ?? Infinity, this.netCap(ratioOf(spec)));
         const avg = this.netTime > 0 ? this.downloaded / (this.netTime * this.scale) : raw;
         network = {
           downloadedBytes: Math.round(this.downloaded),
           totalBytes: total,
-          bytesPerSecond: Math.round(done ? 0 : Math.min(raw, this.env.speedLimit ?? Infinity)),
-          averageBytesPerSecond: Math.round(avg),
+          bytesPerSecond: Math.round(done ? 0 : netNow),
+          averageBytesPerSecond: Math.round(Math.min(avg, this.netCap(ratioOf(spec)))),
           peakBytesPerSecond: Math.round(Math.max(this.peakNet, raw)),
           cdn: this.env.cdn ?? CDNS[1],
           connections: this.env.mode === "background" ? 4 : this.env.mode === "full" ? 24 : 12,
@@ -570,8 +588,8 @@ export class JobSim {
         disk = {
           writtenBytes: Math.round(this.written),
           totalBytes: spec.writeBytes ?? 0,
-          bytesPerSecond: Math.round(done ? 0 : this.diskEma),
-          averageBytesPerSecond: Math.round(this.netTime > 0 ? this.written / (this.netTime * this.scale) : this.diskEma),
+          bytesPerSecond: Math.round(done ? 0 : Math.min(this.diskEma, this.diskCap(), netNow * ratioOf(spec))),
+          averageBytesPerSecond: Math.round(Math.min(this.netTime > 0 ? this.written / (this.netTime * this.scale) : this.diskEma, this.diskCap())),
           peakBytesPerSecond: Math.round(Math.max(this.peakDisk, this.diskEma)),
           installSizeBytes: this.init.installBytes,
         };
@@ -580,7 +598,7 @@ export class JobSim {
         }
         filesTotal = spec.files ?? null;
         filesDone = filesTotal === null ? null : Math.floor((filesTotal * this.downloaded) / Math.max(1, total));
-        eta = (total - this.downloaded) / Math.max(1, this.dl.slow * this.scale) + later;
+        eta = (total - this.downloaded) / Math.max(1, Math.min(this.dl.slow, this.env.speedLimit ?? Infinity, this.netCap(ratioOf(spec))) * this.scale) + later;
         break;
       }
       case "write": {

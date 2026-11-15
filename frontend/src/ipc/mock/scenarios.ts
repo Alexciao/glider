@@ -17,7 +17,7 @@ import type {
 import type { WorstArt } from "./art";
 import { generateCatalog, type MockGame } from "./catalog";
 import { ACCOUNT, DEFAULT_SETTINGS, FORTNITE, GiB, HOUR, MINUTE, OVERLAY_LATEST, OVERLAY_VERSION, iso } from "./constants";
-import { defaultDrives, type MockDrive } from "./disk";
+import { defaultDrives, driveLetter, type MockDrive } from "./disk";
 import { Errors } from "./errors";
 import { mulberry32, shuffled } from "./rng";
 import type { ScenarioInfo, ScenarioName } from "./options";
@@ -430,6 +430,9 @@ export function buildWorld(name: ScenarioName, cfg: WorldConfig): World {
         ["legendaryFailed", "move"],
       ];
       world.syncError = Errors.network("library sync timed out");
+      // The update that failed for space: its drive really is nearly full, so the row can say how much is missing.
+      const spaceDrive = driveLetter(inst[0]?.summary.installPath ?? "");
+      for (const d of world.drives) if (d.letter === spaceDrive) d.freeBytes = Math.round(0.9 * GiB);
       world.jobs = [
         ...codes.map(([error, kind], i): SeedJob => ({
           kind,

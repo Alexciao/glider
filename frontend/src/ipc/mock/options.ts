@@ -64,6 +64,8 @@ export interface MockOptions {
   games?: number;
   /** Whether Easy Anti-Cheat is already installed for Fortnite (default true). false adds a prerequisites step to launch. */
   eacInstalled?: boolean;
+  /** Force what holds a download back, as if the drive, the processor or the download server were slow (screenshots, dev). Default: none. */
+  bottleneck?: "disk" | "cpu" | "cdn";
 }
 
 export interface MockController {
@@ -82,6 +84,8 @@ export interface MockController {
   setEglBusy(busy: boolean, appName?: string): void;
   /** Flip connectivity (the offline scenario starts offline). */
   setConnectivity(c: "online" | "offline"): void;
+  /** Set a drive's free space ("D", bytes): freeing disk space outside Glider. The next snapshot carries it. */
+  setFreeSpace(letter: string, freeBytes: number): void;
   /** Swallow the next `library` delta on the wire (its revision is still consumed), so the next one shows a gap. */
   dropNextLibraryDelta(): void;
   /** Fired when the scenario resets or a state snapshot is pushed. */
@@ -173,6 +177,9 @@ export function parseMockOptions(search: string): MockOptions {
 
   const eac = truthy(q.get("eac"));
   if (eac !== undefined) o.eacInstalled = eac;
+
+  const bottleneck = q.get("bottleneck");
+  if (bottleneck === "disk" || bottleneck === "cpu" || bottleneck === "cdn") o.bottleneck = bottleneck;
 
   return o;
 }

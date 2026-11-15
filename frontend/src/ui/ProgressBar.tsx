@@ -24,6 +24,8 @@ export interface ProgressBarProps {
   speed?: number | null;
   /** Calmer look: desaturated fill, no sheen, no glow. */
   paused?: boolean;
+  /** No sheen, whatever the state: nobody is looking (the window is not focused). The fill and glow stay. */
+  still?: boolean;
 }
 
 /** Sheen sweep time: 3.6 s when crawling down to 1.2 s at several hundred MB/s, in 0.4 s steps so it never twitches. */
@@ -38,10 +40,10 @@ export function sheenSeconds(bytesPerSecond: number | null | undefined): number 
  * Determinate bars move via translateX on a full-width fill (compositor only). 10 Hz updates are
  * bridged by a short linear transition, so motion reads as continuous rather than stepped.
  */
-export function ProgressBar({ value, tone = "accent", size = "md", label, className, speed, paused }: ProgressBarProps) {
+export function ProgressBar({ value, tone = "accent", size = "md", label, className, speed, paused, still }: ProgressBarProps) {
   const indeterminate = value == null;
   const v = indeterminate ? 0 : Math.min(100, Math.max(0, value));
-  const live = !indeterminate && !paused && v > 0 && v < 100;
+  const live = !indeterminate && !paused && !still && v > 0 && v < 100;
   // One-shot settle when the bar reaches 100 while mounted (not for bars that already start full).
   const [prev, setPrev] = useState(v);
   const [settle, setSettle] = useState(false);

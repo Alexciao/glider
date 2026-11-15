@@ -291,6 +291,8 @@ export interface GliderError {
   fix: FixAction | null;
   detail: string | null;
   appName: string | null;
+  requiredBytes: number | null;
+  drive: string | null;
 }
 
 export interface InstallComponent {

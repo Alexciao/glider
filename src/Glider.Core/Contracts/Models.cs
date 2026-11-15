@@ -954,7 +954,17 @@ public enum ErrorCode
 public enum FixAction { SignIn, FreeSpace, Repair, Retry, ChooseFolder, OpenLogs, CloseGame, WaitForEgl, Activate, ResolveSaves, InstallPrerequisites, PlayOffline, Update }
 
 /// <summary>A human-readable failure with an optional one-click fix. Detail is technical (for logs/copy).</summary>
-public sealed record GliderError(ErrorCode Code, string Title, string Message, FixAction? Fix, string? Detail, string? AppName = null);
+public sealed record GliderError(
+    ErrorCode Code,
+    string Title,
+    string Message,
+    FixAction? Fix,
+    string? Detail,
+    string? AppName = null,
+    /// <summary>Not enough disk space only: the bytes the task needed, so the UI can compare them with the drive's free space as it is now.</summary>
+    long? RequiredBytes = null,
+    /// <summary>Not enough disk space only: the drive the task writes to, as "D:".</summary>
+    string? Drive = null);
 
 [JsonConverter(typeof(CamelEnumConverter<NoticeLevel>))]
 public enum NoticeLevel { Info, Success, Warning, Error }

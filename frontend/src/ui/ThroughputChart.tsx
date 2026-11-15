@@ -19,8 +19,10 @@ export interface ChartSeries {
   label: string;
   /** Any CSS colour, normally a token: `var(--g-chart-net)`. */
   color: string;
-  /** Fill the area under this series (use on the first series only; a second wash muddies both). */
+  /** Fill the area under this series (one series only; a second wash muddies both). */
   area?: boolean;
+  /** Line opacity 0..1: a finished stage (the download, while the files are installed) stays as quiet context. */
+  opacity?: number;
 }
 
 /** Column-oriented samples: `t` in seconds (ascending), one value column per series, same length. */
@@ -37,8 +39,16 @@ export interface ThroughputChartProps {
   active?: boolean;
   /** Axis and tooltip values, e.g. bytes/s → "60 MB/s". */
   format: (v: number) => string;
-  /** Marker values for the first series, from the source of truth (so they match the stat rows). */
+  /** Marker values for the marker series, from the source of truth (so they match the readouts). */
   markers?: () => { average: number | null; peak: number | null } | null;
+  /** Which series the average line and peak dot belong to. Default 0. */
+  markerSeries?: number;
+  /** The key above the plot (swatch and name per series). Off when something else, such as live readouts, is the legend. Default true. */
+  legend?: boolean;
+  /** Write the peak next to its dot. Off: the dot stays and the value moves into the hover tooltip. Default true. */
+  peakLabel?: boolean;
+  /** "always" writes the average beside its dashed line; "whenDifferent" only when the latest value is 5 % or more away from it (a steady job needs only the line); "never" leaves the line alone. Default "always". */
+  averageLabel?: "always" | "whenDifferent" | "never";
   /** Elapsed seconds → "2:41". */
   formatTime: (seconds: number) => string;
   /** Accessible description; a live summary is appended. */
@@ -139,11 +149,17 @@ export function ThroughputChart({
   formatTime,
   label,
   minSpan = 60,
+  markerSeries = 0,
+  legend = true,
+  peakLabel: showPeakLabel = true,
+  averageLabel = "always",
   className,
   plotClassName = "h-24",
   emptyText = "Collecting speed data…",
 }: ThroughputChartProps) {
   const uid = useId().replace(/:/g, "");
+  const areaColor = (series.find((s) => s.area) ?? series[0])?.color;
+  const markerColor = series[markerSeries]?.color ?? series[0]?.color;
   const plot = useRef<HTMLDivElement>(null);
   const layer = useRef<HTMLDivElement>(null);
   const paths = useRef<(SVGPathElement | null)[]>([]);
@@ -160,10 +176,11 @@ export function ThroughputChart({
   const live = useRef<HTMLSpanElement>(null);
 
   // Props the draw loop needs, kept in a ref so the subscription never re-binds.
-  const props = useRef({ series, read, format, markers, formatTime, label, minSpan });
+  const props = useRef({ series, read, format, markers, formatTime, label, minSpan, markerSeries, showPeakLabel, averageLabel });
   useEffect(() => {
-    props.current = { series, read, format, markers, formatTime, label, minSpan };
+    props.current = { series, read, format, markers, formatTime, label, minSpan, markerSeries, showPeakLabel, averageLabel };
   });
+  const peakTip = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
     if (!active) return;
@@ -193,6 +210,12 @@ export function ThroughputChart({
         const el = tipVals.current[i];
         if (el) el.textContent = props.current.format(data!.values[i]?.[idx] ?? 0);
       });
+      if (peakTip.current) {
+        const peak = props.current.markers?.()?.peak;
+        const row = peakTip.current.parentElement as HTMLElement | null;
+        if (row) row.hidden = props.current.showPeakLabel || !peak;
+        peakTip.current.textContent = peak ? props.current.format(peak) : "";
+      }
       if (live.current) live.current.textContent = `${props.current.formatTime(t - frame.t0)}: ${props.current.series.map((s, i) => `${s.label} ${props.current.format(data!.values[i]?.[idx] ?? 0)}`).join(", ")}`;
     };
 
@@ -234,8 +257,8 @@ export function ThroughputChart({
         if (s.area && areaPath.current) areaPath.current.setAttribute("d", `${dPath}L${f1(xs[n - 1]!)} ${VH}L${f1(xs[0]!)} ${VH}Z`);
       });
 
-      // Average and peak markers (first series).
-      const first = d.values[0];
+      // Average and peak markers (the marker series).
+      const first = d.values[props.current.markerSeries];
       const lineY = (v: number) => yOf(v, yMax);
       let avgY = -1;
       if (mk?.average && mk.average > 0 && avgLine.current && avgLabel.current) {
@@ -258,7 +281,7 @@ export function ThroughputChart({
         peakDot.current.style.opacity = "1";
         peakDot.current.style.left = `${peakX}%`;
         peakDot.current.style.top = `${peakY}%`;
-        peakLabel.current.style.opacity = "1";
+        peakLabel.current.style.opacity = props.current.showPeakLabel ? "1" : "0";
         peakLabel.current.style.top = `${peakY}%`;
         peakLabel.current.style.left = `${peakX}%`;
         peakLabel.current.style.transform = `translate(${peakX > 78 ? "calc(-100% + 4px)" : peakX < 14 ? "-4px" : "-50%"}, calc(-100% - 8px))`;
@@ -269,8 +292,11 @@ export function ThroughputChart({
       }
       // Two labels close together would collide; the dashed line still marks the average.
       if (avgLabel.current) {
-        const clash = avgY >= 0 && peakY >= 0 && Math.abs(avgY - peakY) < 22 && peakX > 55;
-        avgLabel.current.style.opacity = avgY >= 0 && !clash ? "1" : "0";
+        const clash = props.current.showPeakLabel && avgY >= 0 && peakY >= 0 && Math.abs(avgY - peakY) < 22 && peakX > 55;
+        const now = first?.[n - 1] ?? 0;
+        const mode = props.current.averageLabel;
+        const quiet = mode === "never" || (mode === "whenDifferent" && !!mk?.average && Math.abs(now - mk.average) < 0.05 * mk.average);
+        avgLabel.current.style.opacity = avgY >= 0 && !clash && !quiet ? "1" : "0";
       }
 
       plot.current?.setAttribute("aria-label", `${props.current.label}. ${ss.map((s, i) => `${s.label} now ${props.current.format(d.values[i]?.[n - 1] ?? 0)}`).join(", ")}.`);
@@ -337,18 +363,20 @@ export function ThroughputChart({
       el?.removeEventListener("focus", onFocus);
       el?.removeEventListener("blur", onBlur);
     };
-  }, [active, subscribe, series.length]);
+  }, [active, subscribe, series.length, markerSeries, showPeakLabel, averageLabel]);
 
   return (
     <div className={cx("flex min-w-0 flex-col", className)}>
-      <ul className="mb-3 flex items-center gap-4 text-xs text-fg-muted" aria-label="Series">
-        {series.map((s) => (
-          <li key={s.key} className="inline-flex items-center gap-1.5">
-            <span aria-hidden className="h-0.5 w-3.5 rounded-full" style={{ background: s.color }} />
-            {s.label}
-          </li>
-        ))}
-      </ul>
+      {legend && (
+        <ul className="mb-3 flex items-center gap-4 text-xs text-fg-muted" aria-label="Series">
+          {series.map((s) => (
+            <li key={s.key} className="inline-flex items-center gap-1.5">
+              <span aria-hidden className="h-0.5 w-3.5 rounded-full" style={{ background: s.color }} />
+              {s.label}
+            </li>
+          ))}
+        </ul>
+      )}
       <div className={cx("flex", plotClassName)}>
       <div
         ref={plot}
@@ -367,8 +395,8 @@ export function ThroughputChart({
           <svg viewBox={`0 0 ${VW} ${VH}`} preserveAspectRatio="none" className="size-full overflow-visible">
             <defs>
               <linearGradient id={`${uid}-a`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={series[0]?.color} stopOpacity="0.26" />
-                <stop offset="100%" stopColor={series[0]?.color} stopOpacity="0.02" />
+                <stop offset="0%" stopColor={areaColor} stopOpacity="0.26" />
+                <stop offset="100%" stopColor={areaColor} stopOpacity="0.02" />
               </linearGradient>
             </defs>
             <path ref={areaPath} fill={`url(#${uid}-a)`} />
@@ -383,6 +411,7 @@ export function ThroughputChart({
                   fill="none"
                   stroke={s.color}
                   strokeWidth="2"
+                  strokeOpacity={s.opacity ?? 1}
                   strokeLinejoin="round"
                   strokeLinecap="round"
                   vectorEffect="non-scaling-stroke"
@@ -403,7 +432,7 @@ export function ThroughputChart({
           ref={peakDot}
           aria-hidden
           className="pointer-events-none absolute size-2 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-0 ring-2 ring-[var(--g-bg-elevated)]"
-          style={{ background: series[0]?.color }}
+          style={{ background: markerColor }}
         />
         <span ref={peakLabel} aria-hidden className="pointer-events-none absolute whitespace-nowrap rounded-sm bg-bg-elevated/80 px-1 text-2xs tabular-nums text-fg-muted opacity-0 transition-opacity duration-200" />
 
@@ -428,6 +457,10 @@ export function ThroughputChart({
               />
             </span>
           ))}
+          <span hidden className="mt-1 flex items-center justify-between gap-4 border-t border-border pt-1">
+            <span className="text-fg-muted">Peak</span>
+            <span ref={peakTip} className="font-medium tabular-nums text-fg" />
+          </span>
         </div>
 
         <span ref={empty} className="pointer-events-none absolute inset-0 grid place-items-center text-xs text-fg-subtle">

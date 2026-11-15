@@ -29,7 +29,7 @@ function CancelJobDialog({ jobId, open }: { jobId: string; open: boolean }) {
       cancel={<Button variant="ghost">Keep going</Button>}
       action={
         <Button variant="danger" onClick={() => void actions.cancelJob(jobId)}>
-          Cancel {noun}
+          Cancel {JOB_NOUN[job.kind].toLowerCase()}
         </Button>
       }
     />

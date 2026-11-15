@@ -42,6 +42,8 @@ export function toGliderError(e: unknown): GliderError {
     fix: "retry",
     detail: message,
     appName: null,
+    requiredBytes: null,
+    drive: null,
   };
 }
 

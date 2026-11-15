@@ -319,6 +319,36 @@ public class JobQueueFailureTests
         Assert.Null(done.Error);
     }
 
+    [Fact]
+    public async Task ASpaceFailureCarriesWhatItNeededAndWhereAndANewTaskReplacesIt()
+    {
+        await using var h = new QueueHarness();
+        h.Env.UseFixture("synthetic-install-nospace.stdout.txt");
+        h.Env.UseFixture("synthetic-install-nospace.stderr.txt");
+        h.Env.Script("install", """
+            outfile synthetic-install-nospace.stdout.txt
+            errfile synthetic-install-nospace.stderr.txt
+            exit 1
+            """, invocation: 1);
+        h.InstallScript(files: 2);
+        h.Env.Script("verify", "verify files=2 interval=1");
+        var q = await h.StartAsync();
+        var job = q.Enqueue(h.Install());
+
+        var failed = await QueueHarness.WaitForStatus(q, job.Id, JobStatus.Failed);
+        Assert.Equal(ErrorCode.InsufficientSpace, failed.Error?.Code);
+        Assert.True(failed.Error?.RequiredBytes > 0);
+        Assert.Equal(Path.GetPathRoot(h.Games)!.TrimEnd('\\', '/'), failed.Error?.Drive);
+
+        q.ClearFinished(); // "Clear all" in History never hides a failure
+        Assert.Contains(q.Snapshot(), j => j.Id == job.Id);
+
+        // Starting the same task again (Update all, Install) replaces the failure instead of listing both.
+        var again = q.Enqueue(h.Install());
+        Assert.NotEqual(job.Id, again.Id);
+        Assert.DoesNotContain(q.Snapshot(), j => j.Id == job.Id);
+    }
+
 }
 
 public class JobQueueStallTests

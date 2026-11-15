@@ -182,6 +182,22 @@ public class LibraryRpcTests
     }
 
     [Fact]
+    public async Task UpdateAll_LeavesAFailedUpdateToItsOwnRetry()
+    {
+        using var rig = new Rig();
+        rig.Settings.Set(Settings.Default with { AutoUpdate = AutoUpdatePolicy.Ask });
+        rig.Install("v1");
+        rig.AddGame("A", "Game A", latest: "2.0", installedVersion: "1.0");
+        await rig.StartWarmAsync();
+        var first = await rig.Service.UpdateAll();
+        var a = first.Jobs.Single(j => j.AppName == "A");
+        rig.Jobs.Set(rig.Jobs.Get(a.Id) with { Status = JobStatus.Failed, Error = Errors.InsufficientSpace(5_000_000_000, 900_000_000) });
+
+        var second = await rig.Service.UpdateAll();
+        Assert.DoesNotContain(second.Jobs, j => j.AppName == "A");
+    }
+
+    [Fact]
     public async Task Phase2Methods_AnswerWithEmptyStatesOrNotAvailableYet()
     {
         using var rig = new Rig();

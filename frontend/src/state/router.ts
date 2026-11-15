@@ -8,7 +8,7 @@ import type { StoreTarget } from "../ipc/contract.gen";
  *   home · library · game/<appName> · downloads · settings · store
  *   store/product/<slug> · store/bundle/<slug> · store/free-games · store/wishlist · store/browse   (a typed Store destination)
  *   store/p/<slug>  (legacy alias of store/product/<slug>: what `glider://store/p/<slug>` links and older hosts send)
- *   settings?focus=downloadMode | settings?focus=speedLimit   (Settings → Downloads, with that row highlighted)
+ *   settings?focus=downloadMode|speedLimit|whilePlaying|cdn   (Settings → Downloads, with that row highlighted)
  *
  * `game/<appName>/install` (glider://install/<app>) shows the game page; {@link installIntent} tells the bridge to open its
  * install dialog on top. A link never starts a download by itself.
@@ -22,8 +22,8 @@ export type Route =
   | { page: "settings"; focus?: SettingsFocus };
 
 /** A Settings row a link can point at: the page opens on its section, scrolls to the row and gives it a brief highlight. */
-export type SettingsFocus = "downloadMode" | "speedLimit";
-const SETTINGS_FOCUS: readonly SettingsFocus[] = ["downloadMode", "speedLimit"];
+export type SettingsFocus = "downloadMode" | "speedLimit" | "whilePlaying" | "cdn";
+const SETTINGS_FOCUS: readonly SettingsFocus[] = ["downloadMode", "speedLimit", "whilePlaying", "cdn"];
 
 export type Page = Route["page"];
 

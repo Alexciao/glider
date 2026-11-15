@@ -12,6 +12,8 @@ const startupFailed: GliderError = {
   fix: "openLogs",
   detail: "IOException; logs: C:/Glider/logs",
   appName: null,
+  requiredBytes: null,
+  drive: null,
 };
 
 describe("boot failure (M3)", () => {

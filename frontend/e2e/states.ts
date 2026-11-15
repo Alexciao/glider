@@ -23,7 +23,13 @@ interface G {
   app: { getState(): { snapshot: { settings: Record<string, unknown> } | null } };
   router: { getState(): { go(route: string): void } };
   rpc(method: string, params?: unknown): Promise<unknown>;
-  mock: { failNext(code: string): void; failActiveJob(code: string): void; emitNotice(n: object): void; setConnectivity(c: "online" | "offline"): void };
+  mock: {
+    failNext(code: string): void;
+    failActiveJob(code: string): void;
+    emitNotice(n: object): void;
+    setConnectivity(c: "online" | "offline"): void;
+    setFreeSpace(letter: string, freeBytes: number): void;
+  };
 }
 const g = <T>(page: Page, fn: (g: G) => T | Promise<T>): Promise<T> =>
   page.evaluate(`(${fn.toString()})(window.__glider)`) as Promise<T>;
@@ -400,6 +406,52 @@ const RAW_STATES: ShotState[] = [
   { name: "downloads-waiting-for-egl", query: "scenario=eglBusy&freeze=1", setup: async (p) => go(p, "downloads"), settle: 700 },
   { name: "downloads-history", query: "scenario=returning", setup: async (p) => go(p, "downloads") },
   { name: "downloads-failed-disk-full", query: "scenario=diskFull", setup: async (p) => go(p, "downloads") },
+  // "Couldn't finish": six kinds of failure under the (absent) card; the space failure compares its need with the drive's free space.
+  { name: "downloads-errors", query: "scenario=errors", setup: async (p) => go(p, "downloads") },
+  {
+    name: "downloads-errors-space-freed",
+    query: "scenario=errors&freeze=1",
+    setup: async (p) => {
+      await go(p, "downloads");
+      // The user freed space outside Glider and came back to the window.
+      await g(p, (h) => {
+        for (const letter of ["C", "D", "E", "F"]) h.mock.setFreeSpace(letter, 60 * 1024 ** 3);
+        window.dispatchEvent(new Event("focus"));
+      });
+      await wait(900);
+    },
+  },
+  // The speed status beside the live speeds: a slow drive (amber, with its reason), a limit the user chose (muted), and the dialog behind it.
+  { name: "downloads-slow", query: "scenario=downloading&freeze=1&seek=0.42&timescale=1&bottleneck=disk", setup: async (p) => go(p, "downloads"), settle: 900 },
+  {
+    name: "downloads-slow-dialog",
+    query: "scenario=downloading&freeze=1&seek=0.42&timescale=1&bottleneck=disk",
+    setup: async (p) => {
+      await go(p, "downloads");
+      await btn(p, "Slow download").click();
+    },
+    settle: 700,
+  },
+  {
+    name: "downloads-limited",
+    query: "scenario=downloading&freeze=1&seek=0.42&timescale=1",
+    setup: async (p) => {
+      await go(p, "downloads");
+      await g(p, (h) => h.rpc("settings.update", { ...h.app.getState().snapshot!.settings, speedLimitBytesPerSecond: 8 * 1024 * 1024 }));
+      await wait(900);
+    },
+    settle: 700,
+  },
+  {
+    name: "downloads-queue-paused",
+    query: "scenario=queue&freeze=1&seek=0.42&timescale=1",
+    setup: async (p) => {
+      await go(p, "downloads");
+      await g(p, (h) => h.rpc("queue.pauseAll"));
+      await wait(500);
+    },
+    settle: 700,
+  },
   {
     name: "downloads-empty",
     query: "scenario=firstRunSignedIn",
@@ -413,9 +465,11 @@ const RAW_STATES: ShotState[] = [
     query: "scenario=updates&freeze=1",
     setup: async (p) => {
       await go(p, "downloads");
+      // A second task on another game: Core (and the mock) refuse two tasks on the same game.
+      const other = (await p.evaluate(`(() => [...window.__glider.library.getState().games.values()].find((g) => g.kind==='game'&&g.installStatus==='installed'&&g.appName!=='Fortnite'))()?.appName ?? null`)) as string | null;
       await g(p, (h) => h.rpc("game.update", { appName: "Fortnite" }));
       await wait(500);
-      await g(p, (h) => h.rpc("game.verify", { appName: "Fortnite" }));
+      await p.evaluate((app) => (window as unknown as { __glider: G }).__glider.rpc("game.verify", { appName: app }), other);
       await wait(700);
     },
   },

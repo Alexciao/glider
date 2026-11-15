@@ -27,6 +27,7 @@ and options by URL:
 | `games` | library size override (base games), e.g. `games=1000` |
 | `seed` | catalog seed (same seed, same library) |
 | `eac` | `0` leaves Fortnite's anti-cheat prerequisite uninstalled |
+| `bottleneck` | `disk`, `cpu` or `cdn` forces what holds a download back (the Downloads card's "Slow download" status; `disk` also caps the speeds at what a slow drive writes) |
 | `data` | `worst` `empty` `one` `huge` (dev stress data over the snapshot, `src/dev/stress.ts`) |
 | `dev` | `0` hides the dev switchers |
 

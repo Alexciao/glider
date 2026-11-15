@@ -96,6 +96,7 @@ interface Resolved {
   seed: number;
   games: number | undefined;
   eacInstalled: boolean;
+  bottleneck: "disk" | "cpu" | "cdn" | null;
 }
 
 const MAX_FINISHED_JOBS = 20;
@@ -144,6 +145,7 @@ function resolveOptions(o: MockOptions, prev?: Resolved): Resolved {
     seed: o.seed ?? prev?.seed ?? 1337,
     games: o.games ?? (fresh ? undefined : prev?.games),
     eacInstalled: o.eacInstalled ?? prev?.eacInstalled ?? true,
+    bottleneck: o.bottleneck ?? prev?.bottleneck ?? null,
   };
 }
 
@@ -662,6 +664,7 @@ export class MockBackend {
       writeBytes: 0,
       badFiles: 0,
       badBytes: 0,
+      bottleneck: this.cfg.bottleneck,
     };
     switch (kind) {
       case "install": {
@@ -746,9 +749,20 @@ export class MockBackend {
   }
 
   /** Create (or return the existing, for idempotency) unfinished job keyed by (appName, kind). Like Core's `Enqueue`, a repeat changes nothing. */
+  /** A failed update sits in the list with its own retry; "Update all" leaves it alone (Core does the same). */
+  private hasFailedUpdate(appName: string): boolean {
+    return this.finished.some((j) => j.status === "failed" && j.kind === "update" && j.appName === appName);
+  }
+
   private createJob(kind: JobKind, appName: string, meta: JobMeta = {}, opts: { front?: boolean } = {}): JobInfo {
     const existing = this.queue.find((e) => e.info.appName === appName && e.info.kind === kind);
     if (existing) return this.view(existing);
+    // A new task replaces the same game's earlier failure of that kind (Core does the same).
+    const stale = this.finished.filter((j) => j.status === "failed" && j.appName === appName && j.kind === kind);
+    if (stale.length) {
+      this.finished = this.finished.filter((j) => !stale.includes(j));
+      for (const j of stale) this.failedEntries.delete(j.id);
+    }
     const id = `job-${++this.jobSeq}`;
     const init = this.simInit(kind, appName, id, meta, null);
     const sim = buildJobSim(init, this.cfg.timeScale, this.cfg.timeScaleExplicit);
@@ -897,8 +911,9 @@ export class MockBackend {
       this.failJob(e, Errors.network("Couldn't connect to Epic's servers.", e.info.appName));
       return;
     }
+    // The environment (mode, speed limit) applies to a frozen job too: it only stops the clock.
+    e.sim.setEnv(this.jobEnv());
     if (!this.cfg.freeze) {
-      e.sim.setEnv(this.jobEnv());
       const r = e.sim.advance(TICK_S);
       if (r === "done") {
         this.completeJob(e);
@@ -1057,8 +1072,15 @@ export class MockBackend {
     this.emitState();
   }
 
+  /** Like Core's failure path: a not-enough-space error names the drive it was writing to. */
+  private withDrive(error: GliderError, appName: string): GliderError {
+    if (error.code !== "insufficientSpace" || error.drive) return error;
+    const letter = driveLetter(this.games.get(appName)?.summary.installPath ?? this.settings.defaultInstallBase ?? "");
+    return letter ? { ...error, drive: `${letter}:` } : error;
+  }
+
   private failJob(e: JobEntry, error: GliderError): void {
-    const info = this.finishInfo(e, "failed", { error: { ...error, appName: error.appName ?? e.info.appName } });
+    const info = this.finishInfo(e, "failed", { error: this.withDrive({ ...error, appName: error.appName ?? e.info.appName }, e.info.appName) });
     this.retire(e, info);
     if (error.code === "corrupted" && this.games.get(info.appName)?.summary.installStatus === "installed") {
       const g = this.rec(info.appName);
@@ -1089,7 +1111,7 @@ export class MockBackend {
     if (terminal) {
       const finishedAt = now - (seed.finishedAgoMs ?? HOUR);
       const dur = (seed.durationS ?? 300) * 1000;
-      const error = seed.error ? errorForCode(seed.error, base.title, seed.appName) : null;
+      const error = seed.error ? this.withDrive(errorForCode(seed.error, base.title, seed.appName), seed.appName) : null;
       const info: JobInfo = {
         ...base,
         status: seed.status,
@@ -1280,6 +1302,11 @@ export class MockBackend {
         this.connectivity = c;
         this.syncError = c === "offline" ? Errors.offline("Syncing your library") : null;
         this.reconcile();
+      },
+      setFreeSpace: (letter, freeBytes) => {
+        const d = this.drives.find((x) => x.letter === letter.toUpperCase());
+        if (d) d.freeBytes = freeBytes;
+        this.emitState();
       },
       dropNextLibraryDelta: () => {
         this.dropLibraryEvents++;
@@ -1583,7 +1610,7 @@ export class MockBackend {
     "library.updateAll": async () => {
       this.requireAuth();
       const jobs = [...this.games.values()]
-        .filter((g) => g.summary.kind === "game" && g.summary.installStatus === "installed" && g.summary.updateAvailable && g.settings.autoUpdate !== "never" && !this.isRunning(g.summary.appName))
+        .filter((g) => g.summary.kind === "game" && g.summary.installStatus === "installed" && g.summary.updateAvailable && g.settings.autoUpdate !== "never" && !this.isRunning(g.summary.appName) && !this.hasFailedUpdate(g.summary.appName))
         .map((g) => this.createJob("update", g.summary.appName));
       return { jobs: clone(jobs) };
     },
@@ -1849,6 +1876,16 @@ export class MockBackend {
         // A failed job is retried (Resume is its Retry); a completed or cancelled one can't be.
         const failed = finished.status === "failed" ? this.failedEntries.get(finished.id) : undefined;
         if (!failed) throw fail(Errors.invalidRequest(`A ${finished.status} task can't be resumed.`));
+        // Legendary checks free space before it downloads anything: a job that failed for space and still doesn't fit fails again at once, with the numbers as they are now.
+        const needed = finished.error?.code === "insufficientSpace" ? finished.error.requiredBytes : null;
+        const letter = finished.error?.drive?.[0];
+        if (needed && letter && this.free(`${letter}:`) < needed) {
+          const again: JobInfo = { ...finished, finishedAt: iso(), error: Errors.insufficientSpace(needed, this.free(`${letter}:`), null, finished.appName, finished.error?.drive ?? null) };
+          this.finished = this.finished.map((j) => (j.id === finished.id ? again : j));
+          this.failedEntries.set(finished.id, { ...failed, info: again });
+          this.emitState();
+          return clone(again);
+        }
         this.failedEntries.delete(finished.id);
         this.finished = this.finished.filter((j) => j.id !== finished.id);
         failed.info = { ...finished, status: "queued", error: null, finishedAt: null, blockedReason: null, outcome: null };
@@ -1928,8 +1965,8 @@ export class MockBackend {
       return this.queueState();
     },
     "queue.clearFinished": async () => {
-      this.finished = [];
-      this.failedEntries = new Map();
+      // Failures stay: they leave by succeeding or by being dismissed on their own.
+      this.finished = this.finished.filter((j) => j.status === "failed");
       this.emitState();
       return this.queueState();
     },

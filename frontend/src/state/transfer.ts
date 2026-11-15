@@ -1,6 +1,6 @@
-import type { DownloadMode, JobInfo, JobKind, JobPhase, JobProgress, Limiter } from "../ipc/contract.gen";
-import type { StatGroupData, StatRowData } from "../ui/Stats";
-import { driveOf, formatBytes, formatBytesPrecise, formatClock, formatCount, formatDuration, formatSpeed, formatSpeedCompact, prettyVersion } from "./format";
+import type { SettingsFocus } from "./router";
+import type { DownloadMode, JobInfo, JobKind, JobPhase, JobProgress } from "../ipc/contract.gen";
+import { driveOf, formatBytes, formatBytesPrecise, formatClock, formatCount, formatDuration, formatEta, formatSpeed, prettyVersion } from "./format";
 
 /**
  * Everything the download card says, as pure data: one function per question ("what is this job doing?",
@@ -85,18 +85,32 @@ export function metaOf(job: JobInfo, p: JobProgress | null): string | null {
 
 // ------------------------------------------------------------------------------------------------ figures
 
-export type StatRow = StatRowData;
-export type StatGroup = StatGroupData;
-
 export type ChartKind = "network+disk" | "disk" | null;
 
+/** One live speed. Doubles as the chart's legend: `series` names the line it labels. */
+export interface Readout {
+  key: "network" | "disk" | "read" | "copy";
+  /** "Download", "Disk write", "Reading", "Copying"; with ", average" while the job is not moving. */
+  label: string;
+  bytesPerSecond: number;
+  /** The job's average (paused, waiting), not a live speed. */
+  average: boolean;
+  /** The chart line this readout is the legend of; null when the phase has no chart. */
+  series: "network" | "disk" | null;
+}
+
 export interface Figures {
-  /** The phase's own "done of total" ("2.41 GB of 5.12 GB"); the card adds the percentage and time left. Null when there is none. */
+  /** The phase's own "done of total" ("15.81 GB of 37.64 GB"); `unit` completes the sentence. Null when there is none. */
   headline: string | null;
-  groups: StatGroup[];
+  /** What the headline's bytes did: "downloaded", "written", "copied", "checked". */
+  unit: string | null;
+  /** Live speeds, in the order they are drawn. Empty when the phase has none. */
+  readouts: Readout[];
+  /** Verifying only: "3 damaged so far", once something is. */
+  damaged: string | null;
   /** A chart only while bytes are moving (downloading, repairing, installing). */
   chart: ChartKind;
-  /** Which throughput figure the limiter talks about. */
+  /** Which throughput figure the speed status talks about. */
   throughput: "network" | "write" | "read" | null;
 }
 
@@ -110,146 +124,276 @@ export function cdnName(host: string): string {
   return host;
 }
 
-const row = (key: string, label: string, value: string, extra: Partial<StatRow> = {}): StatRow => ({ key, label, value, ...extra });
-const of = (done: number | null, total: number | null): string | null => (done == null || total == null ? null : `${formatCount(done)} of ${formatCount(total)}`);
-const known = (bytesPerSecond: number): string | null => (bytesPerSecond > 0 ? formatSpeed(bytesPerSecond) : null);
+/** "15.81 GB of 37.64 GB": the numbers a bar is made of, with nothing after them. */
+const ofBytes = (done: number, total: number): string => `${formatBytesPrecise(done)} of ${formatBytesPrecise(total)}`;
 
-/** Only rows with something to say: no "—", no empty groups. */
-function prune(groups: StatGroup[]): StatGroup[] {
-  return groups.filter((g) => g.rows.length > 0);
+/**
+ * A speed readout. While the job is moving it is the live figure; while it is not (paused, waiting) it is the job's
+ * average and says so, so the row keeps its place and the card does not jump when Pause is pressed. A speed that has no
+ * value yet (an average of 0) is left out rather than shown as "0 B/s, average".
+ */
+function readout(key: Readout["key"], label: string, series: Readout["series"], live: number, average: number, moving: boolean): Readout | null {
+  const value = moving ? live : average;
+  if (!moving && !(value > 0)) return null;
+  return { key, label: moving ? label : `${label}, average`, bytesPerSecond: Math.max(0, value), average: !moving, series };
 }
 
-/** Add a row only when the value exists. */
-function add(rows: StatRow[], key: string, label: string, value: string | null, extra: Partial<StatRow> = {}): void {
-  if (value) rows.push(row(key, label, value, extra));
-}
-
-const group = (id: string, title: string, rows: StatRow[]): StatGroup => ({ id, title, rows });
+const present = <T>(list: (T | null)[]): T[] => list.filter((x): x is T => x !== null);
 
 export function figuresOf(job: JobInfo, p: JobProgress | null): Figures {
-  const running = job.status === "running";
+  const moving = job.status === "running";
   const phase = p?.phase ?? job.phase;
   const net = p?.network ?? null;
   const disk = p?.disk ?? null;
   const verify = p?.verify ?? null;
-  const files = of(p?.filesDone ?? null, p?.filesTotal ?? null);
-  const elapsed = p ? [row("elapsed", "Elapsed", formatClock(p.elapsedSeconds))] : [];
-  // The mode lives in the page header and the limit in the limiter line: neither is repeated here.
 
   // Network phases: downloading, and the re-download step of a repair.
   if (net && (phase === "downloading" || phase === "repairing")) {
-    const progress: StatRow[] = [];
-    add(progress, "files", "Files", files);
-    if (phase === "repairing" && verify) {
-      add(progress, "damaged", "Damaged", formatCount(verify.badFiles), { tone: verify.badFiles > 0 ? "warning" : undefined });
-      add(progress, "fixed", "Fixed", `${formatCount(verify.fixedFiles)} of ${formatCount(verify.badFiles)}`);
-    }
-    const speed: StatRow[] = [];
-    // Average and peak are the chart's own annotations (same numbers, drawn where they apply): not repeated in the list.
-    if (running) add(speed, "now", "Now", known(net.bytesPerSecond));
-    if (net.cdn) add(speed, "cdn", "Server", cdnName(net.cdn), { title: net.cdn });
     return {
-      headline: `${formatBytesPrecise(net.downloadedBytes)} of ${formatBytesPrecise(net.totalBytes)}`,
-      groups: prune([group("progress", "Progress", progress), group("speed", "Speed", speed), group("time", "Time", elapsed), diskGroup(disk, running, true)]),
+      headline: ofBytes(net.downloadedBytes, net.totalBytes),
+      unit: "downloaded",
+      readouts: present([
+        readout("network", "Download", "network", net.bytesPerSecond, net.averageBytesPerSecond, moving),
+        disk && readout("disk", "Disk write", "disk", disk.bytesPerSecond, disk.averageBytesPerSecond, moving),
+      ]),
+      damaged: null,
       chart: "network+disk",
       throughput: "network",
     };
   }
 
-  // Verify: local reads only. Never any network figure.
+  // Verify: local reads only. Never any network figure, and no chart: a verify is one steady read.
   if (verify && phase === "verifying") {
-    const progress: StatRow[] = [];
-    add(progress, "files", "Files checked", files ?? `${formatCount(verify.filesChecked)} of ${formatCount(verify.filesTotal)}`);
-    if (verify.badFiles > 0) add(progress, "damaged", "Damaged", formatCount(verify.badFiles), { tone: "warning" });
-    const speed: StatRow[] = [];
-    if (running) add(speed, "read", "Read speed", known(verify.readBytesPerSecond));
+    const average = p && p.elapsedSeconds > 0 ? verify.bytesChecked / p.elapsedSeconds : 0;
     return {
-      headline: `${formatBytesPrecise(verify.bytesChecked)} of ${formatBytesPrecise(verify.bytesTotal)} checked`,
-      groups: prune([group("progress", "Progress", progress), group("speed", "Speed", speed), group("time", "Time", elapsed)]),
+      headline: ofBytes(verify.bytesChecked, verify.bytesTotal),
+      unit: "checked",
+      readouts: present([readout("read", "Reading", null, verify.readBytesPerSecond, average, moving)]),
+      damaged: verify.badFiles > 0 ? `${formatCount(verify.badFiles)} damaged so far` : null,
       chart: null,
       throughput: "read",
     };
   }
 
-  // Disk-only phases: the install tail, and moving files.
-  if (disk && (phase === "installing" || phase === "moving")) {
-    const progress: StatRow[] = [];
-    add(progress, "files", "Files", files);
-    const speed: StatRow[] = [];
-    if (running) add(speed, "now", "Now", known(disk.bytesPerSecond));
+  // The install tail: the download is done, files are still landing on the drive.
+  if (disk && phase === "installing") {
     return {
-      headline: `${formatBytesPrecise(disk.writtenBytes)} of ${formatBytesPrecise(disk.totalBytes)}`,
-      groups: prune([group("progress", "Progress", progress), group("speed", "Speed", speed), group("time", "Time", elapsed), phase === "installing" ? diskGroup(disk, running, false) : group("disk", "Disk", [])]),
-      chart: phase === "installing" ? "disk" : null,
+      headline: ofBytes(disk.writtenBytes, disk.totalBytes),
+      unit: "written",
+      readouts: present([readout("disk", "Disk write", "disk", disk.bytesPerSecond, disk.averageBytesPerSecond, moving)]),
+      damaged: null,
+      chart: "disk",
+      throughput: "write",
+    };
+  }
+
+  // Moving files: one copy, no chart.
+  if (disk && phase === "moving") {
+    return {
+      headline: ofBytes(disk.writtenBytes, disk.totalBytes),
+      unit: "copied",
+      readouts: present([readout("copy", "Copying", null, disk.bytesPerSecond, disk.averageBytesPerSecond, moving)]),
+      damaged: null,
+      chart: null,
       throughput: "write",
     };
   }
 
   // Short timed steps (preparing, finalizing, removing, importing): the card shows the clock next to the percentage.
-  const progress: StatRow[] = [];
-  add(progress, "files", "Files", files);
-  return { headline: null, groups: prune([group("progress", "Progress", progress)]), chart: null, throughput: null };
+  return { headline: null, unit: null, readouts: [], damaged: null, chart: null, throughput: null };
 }
 
-/** The disk side of a download: how fast the drive is writing, how much has landed, how big the install ends up. */
-function diskGroup(disk: JobProgress["disk"], running: boolean, withSpeed: boolean): StatGroup {
-  const rows: StatRow[] = [];
-  if (!disk) return group("disk", "Disk", rows);
-  const final = disk.installSizeBytes;
-  if (withSpeed && running) add(rows, "write", "Write speed", known(disk.bytesPerSecond));
-  rows.push(row("written", "Written", formatBytesPrecise(disk.writtenBytes)));
-  if (final != null) rows.push(row("final", "Final size", formatBytesPrecise(final)));
-  return group("disk", "Disk", rows);
+/** The line at the bar's right edge: "15.81 GB of 37.64 GB downloaded". */
+export const headlineOf = (f: Figures): string | null => (f.headline ? (f.unit ? `${f.headline} ${f.unit}` : f.headline) : null);
+
+/**
+ * The time beside the big percentage: what is left when there is an estimate (elapsed moves into its tooltip), else the
+ * elapsed time itself. Null before the job has started.
+ */
+export function timeOf(job: JobInfo, p: JobProgress | null): { text: string; tip: string | null } | null {
+  if (!p) return null;
+  const elapsed = `${formatClock(p.elapsedSeconds)} elapsed`;
+  if (job.status === "running" && p.etaSeconds != null) return { text: `${formatEta(p.etaSeconds)} left`, tip: elapsed };
+  return { text: elapsed, tip: null };
 }
 
-// ------------------------------------------------------------------------------------------------ limiter
+// ------------------------------------------------------------------------------------------------ speed status
 
-export interface LimiterNote {
-  limiter: Limiter;
-  /** One short line: "Disk is the limit: drive D: writes about 8 MB/s." */
-  text: string;
-  /** Disk and CPU limits are about the PC (the user can act on them); the rest is the outside world or a setting. */
-  tone: "neutral" | "warning";
+export type SpeedCause = "playing" | "disk" | "cpu" | "speedLimit" | "mode" | "cdn";
+
+/** The row in Settings → Downloads that can change a cause. */
+/** The Settings → Downloads row a speed explanation links to (the `settings?focus=` route). */
+export type SettingFocus = SettingsFocus;
+
+export interface SpeedStatus {
+  cause: SpeedCause;
+  /** "slow": something the user did not choose is holding the speed back (amber). "limit": a choice they made (muted). */
+  kind: "slow" | "limit";
+  /** Two or three words: "Slow download", "Speed limit", "Background mode". */
+  label: string;
+  /** One line, for the tooltip: "Drive D: writes about 117 MB/s, slower than your connection." */
+  reason: string;
+  /** The setting that changes it, for the dialog's link; null when only the PC or the network can. */
+  setting: SettingFocus | null;
 }
 
-export interface LimiterContext {
+export interface SpeedContext {
   speedLimitBytesPerSecond: number | null;
-  /** The job's target path, for naming the drive. */
+  /** The job's target path (or install folder), for naming the drive. */
   path?: string | null;
+  /** The mode the user chose, and the queue's current one with its reason (`QueueState`). */
+  chosenMode: DownloadMode;
+  effectiveMode: DownloadMode;
+  modeReason: string | null;
 }
 
 /**
- * What is limiting this job's speed, in one short line, when it is something other than the network (the network being
- * the limit is the normal case and needs no comment). Null when paused, unknown, or the phase has no throughput.
- * The disk case follows docs/download-perf.md: the drive is very often the real limit, and the user should be told.
+ * What is holding this download's speed back, or null when nothing worth saying is (the connection being the limit is
+ * the normal case and needs no comment). One cause, picked in this order: a mode change Glider made on its own, the disk,
+ * the processor, the user's speed limit, the user's mode, the download server. Idle boost is not a limit: it only adds
+ * speed. Null when the job is not running or its phase has no network throughput to hold back.
  */
-export function describeLimiter(p: JobProgress | null, throughput: Figures["throughput"], ctx: LimiterContext): LimiterNote | null {
-  if (!p || !throughput) return null;
+export function speedStatusOf(job: JobInfo, p: JobProgress | null, throughput: Figures["throughput"], ctx: SpeedContext): SpeedStatus | null {
+  if (!p || !throughput || job.status !== "running") return null;
   const drive = driveOf(ctx.path);
+  const where = drive ? `Drive ${drive}` : "This drive";
+  // Glider throttled itself (the user's "while a game runs" choice): the cause is the game, whatever the limiter measured.
+  if (throughput === "network" && ctx.effectiveMode !== ctx.chosenMode && ctx.effectiveMode === "background" && ctx.modeReason) {
+    return { cause: "playing", kind: "limit", label: "Throttled while playing", reason: `${ctx.modeReason.replace(/[.\s]+$/, "")}.`, setting: "whilePlaying" };
+  }
   switch (p.limiter) {
-    case "cdn": {
-      const cdn = p.network?.cdn;
-      return { limiter: "cdn", text: cdn ? `${cdnName(cdn)} is responding slowly right now.` : "The server is responding slowly right now.", tone: "neutral" };
-    }
-    case "cpu":
-      return { limiter: "cpu", text: "Processor is the limit while files unpack.", tone: "warning" };
     case "disk": {
       // Only a drive that holds back a live download is worth saying: reading files or writing the install tail is the work itself.
       if (!p.network) return null;
       const avg = p.disk?.averageBytesPerSecond ?? p.disk?.bytesPerSecond;
-      const where = drive ? `drive ${drive}` : "this drive";
       return {
-        limiter: "disk",
-        text: avg && avg > 0 ? `Disk is the limit: ${where} writes about ${formatSpeedCompact(avg)}.` : `Disk is the limit: ${where} is slower than your connection.`,
-        tone: "warning",
+        cause: "disk",
+        kind: "slow",
+        label: "Slow download",
+        reason: avg && avg > 0 ? `${where} writes about ${formatSpeed(avg)}, slower than your connection.` : `${where} is slower than your connection.`,
+        setting: null,
+      };
+    }
+    case "cpu":
+      return { cause: "cpu", kind: "slow", label: "Slow download", reason: "The processor is the limit while files unpack.", setting: null };
+    case "speedLimit":
+      return {
+        cause: "speedLimit",
+        kind: "limit",
+        label: "Speed limit",
+        reason: ctx.speedLimitBytesPerSecond ? `Held to your ${formatSpeed(ctx.speedLimitBytesPerSecond)} limit.` : "Held to your speed limit.",
+        setting: "speedLimit",
+      };
+    case "mode":
+      return { cause: "mode", kind: "limit", label: `${MODE_LABEL[p.mode]} mode`, reason: `${MODE_LABEL[p.mode]} mode is easing off to keep your PC responsive.`, setting: "downloadMode" };
+    case "cdn": {
+      const cdn = p.network?.cdn;
+      return { cause: "cdn", kind: "slow", label: "Slow download", reason: cdn ? `${cdnName(cdn)} is responding slowly right now.` : "The download server is responding slowly right now.", setting: "cdn" };
+    }
+    default:
+      return null;
+  }
+}
+
+// ------------------------------------------------------------------------------------------------ the full reason
+
+export interface SpeedExplanation {
+  title: string;
+  /** What is limiting, in one or two sentences. */
+  lead: string;
+  /** What was measured, one short sentence each: only numbers that exist. */
+  facts: string[];
+  /** What the user can do about it. */
+  advice: string[];
+  /** The Settings row that changes it, with the button's text; null when only the PC or the network can. */
+  link: { focus: SettingFocus; label: string } | null;
+}
+
+/**
+ * The dialog behind the speed status: why, with the numbers measured for this job, and what the user can do. The numbers
+ * come from the job's own stats (what the connection has reached, what the drive writes), never from guesses.
+ */
+export function explainSpeed(status: SpeedStatus, p: JobProgress | null, ctx: SpeedContext): SpeedExplanation {
+  const now = p?.network?.bytesPerSecond ?? 0;
+  const reached = p?.network?.peakBytesPerSecond ?? 0;
+  const drive = driveOf(ctx.path);
+  const where = drive ? `Drive ${drive}` : "Your drive";
+  const facts: string[] = [];
+  // The connection's own ceiling is worth a line only when it is clearly above what the job gets now.
+  const ceiling = (against: number) => {
+    if (reached > against * 1.25 && reached > 0) facts.push(`Your connection has reached about ${formatSpeed(reached)}.`);
+  };
+  switch (status.cause) {
+    case "disk": {
+      const writes = p?.disk?.averageBytesPerSecond ?? p?.disk?.bytesPerSecond ?? 0;
+      if (writes > 0) facts.push(`${where} writes about ${formatSpeed(writes)}.`);
+      if (now > 0) facts.push(`Glider is downloading at ${formatSpeed(now)}, the pace the drive allows.`);
+      ceiling(Math.max(now, writes));
+      return {
+        title: "Your drive is limiting this download",
+        lead: "Files can't be written as fast as your connection delivers them, so Glider has to slow down to match the drive.",
+        facts,
+        advice: [
+          "Free up space. Drives slow down as they fill up.",
+          "Install games on a faster drive. You can move an installed game from its page.",
+          "Pause other work on the same drive: backups, scans and other downloads.",
+        ],
+        link: null,
+      };
+    }
+    case "cpu":
+      if (now > 0) facts.push(`Glider is downloading at ${formatSpeed(now)}.`);
+      ceiling(now);
+      return {
+        title: "Your processor is limiting this download",
+        lead: "Unpacking files takes more processor time than your PC has to spare right now.",
+        facts,
+        advice: ["Close heavy programs while this finishes.", "It is temporary: speed recovers once the files are unpacked."],
+        link: null,
+      };
+    case "cdn": {
+      const host = p?.network?.cdn;
+      if (host) facts.push(`Server in use: ${cdnName(host)}.`);
+      if (now > 0) facts.push(`Glider is downloading at ${formatSpeed(now)}.`);
+      ceiling(now);
+      return {
+        title: "The download server is slow",
+        lead: "The server isn't sending data as fast as usual. Glider tries another one on its own if it stays slow.",
+        facts,
+        advice: ["It usually clears up by itself within a few minutes.", "Or choose a download server yourself."],
+        link: { focus: "cdn", label: "Choose a server" },
       };
     }
     case "speedLimit":
-      return { limiter: "speedLimit", text: ctx.speedLimitBytesPerSecond ? `Held to your ${formatSpeedCompact(ctx.speedLimitBytesPerSecond)} limit.` : "Held to your speed limit.", tone: "neutral" };
+      if (ctx.speedLimitBytesPerSecond) facts.push(`Your limit is ${formatSpeed(ctx.speedLimitBytesPerSecond)}.`);
+      ceiling(ctx.speedLimitBytesPerSecond ?? now);
+      return {
+        title: "Held to your speed limit",
+        lead: "Downloads stay at the limit you set, so other things on your network keep their share.",
+        facts,
+        advice: ["Raise or remove the limit to download at full speed."],
+        link: { focus: "speedLimit", label: "Change speed limit" },
+      };
     case "mode":
-      return { limiter: "mode", text: `${MODE_LABEL[p.mode]} mode is easing off to keep your PC responsive.`, tone: "neutral" };
-    default:
-      return null;
+      if (now > 0) facts.push(`Glider is downloading at ${formatSpeed(now)}.`);
+      ceiling(now);
+      return {
+        title: `${MODE_LABEL[p?.mode ?? ctx.effectiveMode]} mode is on`,
+        lead: "Glider downloads gently with few connections and low priority, so the rest of your PC stays responsive.",
+        facts,
+        advice: ["Balanced downloads at full network speed and stays gentle on the disk. Full uses everything this PC has."],
+        link: { focus: "downloadMode", label: "Change download mode" },
+      };
+    case "playing":
+      if (now > 0) facts.push(`Glider is downloading at ${formatSpeed(now)}.`);
+      ceiling(now);
+      return {
+        title: "Slowed down while you play",
+        lead: status.reason,
+        facts,
+        advice: ["Speed returns to your chosen mode when the game closes.", "Or pick what Glider does while a game runs: pause, slow down or carry on."],
+        link: { focus: "whilePlaying", label: "Change this setting" },
+      };
   }
 }
 
