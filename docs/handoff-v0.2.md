@@ -1,5 +1,12 @@
 # Glider v0.2: handoff (state on 2026-11-14)
 
+> **Update 2026-11-15: v0.2.0 is released** (<https://github.com/Alexciao/glider/releases/tag/v0.2.0>) from `main` = `v0.2`
+> at `ac7e0fe`. The design critique was implemented with the owner's amendments, the download card was redesigned
+> (direction D, `docs/design-download-card.md` §7), the final UI review (`docs/review-v0.2-ui-final.md`) was fixed, and CI is
+> green. History was rewritten to the owner's GitHub noreply address (backup bundle outside the repo), v0.1.x releases are
+> drafts, and the repo is **public**, so the Velopack self-updater now works. Open for v0.3: a second speed-limit actuator for
+> caps under ~5–10 MB/s, `game.planInstall` from cached data, everything under "Not verified" below.
+
 Where the v0.2 work stands, what's left before the v0.2.0 release, and how to work in this repo. The full mission brief
 is the user's original v0.2 request; this file is the condensed state.
 
