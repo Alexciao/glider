@@ -364,7 +364,12 @@ function Done() {
       <Heading center title="You're all set">
         {games > 0 ? `${plural(games, "game")} in your library.` : "Your library appears after the first sync."}
       </Heading>
-      <Button size="xl" variant="primary" className="mt-8 min-w-48" loading={finishing} onClick={() => void actions.completeOnboarding().then(() => useUi.getState().go("library"))}>
+      <Button size="xl" variant="primary" className="mt-8 min-w-48" loading={finishing} onClick={() =>
+        void actions.completeOnboarding().then(() => {
+          useUi.setState({ onboardingHold: false });
+          useUi.getState().go("library");
+        })
+      }>
         Go to your library
       </Button>
     </div>

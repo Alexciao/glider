@@ -82,8 +82,14 @@ function usePrefetchPages(enabled: boolean): void {
 }
 
 export function Shell() {
-  const onboarded = useSnap((s) => s.onboarding.completed);
+  const completed = useSnap((s) => s.onboarding.completed);
+  const hold = useUi((s) => s.onboardingHold);
   const route = useRoute();
+  // Setup stays up until its own last button is pressed, even though Core already counts it as completed at the last step.
+  const onboarded = completed && !hold;
+  useEffect(() => {
+    if (!completed && !hold) useUi.setState({ onboardingHold: true });
+  }, [completed, hold]);
   useGlobalHotkeys(onboarded);
   usePrefetchPages(onboarded);
   return (
