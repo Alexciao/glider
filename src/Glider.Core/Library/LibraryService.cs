@@ -401,9 +401,13 @@ internal sealed class LibraryService : IArtSource, IDisposable
             {
                 UpdatesChanged?.Invoke();
             }
-
-            MeasureUpdateSizes(map);
         }
+
+        // Every rebuild, not only one that published a delta: whether a known update can be measured depends on more than the
+        // summaries (signed in yet? writer lane idle? the previous measurement finished?). The first rebuild of a fresh start can
+        // publish the update before the pre-warm has loaded the account, and nothing would change afterwards to ask again.
+        // MeasureUpdateSizes asks each (game, installed, latest) at most once, so this is cheap when there is nothing to do.
+        MeasureUpdateSizes(map);
     }
 
     private CatalogContext Context()

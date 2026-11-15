@@ -39,6 +39,35 @@ public class DownloadSizeTests
         Assert.Equal(1, rig.Calls.Count("legendary.updateSizes:Fortnite"));
     }
 
+    /// <summary>
+    /// With no cached library the first rebuild is queued by the very first state change, and on a slow machine it beats the
+    /// pre-warm to the account: the pending update is published while nobody is signed in yet. No later rebuild changes a
+    /// summary, so the dry run must be asked for whenever a rebuild finds it possible, not only when a delta is published.
+    /// </summary>
+    [Fact]
+    public async Task PendingUpdate_PublishedBeforeTheAccountIsLoaded_IsStillMeasured()
+    {
+        using var rig = new Rig();
+        rig.Settings.Set(Settings.Default with { AutoUpdate = AutoUpdatePolicy.Never });
+        rig.Install("v1");
+        rig.Legendary.UpdateSizes = new LegendarySizes(1_200_000_000, 100_000_000_000);
+        var gate = rig.Legendary.VersionGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); // pre-warm held before it loads the account
+
+        await rig.Service.StartAsync();
+        await rig.Service.LibraryForTests.FlushAsync(); // the first rebuild: update published, Auth still unknown
+        Assert.True(rig.Service.LibraryForTests.Summary(FortniteLayout.AppName)!.UpdateAvailable);
+        Assert.Equal(0, rig.Calls.Count("legendary.updateSizes:Fortnite"));
+
+        gate.SetResult();
+        await rig.Service.WarmupTask;
+        await rig.Service.PrewarmForTests.LibrarySync;
+        await rig.Service.LibraryForTests.FlushAsync();
+        await rig.Service.LibraryForTests.SizesTask;
+
+        Assert.Equal(1_200_000_000, (await rig.SummaryAsync())!.DownloadSizeBytes);
+        Assert.Equal(1, rig.Calls.Count("legendary.updateSizes:Fortnite"));
+    }
+
     [Fact]
     public async Task PendingUpdate_WithoutADryRunResult_IsUnknownRatherThanTheFullGameSize()
     {

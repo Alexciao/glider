@@ -26,6 +26,7 @@ internal sealed class OverlayService : IDisposable
     /// <summary>What the user had before the running install/update job (null = unknown, e.g. a job resumed after a restart).</summary>
     private (bool Managed, bool Enabled)? _before;
     private string? _notifiedVersion;
+    private readonly SemaphoreSlim _checkGate = new(1, 1);
 
     public OverlayService(ServiceContext context, IOverlayRegistry registry, OverlayEnvironment environment)
     {
@@ -308,22 +309,32 @@ internal sealed class OverlayService : IDisposable
 
     public async Task CheckOnceAsync(CancellationToken ct)
     {
-        var state = Refresh();
-        if (state.Managed && _c.Hub.State.Auth.Status == AuthStatus.SignedIn && _c.Hub.ActiveJobs(JobInfo.OverlayAppName).Count == 0)
+        // One check at a time: "is the cache stale?" and "spawn Legendary" must not interleave with another caller's (the periodic
+        // loop starts the moment pre-warm ends), or both see the stale cache, both spawn, and the user may be told twice.
+        await _checkGate.WaitAsync(ct).ConfigureAwait(false);
+        try
         {
-            var latest = OverlayFiles.ReadLatest(_c.Paths.LegendaryConfig);
-            if (latest.CheckedAt is not { } at || _c.Now - at > _c.Options.OverlayVersionMaxAge)
+            var state = Refresh();
+            if (state.Managed && _c.Hub.State.Auth.Status == AuthStatus.SignedIn && _c.Hub.ActiveJobs(JobInfo.OverlayAppName).Count == 0)
             {
-                var outcome = await _c.Metadata.RunAsync(token => _c.Legendary.CheckUpdatesAsync(token), ct);
-                _c.Log.Info(Category, outcome.Success ? "overlay version cache refreshed" : $"overlay version check failed: {outcome.Error?.Code}");
-                state = Refresh();
+                var latest = OverlayFiles.ReadLatest(_c.Paths.LegendaryConfig);
+                if (latest.CheckedAt is not { } at || _c.Now - at > _c.Options.OverlayVersionMaxAge)
+                {
+                    var outcome = await _c.Metadata.RunAsync(token => _c.Legendary.CheckUpdatesAsync(token), ct);
+                    _c.Log.Info(Category, outcome.Success ? "overlay version cache refreshed" : $"overlay version check failed: {outcome.Error?.Code}");
+                    state = Refresh();
+                }
+            }
+
+            if (state is { Managed: true, UpdateAvailable: true, LatestVersion: { } latestVersion } && _notifiedVersion != latestVersion)
+            {
+                _notifiedVersion = latestVersion;
+                _c.Notify(NoticeLevel.Info, "Epic overlay update available", $"Version {latestVersion} is ready. Update it from Settings.", toast: false);
             }
         }
-
-        if (state is { Managed: true, UpdateAvailable: true, LatestVersion: { } latestVersion } && _notifiedVersion != latestVersion)
+        finally
         {
-            _notifiedVersion = latestVersion;
-            _c.Notify(NoticeLevel.Info, "Epic overlay update available", $"Version {latestVersion} is ready. Update it from Settings.", toast: false);
+            _checkGate.Release();
         }
     }
 
