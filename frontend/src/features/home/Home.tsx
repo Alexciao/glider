@@ -15,14 +15,15 @@ import { FreeThisWeek } from "./FreeThisWeek";
 import { HomeSection } from "./HomeParts";
 import { UpdatesPanel } from "./UpdatesPanel";
 
-const CARDS = 3;
+/** Three cards, a fourth where the frame has room for a fourth column (`@[1180px]`). */
+const CARDS = 4;
 
 function HomeSkeleton() {
   return (
     <div role="status" aria-label="Loading Home">
       <Skeleton className="mb-3 h-5 w-36 rounded-sm" />
-      <div className="mb-10 grid grid-cols-3 gap-5">
-        {[0, 1, 2].map((i) => (
+      <div className="mb-10 grid grid-cols-3 gap-5 @[1180px]:grid-cols-4 [&>li:nth-child(4)]:hidden @[1180px]:[&>li:nth-child(4)]:block">
+        {[0, 1, 2, 3].map((i) => (
           <div key={i}>
             <Skeleton className="aspect-video rounded-xl" />
             <Skeleton className="mt-3 h-4 w-[58%] rounded-sm" />
@@ -103,7 +104,7 @@ export function Home() {
         </div>
       ) : cards.length > 0 ? (
         <HomeSection title={recent.length > 0 ? "Continue playing" : "Ready to play"}>
-          <ul className="grid grid-cols-3 gap-5">
+          <ul className="grid grid-cols-3 gap-5 @[1180px]:grid-cols-4 [&>li:nth-child(4)]:hidden @[1180px]:[&>li:nth-child(4)]:block">
             {cards.map((g) => (
               <ContinueCard key={g.appName} game={g} />
             ))}
@@ -113,8 +114,11 @@ export function Home() {
         <FirstGame />
       )}
 
-      <DownloadsStrip />
-      {offers.length > 0 && signedIn && <UpdatesPanel updates={offers} />}
+      {/* Rows read across, so they keep a reading width at the frame's left edge; the grids around them use the whole frame. */}
+      <div className="max-w-[960px]">
+        <DownloadsStrip />
+        {offers.length > 0 && signedIn && <UpdatesPanel updates={offers} />}
+      </div>
       <FreeThisWeek />
     </PageScroll>
   );

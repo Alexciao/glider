@@ -6,7 +6,7 @@ import { computeRange, cx, useScrollViewport } from "../../ui";
 import { LibraryContextMenu } from "./GameMenu";
 import { GameListRow, LIST_COL } from "./GameListRow";
 import { GameTile } from "./GameTile";
-import { GRID_GAP, LIST_ROW, gridLayout, listColumns, padFor } from "./gridLayout";
+import { GRID_GAP, LIST_ROW, gridLayout, insetFor, listColumns } from "./gridLayout";
 
 /** Scroll offsets survive leaving the Library for a game's page and coming back. */
 const savedScroll: Record<LibraryView, number> = { grid: 0, list: 0 };
@@ -182,7 +182,7 @@ export const LibraryGrid = memo(function LibraryGrid({ games, view, resetKey, on
     <LibraryContextMenu games={games}>
     <div ref={setScroller} className="h-full overflow-y-auto [scrollbar-gutter:stable]">
       {!isGrid && (
-        <div style={{ paddingInline: padFor(vp.width) }}>
+        <div style={{ paddingInline: insetFor(vp.width) }}>
           <ListHeader cols={listCols} />
         </div>
       )}
@@ -195,7 +195,7 @@ export const LibraryGrid = memo(function LibraryGrid({ games, view, resetKey, on
           if (idx !== undefined) setActive(Number(idx));
         }}
         className="relative"
-        style={{ height: total - (isGrid ? 0 : LIST_HEADER), marginInline: isGrid ? 0 : padFor(vp.width) }}
+        style={{ height: total - (isGrid ? 0 : LIST_HEADER), marginInline: isGrid ? 0 : insetFor(vp.width) }}
       >
         {rows}
       </ul>

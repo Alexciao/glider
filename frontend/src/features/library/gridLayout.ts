@@ -1,3 +1,5 @@
+import { frameInset, frameWidth, gutterFor } from "../common/frame";
+
 /**
  * Pure geometry for the virtualized library. Every row has the same height, so the scroll window is arithmetic and tiles
  * never move once placed (no layout shift while art loads).
@@ -11,8 +13,11 @@ export const ROW_GAP = 24;
 
 export const LIST_ROW = 64;
 
-/** Horizontal page padding for a scroller of this width: the pages' 40 px gutter, 28 px under a 1100 px window (the content area is the window minus the 72 px rail). */
-export const padFor = (containerWidth: number): number => (containerWidth >= 1028 ? 40 : 28);
+/** Horizontal page padding for a scroller of this width: the pages' gutter (see `common/frame`). */
+export const padFor = gutterFor;
+
+/** Where the page frame's content starts inside a scroller of this width (the gutter, plus half of what a very wide window leaves over). */
+export const insetFor = frameInset;
 
 export interface GridLayout {
   cols: number;
@@ -24,14 +29,13 @@ export interface GridLayout {
 }
 
 export function gridLayout(containerWidth: number): GridLayout {
-  const pad = padFor(containerWidth);
-  const inner = Math.max(MIN_TILE, containerWidth - pad * 2);
+  const inner = Math.max(MIN_TILE, frameWidth(containerWidth));
   const cols = Math.max(2, Math.min(12, Math.floor((inner + GRID_GAP) / (MIN_TILE + GRID_GAP))));
   // Tiles stop growing at MAX_TILE; leftover width centres the grid instead of stretching art.
   const tileW = Math.min(MAX_TILE, Math.floor((inner - GRID_GAP * (cols - 1)) / cols));
   const used = tileW * cols + GRID_GAP * (cols - 1);
   const coverH = Math.round((tileW * 4) / 3);
-  return { cols, tileW, coverH, rowH: coverH + TILE_TEXT + ROW_GAP, pad: pad + Math.max(0, Math.floor((inner - used) / 2)) };
+  return { cols, tileW, coverH, rowH: coverH + TILE_TEXT + ROW_GAP, pad: frameInset(containerWidth) + Math.max(0, Math.floor((inner - used) / 2)) };
 }
 
 /** Which list columns fit. The name column always stays; the rest drop in this order as the window narrows. */
@@ -42,6 +46,6 @@ export interface ListColumns {
 }
 
 export function listColumns(containerWidth: number): ListColumns {
-  const inner = containerWidth - padFor(containerWidth) * 2;
+  const inner = frameWidth(containerWidth);
   return { status: inner >= 520, size: inner >= 640, played: inner >= 760 };
 }

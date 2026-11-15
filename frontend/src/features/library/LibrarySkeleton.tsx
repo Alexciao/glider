@@ -1,12 +1,12 @@
 import { Skeleton, useScrollViewport } from "../../ui";
 import type { LibraryView } from "../../state/libraryPrefs";
-import { GRID_GAP, LIST_ROW, ROW_GAP, TILE_TEXT, gridLayout, padFor } from "./gridLayout";
+import { GRID_GAP, LIST_ROW, ROW_GAP, TILE_TEXT, gridLayout, insetFor } from "./gridLayout";
 
 /** The library's loading state: the same geometry as the real grid or list (same tile size, same gutters), so nothing moves when games arrive. */
 export function LibrarySkeleton({ view }: { view: LibraryView }) {
   const [vp, attach] = useScrollViewport();
   const layout = gridLayout(vp.width);
-  const pad = padFor(vp.width);
+  const pad = insetFor(vp.width);
 
   if (view === "list") {
     const rows = Math.ceil(vp.height / LIST_ROW);
