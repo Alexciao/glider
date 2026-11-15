@@ -53,7 +53,7 @@ internal static class LimiterDecision
 
         if (i.DiskBound)
         {
-            var ceiling = Math.Max(i.PeakNetworkBytesPerSecond, (i.ProbeMegabytesPerSecond ?? 0) * 1_000_000);
+            var ceiling = Ceiling(i.PeakNetworkBytesPerSecond, i.ProbeMegabytesPerSecond) ?? 0;
             var write = i.WriteBytesPerSecond > 0 ? $" (≈{Mb(i.WriteBytesPerSecond)})" : "";
             var net = ceiling > 0 ? $" Your connection can do ≈{Mb(ceiling)}." : "";
             return (Limiter.Disk, $"Limited by {drive}{write}.{net} A nearly full or slow drive writes more slowly than your connection delivers.");
@@ -65,6 +65,13 @@ internal static class LimiterDecision
         }
 
         return i.SecondsInPhase < 8 ? (Limiter.Unknown, null) : (Limiter.Network, "Limited by your connection or Epic's servers.");
+    }
+
+    /// <summary>What this connection has shown it can deliver: the larger of the job's peak and the CDN probe. Null while neither is known.</summary>
+    public static double? Ceiling(double peakBytesPerSecond, double? probeMegabytesPerSecond)
+    {
+        var ceiling = Math.Max(peakBytesPerSecond, (probeMegabytesPerSecond ?? 0) * 1_000_000);
+        return ceiling > 0 ? ceiling : null;
     }
 
     private static string Mb(double bytesPerSecond) => $"{(bytesPerSecond / 1_000_000).ToString(bytesPerSecond >= 10_000_000 ? "0" : "0.0", CultureInfo.InvariantCulture)} MB/s";

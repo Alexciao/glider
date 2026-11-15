@@ -105,6 +105,35 @@ public class OfflineQueueTests
         Assert.Null(rig.Service.Hub.BuildSnapshot().Queue.HoldReason);
     }
 
+    // ------------------------------------------------------------------ the hold as data
+
+    [Fact]
+    public async Task TheHold_IsStructured_AndFollowsTheSameOrderAsTheReason()
+    {
+        using var rig = await StartAsync();
+        Assert.Null(rig.Service.Hub.BuildSnapshot().Queue.Hold);
+
+        rig.Settings.Set(Settings.Default with { AutoUpdate = AutoUpdatePolicy.Never, WhilePlaying = WhilePlayingPolicy.Pause });
+        Play(rig);
+        Assert.Equal(new HoldInfo(HoldKind.Game, "Fortnite"), rig.Service.Hub.BuildSnapshot().Queue.Hold);
+
+        SetState(rig, Connectivity.Offline); // offline wins over a game, as the reason string does
+        Assert.Equal(new HoldInfo(HoldKind.Offline, null), rig.Service.Hub.BuildSnapshot().Queue.Hold);
+
+        SetState(rig, Connectivity.Online);
+        rig.Settings.Set(Settings.Default with { AutoUpdate = AutoUpdatePolicy.Never, WhilePlaying = WhilePlayingPolicy.Continue });
+        Assert.Null(rig.Service.Hub.BuildSnapshot().Queue.Hold);
+    }
+
+    [Fact]
+    public async Task APausedQueue_IsAHold_OfKindPaused()
+    {
+        using var rig = await StartAsync();
+        rig.Jobs.Paused = true;
+        Assert.Equal(new HoldInfo(HoldKind.Paused, null), rig.Service.Hub.BuildSnapshot().Queue.Hold);
+        Assert.Null(rig.Service.Hub.BuildSnapshot().Queue.HoldReason); // the string only speaks for holds Core puts on the queue
+    }
+
     // ------------------------------------------------------------------ resume on reconnect
 
     [Fact]
