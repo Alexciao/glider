@@ -70,13 +70,27 @@ public sealed class RealRuntimeTests
         File.WriteAllBytes(bad, bytes);
 
         var job = await h.Rpc.Verify(new AppRef(h.App));
-        var done = await h.WaitForDone(job.Id, "verify + repair attempt");
+        // Two clean endings: the repair can't reach Epic, Core goes offline and the job waits for the connection (it resumes on its
+        // own when Epic is back), or the job fails with an error the user can act on. Never the generic "stopped unexpectedly".
+        var done = await RealRuntimeHarness.WaitFor(() => h.Job(job.Id),
+            j => j.Status is JobStatus.Completed or JobStatus.Failed or JobStatus.Cancelled
+                || (j.Status == JobStatus.Waiting && h.Snapshot.Queue.Hold?.Kind == HoldKind.Offline),
+            "verify + repair attempt");
 
-        Assert.Equal(JobStatus.Failed, done.Status);
-        Assert.NotNull(done.Error);
-        Assert.Contains(done.Error.Code, new[] { ErrorCode.Network, ErrorCode.Offline, ErrorCode.Corrupted, ErrorCode.NotSignedIn });
-        Assert.NotEqual(ErrorCode.LegendaryFailed, done.Error.Code); // not the generic "stopped unexpectedly"
-        Assert.False(string.IsNullOrWhiteSpace(done.Error.Message));
+        if (done.Status == JobStatus.Waiting)
+        {
+            Assert.Equal(HoldKind.Offline, h.Snapshot.Queue.Hold?.Kind);
+            Assert.False(string.IsNullOrWhiteSpace(h.Snapshot.Queue.HoldReason));
+        }
+        else
+        {
+            Assert.Equal(JobStatus.Failed, done.Status);
+            Assert.NotNull(done.Error);
+            Assert.Contains(done.Error.Code, new[] { ErrorCode.Network, ErrorCode.Offline, ErrorCode.Corrupted, ErrorCode.NotSignedIn });
+            Assert.NotEqual(ErrorCode.LegendaryFailed, done.Error.Code);
+            Assert.False(string.IsNullOrWhiteSpace(done.Error.Message));
+        }
+
         await h.Runtime.Service.LibraryForTests.FlushAsync();
         Assert.Equal(InstallStatus.Installed, h.Game()!.InstallStatus); // a failed repair doesn't forget or delete the install
         Assert.Equal(bytes, File.ReadAllBytes(bad)); // and does not touch the file it could not fetch a replacement for
