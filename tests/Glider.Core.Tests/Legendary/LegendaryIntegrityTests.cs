@@ -48,7 +48,8 @@ public class LegendaryIntegrityTests
 
         Assert.SkipWhen(dir is null, "not running from the repository");
         using var doc = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(dir!.FullName, "build", "legendary.json")));
-        Assert.Equal(LegendaryCli.PinnedSha256, doc.RootElement.GetProperty("sha256").GetString());
+        // "sha256" is the hash of the onedir zip FetchLegendary downloads; Core hashes the legendary.exe inside it ("exeSha256").
+        Assert.Equal(LegendaryCli.PinnedSha256, doc.RootElement.GetProperty("exeSha256").GetString());
     }
 }
 
@@ -79,6 +80,9 @@ public class LegendaryForkPinTests
 
         using var candidate = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(repo.FullName, "build", "legendary-fork.json")));
         Assert.Equal(pin.RootElement.GetProperty("forkVersion").GetString(), candidate.RootElement.GetProperty("version").GetString());
+        Assert.EndsWith(".zip", candidate.RootElement.GetProperty("url").GetString(), StringComparison.Ordinal); // the onedir folder, not a lone exe
+        Assert.Equal(64, candidate.RootElement.GetProperty("exeSha256").GetString()!.Length);
+        Assert.Contains(candidate.RootElement.GetProperty("version").GetString()!, candidate.RootElement.GetProperty("url").GetString(), StringComparison.Ordinal);
         Assert.Contains("-glider.", candidate.RootElement.GetProperty("version").GetString(), StringComparison.Ordinal);
         Assert.True(File.Exists(Path.Combine(repo.FullName, "tools", "legendary-fork", "SOURCE-OFFER.txt")));
     }

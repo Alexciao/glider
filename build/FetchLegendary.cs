@@ -1,4 +1,7 @@
 // Fetches the pinned Legendary release into src/Glider.App/legendary/ and verifies SHA-256.
+// A pin whose url ends in .zip is a PyInstaller --onedir build (legendary.exe + _internal/ at the zip root, see the legendary-fork workflow):
+// the zip is verified against "sha256", extracted, and the extracted legendary.exe is verified against "exeSha256" (what Core checks at run time).
+// A pin whose url is a lone .exe (the stock one-file build) is still supported.
 // Usage: dotnet run build/FetchLegendary.cs [-- [--fork] [<repo-root>]]
 // Pins live in build/legendary.json (--fork: build/legendary-fork.json, the Glider fork, which also ships its patch and source offer).
 // Idempotent: files whose hash already matches are left alone.
@@ -27,9 +30,7 @@ static async Task<int> RunAsync(string[] args)
     using var pinDoc = JsonDocument.Parse(await File.ReadAllTextAsync(pinPath));
     var fork = forkFlag || (pinDoc.RootElement.GetProperty("version").GetString() ?? "").Contains("-glider", StringComparison.OrdinalIgnoreCase);
     string Pin(string name) => pinDoc.RootElement.GetProperty(name).GetString()
-        ?? throw new InvalidDataException($"{pinPath}: '{name}' is null" + (fork && name == "sha256"
-            ? " (the fork is not published yet: run the legendary-fork workflow on a legendary-fork-* tag and record the hash, see tools/legendary-fork/README.md)"
-            : ""));
+        ?? throw new InvalidDataException($"{pinPath}: '{name}' is null");
 
     var destDir = Path.Combine(root, "src", "Glider.App", "legendary");
     Directory.CreateDirectory(destDir);
@@ -41,12 +42,15 @@ static async Task<int> RunAsync(string[] args)
         : Environment.GetEnvironmentVariable("GITHUB_TOKEN") is { Length: > 0 } t2 ? t2 : null;
     var fetcher = new Downloader(http, token);
 
-    await EnsureAsync(fetcher, "legendary.exe", Pin("url"), Pin("sha256"), Path.Combine(destDir, "legendary.exe"));
+    var exeUrl = Pin("url");
+    if (exeUrl.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        await EnsureArchiveAsync(fetcher, exeUrl, Pin("sha256"), Pin("exeSha256"), destDir);
+    else
+        await EnsureAsync(fetcher, "legendary.exe", exeUrl, Pin("sha256"), Path.Combine(destDir, "legendary.exe"));
     await EnsureAsync(fetcher, "LICENSE.txt", Pin("licenseUrl"), Pin("licenseSha256"), Path.Combine(destDir, "LICENSE.txt"));
     if (fork)
     {
         // GPLv3: the patch and the source offer travel with the modified binary; both are assets of the same release as the exe.
-        var exeUrl = Pin("url");
         foreach (var name in new[] { "glider-legendary.patch", "SOURCE-OFFER.txt" })
         {
             var url = exeUrl[..(exeUrl.LastIndexOf('/') + 1)] + name;
@@ -93,6 +97,55 @@ static async Task EnsureAsync(Downloader fetcher, string label, string url, stri
     finally
     {
         if (File.Exists(tmp)) File.Delete(tmp);
+    }
+}
+
+// Downloads the onedir zip, verifies it, extracts into a staging folder next to the destination, verifies the extracted exe, then swaps
+// the folder in (legendary.exe is removed first and moved in last, so an interrupted run never leaves a matching exe without its _internal).
+static async Task EnsureArchiveAsync(Downloader fetcher, string url, string zipSha256, string exeSha256, string destDir)
+{
+    var exe = Path.Combine(destDir, "legendary.exe");
+    var internalDir = Path.Combine(destDir, "_internal");
+    if (File.Exists(exe) && Directory.Exists(internalDir) && string.Equals(await HashAsync(exe), exeSha256, StringComparison.OrdinalIgnoreCase))
+    {
+        Console.WriteLine("legendary.exe + _internal: up to date (exe sha256 matches), skipping download");
+        return;
+    }
+
+    Console.WriteLine($"legendary (onedir zip): downloading {url}");
+    var tmp = Path.Combine(Path.GetTempPath(), $"glider-fetch-{Guid.NewGuid():N}.zip");
+    var staging = Path.Combine(destDir, $".staging-{Guid.NewGuid():N}");
+    try
+    {
+        await fetcher.DownloadAsync(url, tmp);
+        var actual = await HashAsync(tmp);
+        if (!string.Equals(actual, zipSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException($"legendary zip: SHA-256 mismatch.\n  expected {zipSha256}\n  actual   {actual}\n  url      {url}");
+
+        System.IO.Compression.ZipFile.ExtractToDirectory(tmp, staging); // refuses entries that would land outside the folder
+        var stagedExe = Path.Combine(staging, "legendary.exe");
+        if (!File.Exists(stagedExe) || !Directory.Exists(Path.Combine(staging, "_internal")))
+            throw new InvalidDataException("legendary zip: expected legendary.exe and _internal/ at the archive root");
+        var exeActual = await HashAsync(stagedExe);
+        if (!string.Equals(exeActual, exeSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException($"legendary.exe in the zip: SHA-256 mismatch.\n  expected {exeSha256}\n  actual   {exeActual}");
+
+        if (File.Exists(exe)) File.Delete(exe);
+        if (Directory.Exists(internalDir)) Directory.Delete(internalDir, recursive: true);
+        foreach (var entry in Directory.EnumerateFileSystemEntries(staging).Where(e => !string.Equals(Path.GetFileName(e), "legendary.exe", StringComparison.OrdinalIgnoreCase)))
+        {
+            var target = Path.Combine(destDir, Path.GetFileName(entry));
+            if (Directory.Exists(entry)) { if (Directory.Exists(target)) Directory.Delete(target, true); Directory.Move(entry, target); }
+            else File.Move(entry, target, overwrite: true);
+        }
+        File.Move(stagedExe, exe);
+        var files = Directory.EnumerateFiles(internalDir, "*", SearchOption.AllDirectories).Count();
+        Console.WriteLine($"legendary: verified and installed (legendary.exe {new FileInfo(exe).Length:N0} bytes + _internal, {files} files)");
+    }
+    finally
+    {
+        if (File.Exists(tmp)) File.Delete(tmp);
+        if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true);
     }
 }
 

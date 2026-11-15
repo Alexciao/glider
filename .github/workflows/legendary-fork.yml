@@ -1,8 +1,14 @@
 name: legendary-fork
 
 # Builds the Glider fork of Legendary (docs/download-perf.md section 5.4): pinned upstream commit + tools/bench/legendary-0.21.1-glider.patch,
-# as a PyInstaller one-file exe, the same way upstream's own workflow builds it. On a tag "legendary-fork-<version>" the exe, its SHA-256,
-# the patch and the corresponding source (GPLv3 section 6) are published together as one release.
+# with PyInstaller. Since 0.21.1-glider.3 the build is tuned to not look like malware to Windows Defender's ML heuristics (the one-file
+# exe of glider.2 was flagged Trojan:Win32/Bearfoos.A!ml, a typical false positive for PyInstaller self-extractors):
+#   * --onedir: no self-extraction to %TEMP% at every start; the folder (legendary.exe + _internal/) ships as one zip;
+#   * the bootloader is compiled from PyInstaller's sdist with MSVC instead of using the prebuilt binary every PyInstaller user shares
+#     (that binary is what AV vendors fingerprint);
+#   * a real Windows version resource (company, product, original filename, copyright) instead of an anonymous exe; no UPX.
+# On a tag "legendary-fork-<version>" the zip, its SHA-256, the exe's SHA-256, the patch and the corresponding source (GPLv3 section 6)
+# are published together as one release.
 
 on:
   workflow_dispatch:
@@ -49,7 +55,7 @@ jobs:
         run: |
           git -C legendary-src apply --check "$env:GITHUB_WORKSPACE/tools/bench/legendary-0.21.1-glider.patch"
           git -C legendary-src apply        "$env:GITHUB_WORKSPACE/tools/bench/legendary-0.21.1-glider.patch"
-          # The version normally comes from the installed package metadata, which a one-file build has no copy of: pin it as a literal
+          # The version normally comes from the installed package metadata, which a PyInstaller build has no copy of: pin it as a literal
           # (this is also what `legendary --version` and the user agent report).
           $init = Get-Content legendary-src/legendary/__init__.py -Raw
           $patched = $init -replace "__version__ = version\('legendary-gl'\)", "__version__ = '${{ steps.pin.outputs.version }}'"
@@ -70,39 +76,110 @@ jobs:
           UV_SYSTEM_PYTHON: 1
         run: uv sync --frozen --extra pyinstaller_build --no-install-local
 
+      # The wheel's prebuilt bootloader (PyInstaller/bootloader/Windows-64bit-intel/run.exe) is byte-identical in every PyInstaller app on
+      # earth and is what AV engines learn to distrust. Rebuild PyInstaller from the sdist locked in uv.lock (same version, hash-checked),
+      # which compiles the bootloader with the runner's MSVC toolchain (waf).
+      - name: PyInstaller with a bootloader compiled from source
+        id: pyi
+        shell: pwsh
+        working-directory: legendary-src
+        env:
+          PYINSTALLER_COMPILE_BOOTLOADER: 1
+        run: |
+          # uv sync put the locked dependencies into legendary-src/.venv: use that interpreter everywhere below.
+          $py = (Resolve-Path .venv/Scripts/python.exe).Path
+          "PYI_PYTHON=$py" >> $env:GITHUB_ENV
+          $lock = Get-Content uv.lock -Raw
+          $m = [regex]::Match($lock, '(?ms)^name = "pyinstaller"\r?\nversion = "(?<v>[^"]+)".*?sdist = \{ url = "[^"]+", hash = "sha256:(?<h>[0-9a-f]{64})"')
+          if (-not $m.Success) { throw "could not read the locked PyInstaller sdist from uv.lock" }
+          $ver = $m.Groups['v'].Value; $hash = $m.Groups['h'].Value
+          Write-Host "PyInstaller $ver, sdist sha256 $hash"
+          "version=$ver" >> $env:GITHUB_OUTPUT
+
+          $site = (& $py -c "import PyInstaller, pathlib; print(pathlib.Path(PyInstaller.__file__).parent)").Trim()
+          $boot = Join-Path $site 'bootloader/Windows-64bit-intel'
+          $before = (Get-FileHash (Join-Path $boot 'run.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "prebuilt run.exe (wheel): $before"
+
+          Set-Content req-pyinstaller.txt "pyinstaller==$ver --hash=sha256:$hash"
+          uv pip install --python $py --no-binary pyinstaller --reinstall-package pyinstaller --no-deps --require-hashes -r req-pyinstaller.txt
+          if ($LASTEXITCODE -ne 0) { throw "building PyInstaller from the sdist failed" }
+
+          $after = (Get-FileHash (Join-Path $boot 'run.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "compiled run.exe (sdist): $after"
+          if ($after -eq $before) { throw "the bootloader is byte-identical to the prebuilt one: it was not compiled from source" }
+          & $py -m PyInstaller --version
+
       - name: The fork's own version parses where Legendary compares versions
         working-directory: legendary-src
         env:
-          UV_SYSTEM_PYTHON: 1
+          PYTHONPATH: ${{ github.workspace }}/legendary-src
         # 0.21.1-glider.1 shipped with int('1-glider') raising ValueError in every forced update check (auth, status):
         # Glider showed it as "Can't reach Epic". Exercise the comparison with the literal version this build reports.
         run: >-
-          uv run python -c "from legendary import __version__ as v; from legendary.core import _version_tuple as t;
+          & $env:PYI_PYTHON -c "from legendary import __version__ as v; from legendary.core import _version_tuple as t;
           assert t(v) == (0, 21, 1), (v, t(v)); assert t('0.21.2') > t(v) and not t('0.21.1') > t(v); print('version ok', v, t(v))"
 
-      - name: Build legendary.exe
+      - name: Windows version resource
+        id: vi
+        shell: pwsh
+        run: |
+          $v = '${{ steps.pin.outputs.version }}'
+          if ($v -notmatch '^(\d+)\.(\d+)\.(\d+)-glider\.(\d+)$') { throw "fork version '$v' is not <major>.<minor>.<patch>-glider.<n>" }
+          $parts = $Matches[1], $Matches[2], $Matches[3], $Matches[4]
+          $text = (Get-Content tools/legendary-fork/version-info.template.txt -Raw).Replace('@VERSION_TUPLE@', ($parts -join ', ')).Replace('@VERSION_STRING@', ($parts -join '.'))
+          Set-Content legendary-src/legendary/glider-version-info.txt $text -Encoding utf8
+          "string=$($parts -join '.')" >> $env:GITHUB_OUTPUT
+
+      - name: Build legendary (onedir)
         working-directory: legendary-src/legendary
         env:
-          UV_SYSTEM_PYTHON: 1
           PYTHONOPTIMIZE: 1
-        run: uv run --module PyInstaller --onefile --name legendary -i ../assets/windows_icon.ico cli.py
+          PYTHONPATH: ${{ github.workspace }}/legendary-src
+        # Like upstream's build-base.yml, but --onedir (no self-extraction), --noupx (never packed) and a version resource.
+        run: >-
+          & $env:PYI_PYTHON -m PyInstaller --onedir --noupx --noconfirm --name legendary -i ../assets/windows_icon.ico
+          --version-file glider-version-info.txt cli.py
 
       - name: Smoke test the exe (no login)
         shell: pwsh
         run: |
-          $exe = "legendary-src/legendary/dist/legendary.exe"
+          $exe = "legendary-src/legendary/dist/legendary/legendary.exe"
+          if (-not (Test-Path legendary-src/legendary/dist/legendary/_internal)) { throw "no _internal folder: not an onedir build" }
           $v = (& $exe --version 2>&1 | Out-String).Trim(); Write-Host $v
           if ($v -notmatch [regex]::Escape('${{ steps.pin.outputs.version }}')) { throw "unexpected version output: $v" }
           $help = (& $exe install --help 2>&1 | Out-String)
           if ($help -notmatch '--control-file') { throw "the patch's --control-file option is missing from install --help" }
+          # offline status in an empty config dir: signs in to nothing, touches no network
+          $cfg = Join-Path $env:RUNNER_TEMP "legendary-smoke-cfg"; New-Item $cfg -ItemType Directory -Force | Out-Null
+          $env:LEGENDARY_CONFIG_PATH = $cfg
+          $status = (& $exe status --offline --json 2>$null | Out-String).Trim(); Write-Host $status
+          if ($LASTEXITCODE -ne 0 -or ($status | ConvertFrom-Json).account -ne '<not logged in>') { throw "unexpected offline status output" }
+          Remove-Item Env:LEGENDARY_CONFIG_PATH
+          $fv = (Get-Item $exe).VersionInfo
+          Write-Host "version resource: $($fv.CompanyName) | $($fv.ProductName) | $($fv.FileVersion) | $($fv.OriginalFilename) | $($fv.LegalCopyright)"
+          if ($fv.CompanyName -ne 'Glider (fork of Legendary)' -or $fv.OriginalFilename -ne 'legendary.exe' -or $fv.FileVersion -ne '${{ steps.vi.outputs.string }}') { throw "version resource is missing or wrong" }
 
-      - name: Collect release files (exe, SHA-256, patch, source)
+      # The runner has its own Python installed: exactly the interference case. The bundle must run without it, with a scrubbed
+      # environment and PYTHON* variables / decoy modules pointing elsewhere (build/verify-legendary-isolation.ps1).
+      - name: Isolation check (no Python needed, none used)
+        shell: pwsh
+        run: ./build/verify-legendary-isolation.ps1 -Exe legendary-src/legendary/dist/legendary/legendary.exe -Version '${{ steps.pin.outputs.version }}'
+
+      - name: Collect release files (zip, SHA-256s, patch, source)
         shell: pwsh
         run: |
           $v = '${{ steps.pin.outputs.version }}'
           New-Item out -ItemType Directory | Out-Null
-          Copy-Item legendary-src/legendary/dist/legendary.exe out/legendary.exe
-          (Get-FileHash out/legendary.exe -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content out/legendary.exe.sha256 -NoNewline
+          $dist = 'legendary-src/legendary/dist/legendary'
+          # The folder's contents sit at the zip root (legendary.exe, _internal/...): Glider extracts it into legendary/ next to Glider.exe.
+          # CreateFromDirectory writes forward-slash entry names.
+          $zip = "out/legendary-$v-win64.zip"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::CreateFromDirectory((Resolve-Path $dist).Path, (Join-Path (Get-Location) $zip), [System.IO.Compression.CompressionLevel]::Optimal, $false)
+          (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content "$zip.sha256" -NoNewline
+          # Glider's integrity check hashes legendary.exe itself (the bootloader; _internal is data it loads), so that hash is published too.
+          (Get-FileHash "$dist/legendary.exe" -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content out/legendary.exe.sha256 -NoNewline
           Copy-Item tools/bench/legendary-0.21.1-glider.patch out/glider-legendary.patch
           Copy-Item tools/legendary-fork/SOURCE-OFFER.txt out/SOURCE-OFFER.txt
           # GPLv3 section 6: the corresponding source (upstream commit + patch applied, the exact tree that was built), from the same place as the binary.
@@ -113,6 +190,20 @@ jobs:
           }
           tar -czf "out/legendary-$v-source.tar.gz" -C source-tree "legendary-$v"
           Get-ChildItem out | Format-Table Name, Length
+          Write-Host "zip sha256:  $(Get-Content "$zip.sha256" -Raw)"
+          Write-Host "exe sha256:  $(Get-Content out/legendary.exe.sha256 -Raw)"
+          Write-Host "bootloader: compiled from the PyInstaller ${{ steps.pyi.outputs.version }} sdist"
+
+      - name: Smoke test the zip as Glider will use it
+        shell: pwsh
+        run: |
+          # Extract to a fresh folder (what FetchLegendary does) and run from there: proves the zip is self-contained.
+          $v = '${{ steps.pin.outputs.version }}'
+          $dest = Join-Path $env:RUNNER_TEMP 'zip-check'
+          Expand-Archive "out/legendary-$v-win64.zip" $dest
+          if ((Get-FileHash "$dest/legendary.exe" -Algorithm SHA256).Hash.ToLowerInvariant() -ne (Get-Content out/legendary.exe.sha256 -Raw)) { throw "exe in the zip differs from the published exe hash" }
+          $out = (& "$dest/legendary.exe" --version 2>&1 | Out-String).Trim(); Write-Host $out
+          if ($out -notmatch [regex]::Escape($v)) { throw "unexpected version output from the extracted zip: $out" }
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -135,7 +226,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $sha = Get-Content out/legendary.exe.sha256 -Raw
+          $zip = Get-ChildItem out -Filter 'legendary-*-win64.zip' | Select-Object -First 1
+          $zipSha = Get-Content "$($zip.FullName).sha256" -Raw
+          $exeSha = Get-Content out/legendary.exe.sha256 -Raw
           gh release create "${{ github.ref_name }}" out/* --repo "${{ github.repository }}" `
             --title "${{ github.ref_name }}" --prerelease --latest=false `
-            --notes "Glider fork of Legendary (GPLv3). legendary.exe SHA-256: $sha. Changes: glider-legendary.patch. Source: legendary-*-source.tar.gz; see SOURCE-OFFER.txt."
+            --notes "Glider fork of Legendary (GPLv3), PyInstaller onedir build with a bootloader compiled from source. $($zip.Name) SHA-256: $zipSha. legendary.exe (inside it) SHA-256: $exeSha. Changes: glider-legendary.patch. Source: legendary-*-source.tar.gz; see SOURCE-OFFER.txt."

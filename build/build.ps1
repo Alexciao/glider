@@ -72,6 +72,11 @@ Exec dotnet @('publish', 'src/Glider.App', '-c', $Configuration, '-r', 'win-x64'
 if (-not (Test-Path (Join-Path $publish 'Glider.exe'))) { throw "publish did not produce Glider.exe" }
 if (-not (Test-Path (Join-Path $publish 'legendary/legendary.exe'))) { throw "publish output is missing legendary/legendary.exe (host csproj must include it as content)" }
 $legendaryPin = Get-Content (Join-Path $root 'build/legendary.json') -Raw | ConvertFrom-Json
+if ($legendaryPin.url -like '*.zip') {
+    # PyInstaller --onedir: legendary.exe is only the bootloader, the Python runtime and libraries live in _internal/ next to it.
+    $internal = Join-Path $publish 'legendary/_internal'
+    if (-not (Test-Path $internal) -or -not (Get-ChildItem $internal -Recurse -File -Filter 'python*.dll' | Select-Object -First 1)) { throw "publish output is missing legendary/_internal (the onedir folder must ship whole)" }
+}
 if ($Fork -or $legendaryPin.version -like '*-glider*') {
     foreach ($f in 'glider-legendary.patch', 'SOURCE-OFFER.txt', 'LICENSE.txt') {
         if (-not (Test-Path (Join-Path $publish "legendary/$f"))) { throw "publish output is missing legendary/$f (GPLv3: a modified Legendary ships its patch, source offer and license)" }

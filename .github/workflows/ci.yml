@@ -73,6 +73,12 @@ jobs:
         shell: pwsh
         run: ./build/smoke-legendary.ps1
 
+      # This runner has a Python installed: the bundled Legendary must neither need it nor be reachable by it (scrubbed environment,
+      # PYTHON* variables and decoy modules pointing elsewhere, online status over verified HTTPS).
+      - name: Legendary isolation check (no Python needed, none used)
+        shell: pwsh
+        run: ./build/verify-legendary-isolation.ps1
+
       # Core's Legendary layer against the real exe: temp LEGENDARY_CONFIG_PATH, fixture installs, no user.json, no Epic account
       # (docs/testing.md). Only RealLegendary tests run here; the others already ran in "Test", where these are reported as skipped.
       # The two tests that send a deliberately invalid token to Epic (GLIDER_REAL_LEGENDARY_NET=1) are local-only: CI stays hermetic.
