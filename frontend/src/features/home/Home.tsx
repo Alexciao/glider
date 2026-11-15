@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { failedJobsOf } from "../../state/failures";
 import { useLibrary } from "../../state/library";
 import { useLibraryCounts, useLibraryIndex, useRecentlyPlayed } from "../../state/libraryIndex";
 import { goGame } from "../../state/router";
@@ -68,7 +69,13 @@ export function Home() {
   const refreshing = usePending("refreshLibrary");
 
   const total = counts.all + counts.hidden;
-  const updates = useMemo(() => index.updates(), [index]);
+  const signedIn = useSnap((s) => s.auth.status === "signedIn");
+  const jobs = useSnap((s) => s.queue.jobs);
+  // Updates that are not already waiting in "Couldn't finish": those have their own "Try again" on Downloads, and "Update all" skips them.
+  const offers = useMemo(() => {
+    const failedUpdates = new Set(failedJobsOf(jobs).filter((j) => j.kind === "update").map((j) => j.appName));
+    return index.updates().filter((g) => !failedUpdates.has(g.appName));
+  }, [index, jobs]);
   // Installed but never played: show what is ready instead of an empty row.
   const ready = useMemo(
     () => (recent.length > 0 ? [] : index.query({ filter: "installed", sort: "added" }).filter((g) => g.installStatus === "installed").slice(0, CARDS)),
@@ -107,7 +114,7 @@ export function Home() {
       )}
 
       <DownloadsStrip />
-      {updates.length > 0 && <UpdatesPanel updates={updates} />}
+      {offers.length > 0 && signedIn && <UpdatesPanel updates={offers} />}
       <FreeThisWeek />
     </PageScroll>
   );

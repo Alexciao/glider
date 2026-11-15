@@ -102,9 +102,12 @@ export function StorePage() {
           )}
         </div>
         <div className="flex-1" />
-        <IconButton label="Open in browser" size="sm" onClick={openInBrowser}>
-          <ExternalLink size={14} />
-        </IconButton>
+        {/* The fallbacks below carry their own "Open in browser" (signed out, a failed load): never two. Offline there is no browser to open it in either. */}
+        {!error && phase !== "signedOut" && (
+          <IconButton label="Open in browser" size="sm" onClick={openInBrowser}>
+            <ExternalLink size={14} />
+          </IconButton>
+        )}
       </div>
 
       <div ref={hostRef} data-store-host className="relative min-h-0 flex-1 bg-bg-elevated">
