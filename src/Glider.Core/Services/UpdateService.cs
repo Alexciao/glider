@@ -302,7 +302,7 @@ internal sealed class UpdateService : IDisposable
 
     // ------------------------------------------------------------------ library.updateAll
 
-    /// <summary>library.updateAll: every installed game with an update, except those set to Never.</summary>
+    /// <summary>library.updateAll: every installed game with an update, except those set to Never and those whose last update failed (they have their own retry).</summary>
     public async Task<UpdateAllResult> UpdateAllAsync(CancellationToken ct)
     {
         await _c.RequireSignedInAsync(ct);
@@ -310,6 +310,12 @@ internal sealed class UpdateService : IDisposable
         foreach (var g in _c.Library.Games.Values.Where(g => g.UpdateAvailable && g.InstallStatus is InstallStatus.Installed).OrderBy(g => g.Title, StringComparer.CurrentCultureIgnoreCase))
         {
             if (PolicyFor(g.AppName) == AutoUpdatePolicy.Never)
+            {
+                continue;
+            }
+
+            // A failed update stays in the list with its own "Try again"; "Update all" doesn't queue it a second time behind its back.
+            if (_c.Jobs.Snapshot().Any(j => j.AppName == g.AppName && j is { Kind: JobKind.Update, Status: JobStatus.Failed }))
             {
                 continue;
             }

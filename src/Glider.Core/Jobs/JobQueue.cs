@@ -184,6 +184,13 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
                 return View(existing); // idempotent per (app, kind): a second click doesn't queue a duplicate
             }
 
+            // A new task for the same game and kind replaces its earlier failure: the failure would otherwise sit in the list beside it.
+            foreach (var stale in _jobs.Where(j => j.Request.Kind == request.Kind && j.Request.AppName == request.AppName && j.Info.Status == JobStatus.Failed).ToList())
+            {
+                _jobs.Remove(stale);
+                _samples.Remove(stale.Info.Id);
+            }
+
             var id = Guid.NewGuid().ToString("N");
             job = new PersistedJob
             {
@@ -446,7 +453,8 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
     {
         lock (_lock)
         {
-            foreach (var j in _jobs.Where(j => IsTerminal(j.Info.Status)).ToList())
+            // A failure stays until it succeeds or is dismissed on its own: one click must not hide work that still needs doing.
+            foreach (var j in _jobs.Where(j => IsTerminal(j.Info.Status) && j.Info.Status != JobStatus.Failed).ToList())
             {
                 _jobs.Remove(j);
                 _samples.Remove(j.Info.Id);
@@ -1251,7 +1259,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
                 {
                     Status = JobStatus.Failed,
                     FinishedAt = _time.GetUtcNow(),
-                    Error = (error ?? Errors.Unknown()) with { AppName = job.Request.AppName },
+                    Error = WithSpaceFacts((error ?? Errors.Unknown()) with { AppName = job.Request.AppName }, job),
                     Progress = progress,
                     Outcome = new JobOutcome(OutcomeKind.Failed, (error ?? Errors.Unknown()).Message),
                 },
@@ -1630,6 +1638,10 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
         {
         }
     }
+
+    /// <summary>A not-enough-space failure names its drive, so the Downloads page can recheck that drive's free space later.</summary>
+    private static GliderError WithSpaceFacts(GliderError error, PersistedJob job) =>
+        error.Code == ErrorCode.InsufficientSpace && error.Drive is null && DriveOf(job) is { } drive ? error with { Drive = drive } : error;
 
     private static string? DriveOf(PersistedJob job)
     {

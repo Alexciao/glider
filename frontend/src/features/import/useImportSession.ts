@@ -130,7 +130,7 @@ export function useImportSession(surface: ErrorSurface = "onboarding"): ImportSe
     if (!v) return;
     if (!v.valid || !v.gamePath) {
       ui.setError(surface, {
-        error: { code: "invalidFolder", title: "Not a game folder", message: v.reason ?? "This folder doesn't contain a game from your library.", fix: "chooseFolder", detail: path, appName: null },
+        error: { code: "invalidFolder", title: "Not a game folder", message: v.reason ?? "This folder doesn't contain a game from your library.", fix: "chooseFolder", detail: path, appName: null, requiredBytes: null, drive: null },
         retry: () => void locate(),
       });
       return;

@@ -24,7 +24,7 @@ public static class Errors
     public static GliderError InsufficientSpace(long requiredBytes, long freeBytes, string? detail = null) => new(ErrorCode.InsufficientSpace,
         "Not enough disk space",
         $"This needs {Format.Bytes(requiredBytes)} but only {Format.Bytes(freeBytes)} is free. Free up space or choose another drive.",
-        FixAction.FreeSpace, detail);
+        FixAction.FreeSpace, detail, RequiredBytes: requiredBytes);
 
     public static GliderError Network(string? detail = null) => new(ErrorCode.Network,
         "Can't reach Epic", "Check your internet connection, then try again. Progress is kept.", FixAction.Retry, detail);

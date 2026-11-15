@@ -78,6 +78,8 @@ export class RpcClient {
                 fix: "retry",
                 detail: method,
                 appName: null,
+                requiredBytes: null,
+                drive: null,
               }),
             );
           }, DEFAULT_TIMEOUT_MS);

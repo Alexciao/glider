@@ -36,6 +36,8 @@ const LONG_ERROR = {
   detail:
     "IOException: The process cannot access the file 'D:\\Users\\Aleksandra Wiśniewska-Kowalczyk\\Documents\\My Games\\Epic Games Store Library\\Game\\Content\\Paks\\pakchunk10-WindowsClient.ucas' because it is being used by another process.\n   at Glider.Legendary.Installer.Replace(String path)\n   at Glider.Jobs.JobRunner.Run(JobContext ctx)",
   appName: null,
+  requiredBytes: null,
+  drive: null,
 };
 
 function job(i: number, kind: JobKind, status: JobInfo["status"], ageMinutes: number, appName: string): JobInfo {

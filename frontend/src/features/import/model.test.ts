@@ -20,7 +20,7 @@ const install = (id: string, status: EglInstall["status"], title = id): EglInsta
 const job = (patch: Partial<JobInfo>): JobInfo =>
   ({ id: "j", appName: "a", title: "A", kind: "import", status: "completed", phases: [], phase: null, progress: null, error: null, createdAt: "", startedAt: null, finishedAt: null, targetPath: null, fromVersion: null, toVersion: null, blockedReason: null, verify: null, outcome: null, ...patch }) as JobInfo;
 
-const err = (code: GliderError["code"], title = "Title"): GliderError => ({ code, title, message: "m", fix: null, detail: null, appName: null });
+const err = (code: GliderError["code"], title = "Title"): GliderError => ({ code, title, message: "m", fix: null, detail: null, appName: null, requiredBytes: null, drive: null });
 
 describe("groupInstalls", () => {
   it("splits by what can be done and sorts each group by title", () => {
