@@ -203,6 +203,12 @@ internal sealed class JobHooks : IJobHooks, IJobGate
         }
 
         var item = _c.Egl.FindByLocation(installed.InstallPath, app) ?? (job.TargetPath is { } t ? _c.Egl.FindByLocation(t, app) : null);
+        if (item?.InstallTags is { Count: > 0 } eglTags && !installed.InstallTags.Any(t => t.Length > 0))
+        {
+            // `import` records no optional packs; without EGL's list, verify/update treat every pack EGL skipped as missing.
+            await _c.Legendary.SetInstallTagsAsync(app, eglTags, ct);
+        }
+
         await _c.Library.ReloadAsync();
         var latest = _c.Library.Summary(app)?.LatestVersion;
         var mode = _c.Jobs.Request(job.Id)?.Options?.Verify ?? VerifyMode.Auto;

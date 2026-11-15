@@ -49,6 +49,32 @@ public class ImportTests
     }
 
     [Fact]
+    public async Task ImportGivesLegendaryEglsOptionalPacks_SoAVerifyDoesNotFetchTheOnesEglSkipped()
+    {
+        using var rig = await ReadyRig("v5", "v5");
+        rig.Egl.Item = rig.Egl.Item! with { InstallTags = ["Startup", "FortniteBR", "Langde", ""] };
+        var job = Assert.Single((await rig.Service.ImportEgl(new EglImportRequest(["egl-1"], VerifyMode.Auto))).Jobs);
+        await RunImport(rig, job);
+
+        Assert.Equal(["Startup", "FortniteBR", "Langde", ""], rig.Legendary.InstallTagsSet[FortniteLayout.AppName]);
+        Assert.Single(rig.Jobs.Requests); // complete and up to date: still no verify
+    }
+
+    [Fact]
+    public async Task ARescanBackfillsThePacksOfAnInstallImportedWithoutThem()
+    {
+        using var rig = await ReadyRig("v5", "v5");
+        var job = Assert.Single((await rig.Service.ImportEgl(new EglImportRequest(["egl-1"], VerifyMode.Auto))).Jobs);
+        await RunImport(rig, job); // v0.2.1: imported, no tags known
+        Assert.Empty(rig.Legendary.InstallTagsSet);
+
+        rig.Egl.Item = rig.Egl.Item! with { InstallTags = ["FortniteBR"] };
+        await rig.Service.RescanEgl();
+
+        Assert.Equal(["FortniteBR"], rig.Legendary.InstallTagsSet[FortniteLayout.AppName]);
+    }
+
+    [Fact]
     public async Task DifferentVersion_QueuesBackgroundVerify_WithNeedsRepairOutcome()
     {
         using var rig = await ReadyRig("v4", "v5");

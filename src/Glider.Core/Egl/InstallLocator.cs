@@ -17,6 +17,10 @@ internal static class InstallLocator
         ["Games", "Epic Games"],
         ["Program Files", "Epic Games"],
         ["Program Files (x86)", "Epic Games"],
+        ["EpicLibrary"],      // a common custom library folder (seen on a real machine: D:\EpicLibrary\Fortnite)
+        ["Epic Library"],
+        ["EpicGames"],
+        ["Games", "EpicLibrary"],
     ];
 
     /// <summary>Folders (relative to a drive root) whose direct children are also probed, to catch non-default folder names.</summary>
@@ -27,6 +31,10 @@ internal static class InstallLocator
         ["Games", "Epic Games"],
         ["Program Files", "Epic Games"],
         ["Program Files (x86)", "Epic Games"],
+        ["EpicLibrary"],
+        ["Epic Library"],
+        ["EpicGames"],
+        ["Games", "EpicLibrary"],
     ];
 
     /// <summary>At most this many children of a known parent are probed.</summary>

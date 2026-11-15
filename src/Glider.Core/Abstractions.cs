@@ -240,6 +240,13 @@ public interface ILegendary
     /// <summary>`import`: registers an existing folder without downloading.</summary>
     Task<LegendaryOutcome> ImportAsync(string appName, string gamePath, CancellationToken ct);
 
+    /// <summary>
+    /// Records which optional packs an install has (<c>[app] install_tags</c> in Legendary's config.ini, what <c>verify</c> and
+    /// <c>update</c> read). <c>import</c> doesn't set it (Legendary's own <c>egl_import</c> does), so without it a verify counts every
+    /// pack EGL never installed as missing and the repair downloads them. Written while no Legendary process runs.
+    /// </summary>
+    Task SetInstallTagsAsync(string appName, IReadOnlyList<string> tags, CancellationToken ct) => Task.CompletedTask;
+
     Task<LegendaryOutcome> MoveAsync(string appName, string newBasePath, bool skipMove, IProgress<LegendaryProgress>? progress, CancellationToken ct);
 
     Task<LegendaryOutcome> UninstallAsync(string appName, bool keepFiles, CancellationToken ct);
@@ -352,6 +359,12 @@ public sealed record EglEnvironment(string ProgramData)
 
     public string ManifestsDir => Path.Combine(ProgramData, "Epic", "EpicGamesLauncher", "Data", "Manifests");
     public string LauncherInstalledDat => Path.Combine(ProgramData, "Epic", "UnrealEngineLauncher", "LauncherInstalled.dat");
+
+    /// <summary>
+    /// EGL 20+ with EOSH (its install helper service) keeps each install as <c>&lt;InstallationGuid&gt;.egi</c> here; the legacy
+    /// <c>.item</c> files are only a mirror, which EGL may fail to write (seen on a real machine: no Manifests folder at all).
+    /// </summary>
+    public string EoshInstalledItemsDir => Path.Combine(ProgramData, "Epic", "EpicOnlineServicesShared", "InstallHelper", "InstalledItems");
 }
 
 /// <summary>A parsed EGL install manifest (.item) plus where it came from.</summary>
@@ -364,7 +377,9 @@ public sealed record EglItem(
     bool IsIncomplete,
     bool NeedsValidation,
     string AppName = "",
-    string? DisplayName = null);
+    string? DisplayName = null,
+    /// <summary>The optional packs EGL installed (its install tags); empty when unknown.</summary>
+    IReadOnlyList<string>? InstallTags = null);
 
 /// <summary>One install EGL (or a quick scan) knows about, before Glider joins it with its library.</summary>
 public sealed record EglFoundInstall(

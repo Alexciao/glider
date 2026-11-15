@@ -34,24 +34,46 @@ internal static class LegendaryConfigFile
         ];
     }
 
-    public static async Task<bool> EnsureAsync(string configDir, CancellationToken ct)
+    public static async Task<bool> EnsureAsync(string configDir, CancellationToken ct) =>
+        await EnsureAsync(configDir, new Dictionary<string, IReadOnlyList<KeyValuePair<string, string>>>(), ct).ConfigureAwait(false);
+
+    /// <summary>The managed <c>[Legendary]</c> keys plus per-game values (section = app name), in one write.</summary>
+    public static async Task<bool> EnsureAsync(string configDir, IReadOnlyDictionary<string, IReadOnlyList<KeyValuePair<string, string>>> games, CancellationToken ct)
     {
         Directory.CreateDirectory(configDir);
         var path = PathIn(configDir);
         var bytes = await AtomicFile.TryReadAllBytesAsync(path, ct).ConfigureAwait(false);
         var existing = bytes is null ? null : Encoding.UTF8.GetString(bytes);
-        var updated = Apply(existing, ManagedValues(configDir));
-        if (updated is null)
+        var changed = false;
+        var text = existing;
+        if (Apply(text, ManagedValues(configDir)) is { } managed)
+        {
+            (text, changed) = (managed, true);
+        }
+
+        foreach (var (app, values) in games)
+        {
+            if (Apply(text, values, app) is { } updated)
+            {
+                (text, changed) = (updated, true);
+            }
+        }
+
+        if (!changed || text is null)
         {
             return false;
         }
 
-        await AtomicFile.WriteAllTextAsync(path, updated, keepBackup: false, ct).ConfigureAwait(false);
+        await AtomicFile.WriteAllTextAsync(path, text, keepBackup: false, ct).ConfigureAwait(false);
         return true;
     }
 
+    /// <summary>Legendary's <c>install_tags</c> value: comma-separated, empty tags dropped (cli.py:971, verify splits on ',').</summary>
+    public static string InstallTagsValue(IEnumerable<string> tags) =>
+        string.Join(",", tags.Where(t => t.Trim().Length > 0).Select(t => t.Trim()).Distinct(StringComparer.Ordinal));
+
     /// <summary>Returns the new file content, or null when nothing needs to change. Pure (unit-tested).</summary>
-    public static string? Apply(string? existing, IReadOnlyList<KeyValuePair<string, string>> values)
+    public static string? Apply(string? existing, IReadOnlyList<KeyValuePair<string, string>> values, string section = Section)
     {
         var text = existing ?? "";
         if (text.Length > 0 && text[0] == '﻿')
@@ -83,7 +105,7 @@ internal static class LegendaryConfigFile
                     sectionEnd = LastContentIndex(output) + 1;
                 }
 
-                inSection = name == Section;
+                inSection = name == section;
                 sectionFound |= inSection;
                 skipContinuation = false;
                 output.Add(raw);
@@ -119,10 +141,22 @@ internal static class LegendaryConfigFile
         var missing = values.Where(v => !seen.Contains(v.Key)).Select(v => $"{v.Key} = {v.Value}").ToList();
         if (!sectionFound)
         {
-            var header = new List<string> { $"[{Section}]" };
+            var header = new List<string> { $"[{section}]" };
             header.AddRange(missing);
-            header.Add("");
-            output.InsertRange(0, header);
+            if (section == Section)
+            {
+                header.Add("");
+                output.InsertRange(0, header); // [Legendary] first, as Legendary writes it
+            }
+            else
+            {
+                if (output.Count > 0 && output[^1].Trim().Length > 0)
+                {
+                    output.Add("");
+                }
+
+                output.AddRange(header); // a game's section goes at the end
+            }
         }
         else if (missing.Count > 0)
         {

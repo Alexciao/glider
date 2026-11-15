@@ -345,6 +345,16 @@ public sealed class FakeLegendary(CallLog log, string config) : ILegendary
         return Task.FromResult(ImportOutcome);
     }
 
+    /// <summary>What SetInstallTagsAsync recorded, per app (Legendary's config.ini [app] install_tags).</summary>
+    public Dictionary<string, IReadOnlyList<string>> InstallTagsSet { get; } = new(StringComparer.Ordinal);
+
+    public Task SetInstallTagsAsync(string appName, IReadOnlyList<string> tags, CancellationToken ct)
+    {
+        log.Add($"legendary.setInstallTags:{appName}");
+        InstallTagsSet[appName] = tags;
+        return Task.CompletedTask;
+    }
+
     public Task<LegendaryOutcome> MoveAsync(string appName, string newBasePath, bool skipMove, IProgress<LegendaryProgress>? progress, CancellationToken ct)
     {
         log.Add($"legendary.move:{appName}");

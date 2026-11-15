@@ -149,6 +149,49 @@ internal sealed class LegendaryProcessRunner : IDisposable
     /// <summary>One process inside Legendary's login() at a time (L§1.8).</summary>
     public AuthGate Gate { get; }
 
+    /// <summary>Per-game config.ini values waiting for a moment with no Legendary process (guarded by the config lock).</summary>
+    private readonly Dictionary<string, IReadOnlyList<KeyValuePair<string, string>>> _pendingGameConfig = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Sets keys in a game's section of config.ini (e.g. <c>[Fortnite] install_tags</c>). Written now when no Legendary process runs,
+    /// otherwise before the next process starts (Legendary rewrites config.ini at exit, so writing under a live process is lost).
+    /// </summary>
+    public async Task SetGameConfigAsync(string appName, IReadOnlyList<KeyValuePair<string, string>> values, CancellationToken ct)
+    {
+        await _configLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            _pendingGameConfig[appName] = values;
+            if (_active == 0)
+            {
+                await WriteConfigLockedAsync(ct).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _configLock.Release();
+        }
+    }
+
+    /// <summary>Managed [Legendary] keys plus queued per-game values; the queue is kept when the write fails. Caller holds the config lock.</summary>
+    private async Task WriteConfigLockedAsync(CancellationToken ct)
+    {
+        try
+        {
+            var games = new Dictionary<string, IReadOnlyList<KeyValuePair<string, string>>>(_pendingGameConfig, StringComparer.Ordinal);
+            if (await LegendaryConfigFile.EnsureAsync(_paths.LegendaryConfig, games, ct).ConfigureAwait(false))
+            {
+                _log.Debug("legendary", games.Count > 0 ? $"Wrote config.ini (+ {string.Join(", ", games.Keys)})." : "Wrote config.ini.");
+            }
+
+            _pendingGameConfig.Clear();
+        }
+        catch (IOException e)
+        {
+            _log.Warn("legendary", "Could not update config.ini; continuing with the existing one.", e);
+        }
+    }
+
     /// <summary>Number of Legendary processes currently alive (config.ini is only written at zero).</summary>
     public int ActiveProcesses => Volatile.Read(ref _active);
 
@@ -185,17 +228,7 @@ internal sealed class LegendaryProcessRunner : IDisposable
             {
                 if (_active == 0)
                 {
-                    try
-                    {
-                        if (await LegendaryConfigFile.EnsureAsync(_paths.LegendaryConfig, ct).ConfigureAwait(false))
-                        {
-                            _log.Debug("legendary", "Wrote config.ini.");
-                        }
-                    }
-                    catch (IOException e)
-                    {
-                        _log.Warn("legendary", "Could not update config.ini; continuing with the existing one.", e);
-                    }
+                    await WriteConfigLockedAsync(ct).ConfigureAwait(false);
                 }
 
                 Interlocked.Increment(ref _active);

@@ -61,14 +61,70 @@ public sealed class EglService : IEglService, IDisposable
 
     // =============================================== reading ===============================================
 
-    internal sealed record ItemFile(string Path, Dictionary<string, object?> Raw, EglManifest Manifest, DateTime LastWriteUtc)
+    /// <param name="FromEosh">Read from an EOSH <c>.egi</c> (EGL 20+), not a <c>.item</c>: read-only, never a write target.</param>
+    internal sealed record ItemFile(string Path, Dictionary<string, object?> Raw, EglManifest Manifest, DateTime LastWriteUtc, bool FromEosh = false)
     {
         public string Guid => Manifest.InstallationGuid is { Length: > 0 } g ? g : System.IO.Path.GetFileNameWithoutExtension(Path);
 
         public EglItem ToItem() => new(
             Path, Guid, Manifest.InstallLocation, Manifest.AppVersionString ?? "",
             Manifest.InstallSize, Manifest.IsIncompleteInstall, Manifest.NeedsValidation,
-            Manifest.AppName ?? "", Manifest.GetString("DisplayName"));
+            Manifest.AppName ?? "", Manifest.GetString("DisplayName"),
+            (Raw.GetValueOrDefault("InstallTags") as List<object?> ?? []).OfType<string>().Where(t => t.Length > 0).ToList());
+    }
+
+    /// <summary>
+    /// Every game install EOSH records (<c>*.egi</c> in <see cref="EglEnvironment.EoshInstalledItemsDir"/>), shaped like
+    /// <c>.item</c>s. Unreadable or non-game records are logged and skipped. Never used by write paths.
+    /// </summary>
+    internal List<ItemFile> ReadEosh()
+    {
+        var list = new List<ItemFile>();
+        var dir = _env.EoshInstalledItemsDir;
+        if (!Directory.Exists(dir))
+        {
+            return list;
+        }
+
+        List<string> files;
+        try
+        {
+            files = Directory.EnumerateFiles(dir, "*.egi", SearchOption.TopDirectoryOnly).ToList();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log.Warn(LogCategory, $"Can't list {dir}", ex);
+            return list;
+        }
+
+        foreach (var f in files)
+        {
+            try
+            {
+                var egi = EglJson.TryParseObject(ReadSmall(f), out var error);
+                Interlocked.Increment(ref ItemParseCount);
+                if (egi is null)
+                {
+                    _log.Warn(LogCategory, $"Skipping unreadable EOSH record {f}: {error}");
+                    continue;
+                }
+
+                var raw = EoshInstall.ToItemJson(egi, out var reason);
+                if (raw is null)
+                {
+                    _log.Debug(LogCategory, $"Skipping EOSH record {Path.GetFileName(f)}: {reason}");
+                    continue;
+                }
+
+                list.Add(new ItemFile(f, raw, EglManifest.FromJson(raw), File.GetLastWriteTimeUtc(f), FromEosh: true));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _log.Warn(LogCategory, $"Skipping EOSH record {f}", ex);
+            }
+        }
+
+        return list;
     }
 
     /// <summary>
@@ -192,11 +248,29 @@ public sealed class EglService : IEglService, IDisposable
     /// Game manifests (DLC excluded: MainGameAppName empty or equal to AppName), optionally of one app only. DLC share their
     /// base game's folder and are imported with it.
     /// </summary>
-    internal List<ItemFile> GameItems(string? dir = null, bool strict = false, string? appName = null) => ReadItems(dir ?? _env.ManifestsDir, strict)
-        .Where(i => (i.Manifest.MainGameAppName.Length == 0 ||
-                     string.Equals(i.Manifest.MainGameAppName, i.Manifest.AppName, StringComparison.OrdinalIgnoreCase)) &&
-                    (appName is null || string.Equals(i.Manifest.AppName, appName, StringComparison.OrdinalIgnoreCase)))
-        .ToList();
+    /// <remarks>
+    /// Read paths (no <paramref name="dir"/>, not <paramref name="strict"/>) also see EGL 20+'s EOSH records; where both describe
+    /// one folder, EOSH wins (it's EGL's source of truth; the .item is a mirror that can be stale). Write paths
+    /// (<paramref name="strict"/>) see only real <c>.item</c> files: a <c>.egi</c> must never be rewritten as a <c>.item</c>.
+    /// </remarks>
+    internal List<ItemFile> GameItems(string? dir = null, bool strict = false, string? appName = null)
+    {
+        var items = ReadItems(dir ?? _env.ManifestsDir, strict);
+        if (dir is null && !strict)
+        {
+            var eosh = ReadEosh();
+            if (eosh.Count > 0)
+            {
+                items = items.Where(i => !eosh.Any(e => EglPath.Same(e.Manifest.InstallLocation, i.Manifest.InstallLocation))).Concat(eosh).ToList();
+            }
+        }
+
+        return items
+            .Where(i => (i.Manifest.MainGameAppName.Length == 0 ||
+                         string.Equals(i.Manifest.MainGameAppName, i.Manifest.AppName, StringComparison.OrdinalIgnoreCase)) &&
+                        (appName is null || string.Equals(i.Manifest.AppName, appName, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+    }
 
     /// <summary>Best .item for a location: complete before incomplete, then most recently written.</summary>
     private static ItemFile? FindIn(IEnumerable<ItemFile> items, string installPath) => items
@@ -439,19 +513,25 @@ public sealed class EglService : IEglService, IDisposable
         string signature;
         try
         {
-            var dir = _env.ManifestsDir;
-            if (!Directory.Exists(dir))
-            {
-                return [];
-            }
-
             var sb = new System.Text.StringBuilder();
-            foreach (var f in new DirectoryInfo(dir).EnumerateFiles("*.item", SearchOption.TopDirectoryOnly).OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase))
+            foreach (var (dir, pattern) in new[] { (_env.ManifestsDir, "*.item"), (_env.EoshInstalledItemsDir, "*.egi") })
             {
-                sb.Append(f.Name).Append('|').Append(f.Length).Append('|').Append(f.LastWriteTimeUtc.Ticks).Append(';');
+                if (!Directory.Exists(dir))
+                {
+                    continue;
+                }
+
+                foreach (var f in new DirectoryInfo(dir).EnumerateFiles(pattern, SearchOption.TopDirectoryOnly).OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    sb.Append(f.Name).Append('|').Append(f.Length).Append('|').Append(f.LastWriteTimeUtc.Ticks).Append(';');
+                }
             }
 
             signature = sb.ToString();
+            if (signature.Length == 0)
+            {
+                return [];
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -635,6 +715,7 @@ public sealed class EglService : IEglService, IDisposable
         // .egstore top level only: bps/Pending appearing or disappearing (their contents churn during downloads).
         Add(Path.Combine(installPath, ".egstore"), "*", subdirs: false);
         Add(_env.ManifestsDir, "*.item", subdirs: true);
+        Add(_env.EoshInstalledItemsDir, "*.egi", subdirs: false);
         return list;
     }
 

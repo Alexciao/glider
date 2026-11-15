@@ -482,6 +482,18 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
         return new LegendaryOutcome(error is null, error, null, null, new VerifyCounts(f.VerifyFilesChecked, f.VerifyCorrupted, f.VerifyMissing));
     }
 
+    public async Task SetInstallTagsAsync(string appName, IReadOnlyList<string> tags, CancellationToken ct)
+    {
+        var value = LegendaryConfigFile.InstallTagsValue(tags);
+        if (value.Length == 0)
+        {
+            return;
+        }
+
+        await Runner.SetGameConfigAsync(appName, [new("install_tags", value)], ct).ConfigureAwait(false);
+        _log.Info("legendary", $"Recorded the install tags of {appName} ({value.Split(',').Length} packs).");
+    }
+
     public async Task<LegendaryOutcome> ImportAsync(string appName, string gamePath, CancellationToken ct)
     {
         var path = FolderMover.Normalize(gamePath);
