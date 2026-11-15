@@ -130,7 +130,8 @@ export function Settings() {
       const row = body.current?.querySelector<HTMLElement>(`[data-setting-id="${focus}"]`);
       if (!row) return false;
       row.scrollIntoView({ block: "center", behavior: "instant" });
-      row.querySelector<HTMLElement>('button, [role="radio"], [role="combobox"], input')?.focus({ preventScroll: true });
+      // The selected segment of a segmented control (Space on the first one would change the setting), else the first control.
+      (row.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]') ?? row.querySelector<HTMLElement>('button, [role="combobox"], input'))?.focus({ preventScroll: true });
       row.setAttribute("data-flash", "");
       window.setTimeout(() => row.removeAttribute("data-flash"), 1900);
       return true;
