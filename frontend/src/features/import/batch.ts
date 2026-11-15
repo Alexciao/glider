@@ -57,7 +57,9 @@ export function wireImportBatch(): void {
   wired = true;
   suppressNoticesWhen((n) => {
     const { viewers, items } = useImportBatch.getState();
-    return viewers > 0 && n.jobId !== null && items.some((i) => i.jobId === n.jobId);
+    if (viewers === 0) return false;
+    // The list says each game's result in its row, the check Core queues after an import included ("Verified X" would be a second voice).
+    return (n.jobId !== null && items.some((i) => i.jobId === n.jobId)) || (n.appName !== null && items.some((i) => i.install.appName === n.appName));
   });
   useApp.subscribe((state, prev) => {
     const jobs = state.snapshot?.queue.jobs;

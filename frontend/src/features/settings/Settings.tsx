@@ -171,7 +171,7 @@ export function Settings() {
                       }}
                       className={cx(
                         "flex h-9 items-center gap-2.5 rounded-lg px-3 text-left text-sm font-medium transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.985]",
-                        active ? "bg-surface-2 text-fg" : dim ? "text-fg-disabled hover:bg-surface-hover" : "text-fg-muted hover:bg-surface-hover hover:text-fg",
+                        active ? "bg-surface-2 text-fg" : dim ? "text-fg-subtle hover:bg-surface-hover" : "text-fg-muted hover:bg-surface-hover hover:text-fg",
                       )}
                     >
                       <span className={cx("transition-colors duration-150", active ? "text-accent-text" : dim ? "text-fg-disabled" : "text-fg-subtle")}>{s.icon}</span>

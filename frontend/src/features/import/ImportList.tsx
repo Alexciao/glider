@@ -48,7 +48,7 @@ const StaticRow = memo(function StaticRow({ install }: { install: EglInstall }) 
   const imported = install.status === "imported";
   return (
     <li>
-      <div title={install.reason ?? install.installPath} className={cx("flex h-14 items-center gap-3 rounded-lg px-3", !imported && "opacity-80")}>
+      <div title={install.reason ?? install.installPath} className="flex h-14 items-center gap-3 rounded-lg px-3">
         <span className="size-4 shrink-0" aria-hidden />
         <ArtThumb src={install.artUrl} title={install.title} size="sm" className={imported ? undefined : "opacity-60"} />
         <span className={cx("min-w-0 flex-1 truncate text-sm font-medium", imported ? "text-fg" : "text-fg-muted")}>{install.title}</span>
