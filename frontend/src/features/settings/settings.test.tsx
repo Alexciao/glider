@@ -44,6 +44,13 @@ describe("Settings structure", () => {
     expect(resolveSection("general")).toBe("startup");
   });
 
+  it("the section body rises in on a section switch, not again on the way into Settings (the page already does)", async () => {
+    const { user } = await mount("returning", <Settings />);
+    expect(screen.getAllByRole("region", { name: "Downloads" })[0]).not.toHaveClass("g-page-in");
+    await user.click(within(screen.getByRole("navigation", { name: "Settings sections" })).getByRole("button", { name: "Updates" }));
+    expect((await screen.findAllByRole("region", { name: "Updates" }))[0]).toHaveClass("g-page-in");
+  });
+
   it("each section renders", async () => {
     await mount("returning", <Settings />);
     for (const [section, heading] of [
