@@ -8,6 +8,7 @@ import { actions, toGliderError } from "../../state/actions";
 import { useSnap } from "../../state/store";
 import { usePending } from "../../state/ui";
 import { Button, EmptyState, IconButton, Spinner, cx } from "../../ui";
+import { setNativeViewOnScreen } from "../../ui/nativeView";
 import { useNativeBounds } from "./useNativeBounds";
 import { useOverlayWatcher, useStoreView } from "./useStoreView";
 
@@ -77,6 +78,11 @@ export function StorePage() {
   const phase = view?.phase ?? "idle";
   const nativeOnScreen = view?.visible === true && (phase === "ready" || phase === "loading");
   const error = failure ?? view?.error ?? null;
+  // Tooltips stay out of the native view's rectangle while it is on screen (they would be drawn under it).
+  useEffect(() => {
+    setNativeViewOnScreen(nativeOnScreen);
+    return () => setNativeViewOnScreen(false);
+  }, [nativeOnScreen]);
   const opening = !error && phase !== "signedOut" && !nativeOnScreen && !view?.covered;
 
   const openInBrowser = () => void rpc().call("store.openInBrowser").catch(() => {});
