@@ -200,12 +200,20 @@ internal sealed partial class MainWindow : Window
             return;
         }
 
-        if (!IsVisible)
+        var reshown = !IsVisible;
+        if (reshown)
         {
+            // WebView2 loses its transparent background (it paints it opaque white, so the page sits on grey instead of Mica)
+            // when the controller is made visible before its re-shown parent window has been processed. So: show the window
+            // cloaked, let the show go through, then make the WebView visible and uncloak (ShowWebAfterReshow).
+            SetCloak(true);
             Show();
         }
+        else
+        {
+            SetCloak(false);
+        }
 
-        SetCloak(false);
         _revealed = true;
         _visible = true;
         if (Win32.IsIconic(_hwnd))
@@ -213,11 +221,31 @@ internal sealed partial class MainWindow : Window
             Win32.ShowWindow(_hwnd, Win32.SW_RESTORE);
         }
 
-        LeaveLowMemory();
+        if (reshown)
+        {
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, ShowWebAfterReshow);
+        }
+        else
+        {
+            LeaveLowMemory();
+        }
+
         Win32.SetForegroundWindow(_hwnd);
         Activate();
         FocusWeb();
         PublishWindowInfo();
+    }
+
+    private void ShowWebAfterReshow()
+    {
+        if (_quitting || !IsVisible)
+        {
+            return; // hidden again (or quitting) before this ran: HideToTray already put the WebView to sleep
+        }
+
+        LeaveLowMemory();
+        SetCloak(false);
+        FocusWeb();
     }
 
     public void HideToTray()

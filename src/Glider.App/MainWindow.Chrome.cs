@@ -223,6 +223,23 @@ internal sealed partial class MainWindow
         PushSurface(mica, mica && decision.TranslucentPage, force: wasMica != mica);
     }
 
+    /// <summary>Self-test: what DWM, WPF and WebView2 currently hold for the backdrop.</summary>
+    public string DescribeBackdrop()
+    {
+        var sbt = Win32.DwmGetWindowAttribute(_hwnd, Win32.DWMWA_SYSTEMBACKDROP_TYPE, out var t, sizeof(int)) == 0 ? t : -1;
+        string wv;
+        try
+        {
+            wv = _controller is { } c ? $"{c.DefaultBackgroundColor.A},{c.DefaultBackgroundColor.R},{c.DefaultBackgroundColor.G},{c.DefaultBackgroundColor.B} visible={c.IsVisible}" : "none";
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
+        {
+            wv = ex.GetType().Name;
+        }
+
+        return $"mica={IsMicaActive} active={_active} focused={_focused} sbt={sbt} wpfTarget={_source?.CompositionTarget?.BackgroundColor} wv={wv} suspended={_web?.IsSuspended} translucent={_lastTranslucent}";
+    }
+
     /// <summary>Tells the page whether to let the backdrop through (data-surface) and which backdrop kind it sits on (data-backdrop).</summary>
     private void PushSurface(bool mica, bool translucent, bool force)
     {

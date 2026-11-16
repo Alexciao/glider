@@ -86,6 +86,7 @@ internal static partial class SelfTest
             await Step("login", () => LoginTest(rt, dir));
             await Step("close", () => CloseTest(rt, win));
             await Step("hide-suspend", () => HideSuspendTest(rt, win));
+            await Step("mica-restore", () => MicaRestoreTest(rt, win, dir));
         }
         catch (Exception ex)
         {
@@ -604,6 +605,37 @@ internal static partial class SelfTest
         Report["close.WM_CLOSE.hiddenToTray"] = hidden;
         await Ui(rt, win.RestoreFromTray);
         await Task.Delay(500);
+    }
+
+    /// <summary>
+    /// Mica must survive a hide to the tray and a reshow (with and without the ~8 s page suspend in between) and a minimize/restore:
+    /// WebView2 used to come back with an opaque white background under the translucent page (flat grey instead of Mica).
+    /// Compares the page background pixel before and after; it must not get lighter.
+    /// </summary>
+    private static async Task MicaRestoreTest(HostRuntime rt, MainWindow win, string dir)
+    {
+        foreach (var (label, wait) in new[] { ("tray", 1500), ("traySuspended", 11_000), ("minimized", 1500) })
+        {
+            string before = "", after = "";
+            await Ui(rt, () =>
+            {
+                Report[$"mica.{label}.before"] = win.DescribeBackdrop();
+                Screenshot(win, Path.Combine(dir, $"mica-{label}-before.png"), $"mica.{label}.before");
+                before = (string)Report[$"mica.{label}.before.screen.px.beforeMaxButton"]!;
+            });
+            await Ui(rt, label == "minimized" ? win.MinimizeWindow : win.HideToTray);
+            await Task.Delay(wait);
+            await Ui(rt, win.RestoreFromTray);
+            await Task.Delay(1500);
+            await Ui(rt, () =>
+            {
+                Report[$"mica.{label}.after"] = win.DescribeBackdrop();
+                Screenshot(win, Path.Combine(dir, $"mica-{label}-after.png"), $"mica.{label}.after");
+                after = (string)Report[$"mica.{label}.after.screen.px.beforeMaxButton"]!;
+            });
+            static int Luma(string px) => px.Split(',').Select(int.Parse).Sum();
+            Report[$"mica.{label}.ok"] = Luma(after) <= Luma(before) + 30; // a white WebView background under the page ≈ +250
+        }
     }
 
     private static async Task HideSuspendTest(HostRuntime rt, MainWindow win)
