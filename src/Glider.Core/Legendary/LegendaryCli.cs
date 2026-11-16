@@ -301,6 +301,11 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
             return Fail(Errors.NotInstalled());
         }
 
+        if (args.Mode is InstallMode.Update or InstallMode.Repair)
+        {
+            await AlignInstalledTagsAsync(args.AppName, ct);
+        }
+
         var kind = args.Mode switch
         {
             InstallMode.Update => LegendaryCommandKind.Update,
@@ -500,6 +505,27 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
         return error;
     }
 
+    /// <summary>
+    /// Before an update or repair: installs imported (or carried over from EGL) before v0.2.5 can have config.ini tags but none in
+    /// installed.json, and Legendary would read that as a pack change and delete every file outside the tags. Make them equal so
+    /// nothing is pruned. A Modify (a deliberate pack change) is an Install-mode run and still prunes as the user asked.
+    /// </summary>
+    private async Task AlignInstalledTagsAsync(string appName, CancellationToken ct)
+    {
+        try
+        {
+            var ini = await AtomicFile.TryReadAllBytesAsync(LegendaryConfigFile.PathIn(Config), ct);
+            if (ini is not null && IniValue(System.Text.Encoding.UTF8.GetString(ini), appName, "install_tags") is { Length: > 0 } saved)
+            {
+                await LegendaryInstalledTags.SetAsync(Config, appName, LegendaryInstalledTags.FromConfigValue(saved), ct);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException)
+        {
+            _log.Warn("legendary", $"Couldn't align {appName}'s install tags in installed.json with config.ini", e);
+        }
+    }
+
     public async Task SetInstallTagsAsync(string appName, IReadOnlyList<string> tags, CancellationToken ct)
     {
         var value = LegendaryConfigFile.InstallTagsValue(tags);
@@ -513,6 +539,9 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
             return;
         }
 
+        // installed.json first and under Legendary's lock: if Legendary is busy this throws before config.ini changes, so the two
+        // never disagree (a disagreement makes the next update/repair delete everything outside the tags; see LegendaryInstalledTags).
+        await LegendaryInstalledTags.SetAsync(Config, appName, LegendaryInstalledTags.FromConfigValue(value), ct).ConfigureAwait(false);
         await Runner.SetGameConfigAsync(appName, [new("install_tags", value)], ct).ConfigureAwait(false);
         _log.Info("legendary", $"Recorded the install tags of {appName} ({value.Split(',').Length} packs).");
     }
