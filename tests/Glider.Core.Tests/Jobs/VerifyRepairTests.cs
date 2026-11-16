@@ -20,6 +20,12 @@ internal sealed class FolderBackedLegendary(string installDir, IReadOnlyDictiona
 
     private int _verifies;
 
+    /// <summary>installed.json's needs_verification (set by `legendary import`; only an install/repair clears it, never `verify`).</summary>
+    public bool NeedsVerificationFlag { get; set; }
+
+    public override Task<LegendaryInstalledGame?> GetInstalledAsync(string appName, CancellationToken ct) =>
+        Task.FromResult<LegendaryInstalledGame?>(new(appName, installDir, "1.0", 0, null, NeedsVerificationFlag, null, []));
+
     public override Task<LegendaryOutcome> VerifyAsync(string appName, IProgress<LegendaryProgress> progress, CancellationToken ct)
     {
         Calls.Add("verify");
@@ -64,6 +70,7 @@ internal sealed class FolderBackedLegendary(string installDir, IReadOnlyDictiona
             File.WriteAllBytes(path, content);
         }
 
+        NeedsVerificationFlag = false; // cli.py: a repair (even one that downloads nothing) clears it
         return Task.FromResult(new LegendaryOutcome(true, null, null, null));
     }
 }
@@ -144,6 +151,21 @@ public class VerifyRepairTests
         {
             Assert.Equal(["verify"], legendary.Calls);
             Assert.Equal(new VerifyReport(10, 0, 0, true, 0), job.Verify);
+        }
+    }
+
+    [Fact]
+    public async Task AHealthyImportedInstall_GetsLegendarysVerificationFlagCleared()
+    {
+        // Imported from a folder: Legendary set needs_verification, and a passing `verify` alone leaves it set (the game kept
+        // asking to be verified, and every update became a full repair pass). A repair right after reuses verify's repair file.
+        var (job, h, legendary) = await RunAsync(null, l => l.NeedsVerificationFlag = true);
+        await using (h)
+        {
+            Assert.Equal(["verify", "repair"], legendary.Calls);
+            Assert.False(legendary.NeedsVerificationFlag);
+            Assert.Equal(new VerifyReport(10, 0, 0, true, 0), job.Verify);
+            Assert.Null(job.Error);
         }
     }
 

@@ -68,7 +68,7 @@ internal class StubLegendary(bool verifySucceeds) : ILegendary
 
     public Task<LegendaryGameInfo> GetGameInfoAsync(string appName, CancellationToken ct) => throw new NotSupportedException();
 
-    public Task<LegendaryInstalledGame?> GetInstalledAsync(string appName, CancellationToken ct) => Task.FromResult<LegendaryInstalledGame?>(null);
+    public virtual Task<LegendaryInstalledGame?> GetInstalledAsync(string appName, CancellationToken ct) => Task.FromResult<LegendaryInstalledGame?>(null);
 
     public virtual Task<LegendaryOutcome> InstallAsync(InstallArgs args, IProgress<LegendaryProgress> progress, CancellationToken ct) => Ok;
 

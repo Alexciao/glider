@@ -1415,6 +1415,41 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
     }
 
     /// <summary>
+    /// Legendary marks an imported install (<c>legendary import</c> without EGL metadata) <c>needs_verification</c>, and only an
+    /// install/repair clears it: <c>legendary verify</c> passing leaves it set. So the game kept asking to be verified after a
+    /// clean verify, and Legendary turns every later update into a full repair pass. A <c>repair</c> right after a clean verify
+    /// reuses the repair file that verify wrote: nothing is re-checked or downloaded, and Legendary clears the flag. Best effort:
+    /// offline (repair signs in) the flag just stays, and the verify still counts as passed.
+    /// </summary>
+    private async Task ClearLegendaryVerificationFlagAsync(PersistedJob job, JobProgressTracker tracker, CancellationToken ct)
+    {
+        var app = job.Request.AppName;
+        try
+        {
+            if (await _legendary.GetInstalledAsync(app, ct) is not { NeedsVerification: true })
+            {
+                return;
+            }
+
+            tracker.SetPhase(JobPhase.Finalizing);
+            var cleared = await _legendary.InstallAsync(Args(InstallMode.Repair, job), tracker, ct);
+            var still = (await _legendary.GetInstalledAsync(app, ct))?.NeedsVerification;
+            if (cleared.Success && still == false)
+            {
+                _log.Info("jobs", $"Verify passed; Legendary no longer marks {app} as needing verification.");
+            }
+            else
+            {
+                _log.Warn("jobs", $"Verify passed, but Legendary still marks {app} as needing verification ({cleared.Error?.Code.ToString() ?? "flag still set"}).");
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.Warn("jobs", $"Clearing Legendary's verification flag for {app} failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// "Verify and repair": verify; if files are bad, `repair` them (downloads only those); verify again to confirm.
     /// `verify` alone only reports. Every "repair" button in the UI enqueues this job, so it must do the whole flow.
     /// </summary>
@@ -1436,6 +1471,7 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
             if (first.Success)
             {
                 SetVerifyReport(job, new VerifyReport(checkedFiles, 0, 0, true, 0));
+                await ClearLegendaryVerificationFlagAsync(job, tracker, ct);
                 return null;
             }
 
