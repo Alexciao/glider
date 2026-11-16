@@ -1,180 +1,183 @@
-# Glider
+<div align="center">
 
-A fast, quiet Windows launcher for your whole Epic Games library. Sign in, bring in the games you already have (nothing
-re-downloads), then install, update, repair and play without opening the Epic Games Launcher.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/glider-wordmark.svg">
+  <img src="assets/brand/glider-wordmark-onlight.svg" alt="Glider" width="260">
+</picture>
 
-## Screenshots
+### Your Epic games, without the weight.
 
-<p>
+A fast, quiet Windows launcher for your Epic Games library. Bring over the games you already have, with nothing
+re-downloaded, then install, update and play without opening the Epic Games Launcher.
+
+[![Latest release](https://img.shields.io/github/v/release/Alexciao/glider?label=download&color=57a8ff)](../../releases/latest)
+[![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078d4)](#install)
+[![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
+
+[**Download**](../../releases/latest) · [Features](#features) · [Install](#install) · [Build from source](#build-from-source)
+
+<br>
+
+<img src="docs/screenshots/dark-solid-1280x800/library-grid.png" alt="Glider's library in the dark theme" width="900">
+
+</div>
+
+## Why Glider
+
+- **Light.** About a second from launch to a ready window. At idle the app itself uses around 3 MB of private memory,
+  and in the tray its web view is suspended. Measurements are in [docs/perf.md](docs/perf.md).
+- **Downloads that respect your PC.** Full, Balanced and Background modes change CPU, disk and memory priority while a
+  download runs. Slow download servers are skipped automatically, and Glider tells you when your drive, not your
+  connection, is the bottleneck.
+- **Keeps what you have.** It finds the games the Epic Games Launcher installed on any drive and imports them in place.
+  Both launchers can keep working on the same folders until you're ready to let the old one go.
+- **Feels like Windows.** Mica, light and dark themes, Windows 11 scrollbars, a tray with per-game actions, Snap
+  Layouts, and no ads.
+
+<p align="center">
   <img src="docs/screenshots/dark-solid-1280x800/home.png" width="49%" alt="Home: continue playing, updates, free this week">
-  <img src="docs/screenshots/dark-solid-1280x800/library-grid.png" width="49%" alt="Library, grid view">
   <img src="docs/screenshots/dark-solid-1280x800/game-page.png" width="49%" alt="A game's page, ready to play">
-  <img src="docs/screenshots/dark-solid-1280x800/downloads.png" width="49%" alt="Downloads: an install in progress, time left as the headline">
-  <img src="docs/screenshots/dark-solid-1280x800/settings.png" width="49%" alt="Settings, Downloads section">
+  <img src="docs/screenshots/dark-solid-1280x800/downloads.png" width="49%" alt="Downloads: an install in progress">
   <img src="docs/screenshots/light-solid-1280x800/onboarding-scan.png" width="49%" alt="First run: games found on this PC, light theme">
 </p>
 
-Rendered from the app with its mock backend (`pnpm screenshots:readme` in `frontend/`).
-
-> Glider is an unofficial, independent project. It is not affiliated with or endorsed by Epic Games.
-> Fortnite and Epic Games are trademarks of Epic Games, Inc.
+> [!NOTE]
+> Glider is an unofficial, independent project. It is not affiliated with or endorsed by Epic Games. Fortnite and Epic
+> Games are trademarks of Epic Games, Inc.
 
 ## Features
 
-**Library**
-- Every game your account owns, installed or not: grid or list, search, filters, favorites, hidden games, collections.
-  It opens from a cache and refreshes in the background.
-- **Home** (continue playing, updates, free this week) and a **game page** with one main button, DLC, components and
-  per-game settings (launch arguments, executable, working directory, update policy).
-- **Command palette** (`Ctrl+K`); `Ctrl+1` to `Ctrl+5` switch pages.
+**Library.** Every game your account owns, installed or not, in a grid or a list, with search, filters, favorites,
+hidden games and collections. It opens from a cache and refreshes in the background. **Home** shows what to continue,
+pending updates and the free games of the week. Each game has its own page with one main button, DLC, and per-game
+settings (launch arguments, executable, update policy). `Ctrl+K` opens the command palette; `Ctrl+1` to `Ctrl+5` switch
+pages.
 
-**Install, update, play**
-- Install with a folder picker, a real free-space check and drive hints; update, verify, repair, move, uninstall (keep or
-  delete the files).
-- **Downloads**: live speed and disk-write readouts, chart, time left, honest phases, a queue you can reorder; pause,
-  resume and cancel; resumes after a restart or crash.
-- **Download modes** (Full, Balanced, Background) that change CPU, disk and memory priority live, a speed limit,
-  *Full speed when I'm away*, and a choice of what happens while a game runs. A **CDN probe** with failover avoids slow
-  download servers, and a **disk-bound** indicator tells you when your drive, not your connection, is the limit.
-- **Update policies** (Always, Ask, Never) globally and per game.
-- Play starts the game directly: Easy Anti-Cheat setup, prerequisites (once), Ubisoft Connect and EA app hand-off,
-  playtime, minimize to tray while playing. Launch never waits behind a download.
+**Install, update, play.** Pick a folder with a real free-space check; update, verify, repair, move or uninstall. The
+Downloads page shows live speed and disk-write readouts and the time left, with a queue you can reorder; downloads pause,
+resume, and survive a restart. Set a speed limit, run at full speed when you're away, and choose what happens while you
+play. Play starts the game directly, handling Easy Anti-Cheat setup, prerequisites, and the Ubisoft Connect or EA app
+hand-off. Launching never waits behind a download.
 
-**Cloud saves, overlay**
-- Cloud saves sync before and after play with a conflict check that doesn't trust file times; every overwrite is backed
-  up first, and nothing blocks play offline.
-- Epic overlay (friends, achievements): install, update, switch on or off, remove.
+**Cloud saves and overlay.** Saves sync before and after you play, with a conflict check that doesn't rely on file
+times, a backup before every overwrite, and nothing blocking offline play. The Epic overlay (friends, achievements) can
+be installed, switched on or off, and removed.
 
-**Epic Games Launcher**
-- **Import your whole library** from the Epic Games Launcher with no re-download, from onboarding or Settings.
-- Both launchers keep working on the same folders; a readiness check says when the Epic Games Launcher is safe to
-  uninstall.
+**Store and Windows.** The Epic Games Store opens in its own tab, framed like the rest of Glider, plus a *Free this
+week* strip. Glider also gives you desktop and Start menu shortcuts per game, `glider://` links, optional
+`com.epicgames.launcher://` handling, start with Windows, and a single instance.
 
-**Store and Windows**
-- **Store tab** (the Epic Games Store inside Glider) and a **Free this week** strip.
-- Desktop and Start menu shortcuts per game, `glider://` links, optional `com.epicgames.launcher://` handling, tray with
-  per-game actions, single instance, start with Windows, Windows 11 Mica, light and dark themes.
+<details>
+<summary><b>Not planned</b></summary>
 
-## Non-goals
-
-- **Buying inside Glider.** The Store tab is Epic's own web store; payment happens there, not in a native Glider flow.
+- **Buying inside Glider.** The Store tab is Epic's own web store; payment happens there.
 - **Friends and chat** outside the Epic overlay.
-- **Unreal Engine, Fab and Marketplace** content.
-- **Mod stores.**
-- **Replacing other launchers.** Ubisoft Connect and EA app games that Epic lists are a hand-off only: they start
-  through their own launcher.
+- **Unreal Engine, Fab and Marketplace** content, and **mod stores**.
+- **Replacing other launchers.** Ubisoft Connect and EA app games that Epic lists start through their own launcher.
 
-## Install and upgrade
+</details>
 
-1. Download `Glider-win-Setup.exe` from the [latest release](../../releases/latest) and run it.
-2. **SmartScreen**: the build isn't code-signed, so Windows may say "Windows protected your PC". Click **More info →
-   Run anyway**. Glider installs per-user (no admin) into `%LocalAppData%\Glider` and adds a Start menu shortcut. If the
-   WebView2 runtime is missing, the installer fetches it.
-3. **Updates are automatic**: Glider checks this repository's releases about a minute after it starts and every 12
-   hours, downloads quietly and installs when you close it. To upgrade right away, run the new `Setup.exe` and choose
-   **Update**. From v0.1, your sign-in, Fortnite install, settings and playtime carry
-   over, and your v0.1 files are copied to `%LocalAppData%\GliderData\backups\migration\` first. See the
-   [v0.2.0 release notes](docs/release-notes-v0.2.0.md).
+## Install
 
-Your data lives in `%LocalAppData%\GliderData`, separate from the install folder, so uninstalling Glider keeps it
-(see Troubleshooting).
+1. Download **`Glider-win-Setup.exe`** from the [latest release](../../releases/latest) and run it. It installs for
+   your user only (no admin) and fetches the WebView2 runtime if it's missing.
+2. The installer isn't code-signed yet, so SmartScreen may say *"Windows protected your PC"*. Click **More info → Run
+   anyway**.
+3. **Sign in with Epic.** A login window opens and closes by itself once you're in.
+4. **Bring your games over.** Glider lists the games the Epic Games Launcher installed on any drive. *Import* adds them
+   without downloading; *Locate another folder…* adds one the scan missed. You can import more later from Settings →
+   Epic Games Launcher.
+5. Choose where new games install and a download mode (Balanced is the default), then press **Play**. A game's first
+   launch with Easy Anti-Cheat may show a Windows prompt; accept it.
 
-## First run
+**Updates.** Glider checks this repository's releases in the background and downloads new versions quietly. When one
+is ready, a notice offers **Restart**; otherwise it installs the next time you quit Glider.
 
-1. **Sign in with Epic.** A login window opens in the Epic Games Launcher's own mode and closes by itself when you're in.
-2. **Scan.** Glider lists the games the Epic Games Launcher installed on any drive (all selected). *Import* brings them
-   in without downloading; *Locate another folder…* adds one the scan missed.
-3. Pick your **library folders** (where new games install) and a **download mode** (Balanced is the default).
-4. Press **Play** on any installed game. The first launch of a game with Easy Anti-Cheat may show a Windows (UAC) prompt;
-   accept it.
-
-You can re-run this from Settings → Advanced, and import more later from Settings → Epic Games Launcher → **Import…**.
-
-## Architecture
-
-A thin WPF host renders a React UI in WebView2 from local files and talks to `Glider.Core` over a typed JSON-RPC bridge.
-Core drives a bundled, hash-pinned Legendary as the Epic protocol engine.
-
-```
- Glider.App (WPF, WebView2)  ── window, tray, login, Store view, links, single instance
-        │  https://app.glider/  → frontend (React 19, TypeScript, Vite, Tailwind)
-        │  IPC contract v2: typed RPC, a small `state` snapshot, `library` deltas, 10 Hz `progress`
- Glider.Core (no UI)  ── library, jobs, game, EGL, saves, overlay, store, infrastructure
-        │  job lanes:  writer (installs…) · metadata · saves · launch (never queued) · read
-        │  child processes, LEGENDARY_CONFIG_PATH = %LocalAppData%\GliderData\legendary
- legendary.exe  ── Glider's patched Legendary 0.21.1 (0.21.1-glider.1), SHA-256 pinned
-```
-
-- **Host** (`src/Glider.App`): Windows glue only.
-- **Core** (`src/Glider.Core`): all logic, cross-platform and unit-tested.
-- **Frontend** (`frontend`): UI against a mock backend that implements the same contract.
-- **Contract**: C# records in `src/Glider.Core/Contracts` are the source; TypeScript types are generated
-  (`tools/Glider.ContractGen`).
-- **Legendary fork**: a small patch (bounded chunk retries, CDN failover, a control file for live changes, clearer progress); see
-  `tools/legendary-fork/`.
-- **Data root**: `%LocalAppData%\GliderData`, with `legendary\`, `state\`, `cache\`, `backups\`, `logs\`, `webview2\`.
-
-More: [ARCHITECTURE.md](ARCHITECTURE.md), [docs/v0.2-design.md](docs/v0.2-design.md), [DECISIONS.md](DECISIONS.md),
-[docs/egl.md](docs/egl.md), [docs/cloud-saves.md](docs/cloud-saves.md),
-[docs/shell-integration.md](docs/shell-integration.md), [docs/glossary.md](docs/glossary.md).
+Your data (sign-in, library cache, settings, save backups) lives in `%LocalAppData%\GliderData`, apart from the app, so
+uninstalling Glider keeps it. Delete that folder to remove everything.
 
 ## Known limitations
 
-- The **speed limit is approximate below about 5–10 MB/s**; the card shows the measured rate.
-- Several things need a real Epic account to confirm (sign-in, real installs, cloud saves, Store checkout, the
-  Epic Games Launcher write-back); the checklist is in [docs/testing.md](docs/testing.md).
-- **Windows 10** is untested. The installer is not code-signed.
+- The **speed limit is approximate below about 5–10 MB/s**; the Downloads card shows the measured rate.
+- **Windows 10** hasn't been tested on real hardware yet.
+- Some flows haven't been confirmed against a real Epic account yet: Store checkout, cloud-save conflicts and the Epic
+  Games Launcher write-back. The checklist is in [docs/testing.md](docs/testing.md).
 
-## Troubleshooting
+<details>
+<summary><b>Troubleshooting</b></summary>
 
 | Problem | What to do |
 |---|---|
-| Where are the logs? | `%LocalAppData%\GliderData\logs\`: `glider-YYYYMMDD.log` (Core) and `host-YYYYMMDD.log` (window). Settings → Advanced has a log viewer and **Copy logs** for bug reports; tokens are not included. |
-| Sign-in fails or the window closes | Try again; Glider signs in the way the Epic Games Launcher does (launcher mode), which is the mode Epic's captcha accepted in testing. If it keeps failing, copy the diagnostic logs from the "Sign-in was canceled" notice. |
+| Where are the logs? | `%LocalAppData%\GliderData\logs\`. Settings → Advanced has a log viewer and **Copy logs** for bug reports (tokens are never included). |
+| Sign-in fails or the window closes | Try again. If it keeps failing, copy the diagnostic logs from the "Sign-in was canceled" notice. |
 | "Your session expired" | Click **Sign in** again. |
-| A download is slow | Look at the Downloads card. **Slow download** explains why: if it names your drive, the drive's write speed is the limit, not your connection (free space, or install on a faster drive); if it names a download server, Glider switches servers on its own. Check Settings → Downloads for a speed limit or Background mode. Details: [docs/download-perf.md](docs/download-perf.md). |
-| "Game files need repair" | Game page → **Repair** (downloads only what's broken). |
-| A download stalls | Progress is kept; press **Resume**. |
-| Epic Games Launcher and Glider together | Glider waits while the Epic Games Launcher is updating or verifying a game, and continues by itself. With *Keep in sync* on (Settings → Epic Games Launcher) Glider updates the launcher's record after each update or move, so it doesn't re-download. See [docs/egl.md](docs/egl.md). |
-| Anti-cheat error on launch | Retry **Play** and accept the Windows prompt. |
-| Where does my data live? | `%LocalAppData%\GliderData`. **Uninstalling Glider keeps it** (sign-in, library cache, settings, save and Epic Games Launcher backups). Delete that folder to remove everything. Data from v0.1 is moved there at the first start, and a `data-moved-to.txt` is left in the old folder. |
-| Something else | Settings → Advanced → **Copy logs** and open an issue. |
+| A download is slow | The Downloads card says why. If it names your drive, its write speed is the limit; if it names a download server, Glider switches servers by itself. Also check Settings → Downloads for a speed limit or Background mode. Details: [docs/download-perf.md](docs/download-perf.md). |
+| "Game files need repair" | Game page → **Repair**; only broken files are downloaded. |
+| A download stalls | Progress is kept: press **Resume**. |
+| Using the Epic Games Launcher too | Glider waits while it updates or verifies a game. With *Keep in sync* on (Settings → Epic Games Launcher), Glider updates its record after each update or move, so nothing re-downloads. See [docs/egl.md](docs/egl.md). |
+| Windows Security blocks Legendary | Glider says so and opens Windows Security; allow it in Protection history (a false positive). |
+| Anti-cheat error on launch | Press **Play** again and accept the Windows prompt. |
+| Something else | Settings → Advanced → **Copy logs**, then [open an issue](../../issues). |
+
+</details>
+
+## How it works
+
+A thin WPF host renders a React UI in WebView2 from local files and talks to `Glider.Core` over a typed JSON-RPC bridge.
+Core drives a bundled, hash-pinned build of [Legendary](https://github.com/legendary-gl/legendary) to talk to Epic.
+
+```
+ Glider.App (WPF, WebView2)  ── window, tray, sign-in, Store view, links, single instance
+        │  https://app.glider/  → frontend (React 19, TypeScript, Vite, Tailwind)
+        │  typed RPC · a small state snapshot · library deltas · 10 Hz progress
+ Glider.Core (no UI)  ── library, jobs, games, EGL import, cloud saves, overlay, store
+        │  job lanes: writer · metadata · saves · launch (never queued) · read
+ legendary.exe  ── Glider's patched Legendary 0.21.1 (0.21.1-glider.3), SHA-256 pinned
+```
+
+All logic lives in Core, which is cross-platform and unit-tested; the host is only Windows glue, and the frontend runs
+in a browser against a mock backend that implements the same contract. More in [ARCHITECTURE.md](ARCHITECTURE.md),
+[DECISIONS.md](DECISIONS.md) and [docs/](docs).
 
 ## Build from source
 
-Requirements: Windows 10/11, [.NET SDK 10](https://dotnet.microsoft.com/download) (see `global.json`), Node 24+ and
-[pnpm](https://pnpm.io) 10 (Node 20 breaks vitest).
+Requirements: Windows 10/11, the [.NET 10 SDK](https://dotnet.microsoft.com/download) (see `global.json`), Node 24+ and
+[pnpm](https://pnpm.io) 10.
 
 ```powershell
-# Everything: contract check, frontend build, Legendary fetch (SHA-256 verified), self-contained publish
-pwsh build/build.ps1 -Version 0.2.0          # add -Pack to produce the Velopack installer in artifacts/releases
+# Everything: contract check, frontend, Legendary (SHA-256 verified), self-contained publish
+pwsh build/build.ps1 -Version 0.2.5            # add -Pack for the Velopack installer in artifacts/releases
 
-# The checks
+# Checks
 dotnet build Glider.slnx -c Release -warnaserror
 dotnet test --project tests/Glider.Core.Tests -c Release
-dotnet run --project tools/Glider.ContractGen -c Release -- --check
 cd frontend; pnpm install; pnpm lint; pnpm typecheck; pnpm test
 
-# Inner loop: the UI in a browser against the mock backend (?scenario=eglDetected, downloading, …)
+# The UI in a browser against the mock backend (?scenario=eglDetected, downloading, …)
 cd frontend; pnpm dev
 ```
 
-After changing the contract in `src/Glider.Core/Contracts`, regenerate the TypeScript types with
-`dotnet run --project tools/Glider.ContractGen`. Release steps are in [build/README.md](build/README.md).
+<details>
+<summary><b>More for contributors</b></summary>
 
-**Tests.** The Core suite (xUnit v3 on Microsoft.Testing.Platform) runs against `tests/FakeLegendary`, a scriptable
-stand-in for `legendary.exe`, with no network, Epic account or GUI. Timing logic runs on a manual clock so the suite passes
-on a busy machine. A separate suite runs Core against the real pinned `legendary.exe` (opt-in locally with
-`GLIDER_REAL_LEGENDARY=1`, in CI always, hermetic: no calls to Epic). What is and isn't covered, and the manual checklist
-for a real account, are in [docs/testing.md](docs/testing.md).
+- **Contract.** C# records in `src/Glider.Core/Contracts` are the source of truth. After changing them, regenerate the
+  TypeScript types with `dotnet run --project tools/Glider.ContractGen`; CI checks they're in sync.
+- **Tests.** The Core suite (xUnit v3) runs against `tests/FakeLegendary`, a scriptable stand-in for `legendary.exe`,
+  with no network, Epic account or GUI, and timing logic on a manual clock. A second suite runs Core against the real
+  pinned `legendary.exe`, hermetically (`GLIDER_REAL_LEGENDARY=1` locally, always in CI). What's covered, and the manual
+  checklist for a real account, are in [docs/testing.md](docs/testing.md).
+- **Screenshots** come from the mock backend: `pnpm screenshots:readme` in `frontend/`.
+- **Releases.** See [build/README.md](build/README.md). Pushing a `v*` tag builds, tests and publishes the installer.
+
+</details>
 
 ## License and credits
 
 Glider's code is released under the [MIT license](LICENSE).
 
 - **[Legendary](https://github.com/legendary-gl/legendary)** (GPLv3) does the Epic protocol work. Glider bundles it as a
-  separate executable, patched by Glider (`0.21.1-glider.1`). The patch, license and source offer ship with the app and
-  are in `tools/legendary-fork/` (Settings → About has the details).
-- **Heroic Games Launcher** was a research reference for how Epic's clients behave. Notes in
-  [docs/research/heroic-v0.2.md](docs/research/heroic-v0.2.md).
-- Inter (SIL Open Font License) is bundled as the UI font.
+  separate executable with a small patch (bounded retries, download server failover, live speed changes, clearer
+  progress). The patch, license and source offer ship with the app and live in `tools/legendary-fork/`.
+- **[Heroic Games Launcher](https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher)** was a research reference for
+  how Epic's clients behave ([notes](docs/research/heroic-v0.2.md)).
+- **[Inter](https://rsms.me/inter/)** (SIL Open Font License) is the UI font.

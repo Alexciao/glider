@@ -412,7 +412,7 @@ describe("Shell routing", () => {
   it("shows onboarding instead of the app until it is completed", async () => {
     await mount("firstRun", <Shell />);
     expect(screen.queryByRole("navigation", { name: "Main" })).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /Your whole Epic library/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Your Epic games,\s*without the weight/ })).toBeInTheDocument();
   });
 
   it("keeps setup on screen at its last step even though Core counts it completed there, until the last button is pressed", async () => {

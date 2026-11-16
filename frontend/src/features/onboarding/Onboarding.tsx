@@ -126,8 +126,8 @@ function Welcome() {
         </div>
       </div>
       <h1 className="text-center text-3xl font-semibold tracking-tighter text-fg max-[1100px]:text-2xl">
-        <span className="block">Your whole Epic library,</span>
-        <span className="block">one launcher.</span>
+        <span className="block">Your Epic games,</span>
+        <span className="block">without the weight.</span>
       </h1>
       <p className="mx-auto mt-3 max-w-[44ch] text-balance text-center text-md leading-[1.5] text-fg-muted">Sign in, bring over the games you already have, and play.</p>
       <Button size="xl" variant="primary" className="mt-9 min-w-44" onClick={() => void go("signIn")}>

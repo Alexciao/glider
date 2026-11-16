@@ -14,7 +14,7 @@ const FAST = { timeScale: 400 } as const;
 describe("Onboarding: Welcome and Sign in", () => {
   it("starts at Welcome with one headline and one sentence, and persists the step on Get started", async () => {
     const { user } = await mount("firstRun", <Onboarding />);
-    expect(screen.getByRole("heading", { name: /Your whole Epic library,\s*one launcher/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Your Epic games,\s*without the weight/ })).toBeInTheDocument();
     expect(screen.queryByRole("list")).not.toBeInTheDocument(); // no feature bullets
     await user.click(screen.getByRole("button", { name: "Get started" }));
     expect(await screen.findByRole("button", { name: "Sign in with Epic" })).toBeInTheDocument();
