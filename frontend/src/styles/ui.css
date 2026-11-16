@@ -203,8 +203,9 @@
   isolation: isolate;
   transition: scale 140ms var(--ease-out), box-shadow 150ms var(--ease-out);
 }
-/* Press squeezes the whole group, whichever half is held. */
-.g-split:has(.g-split-seg:is(:active, [data-pressed]):not(:disabled):not(.g-split-inert)) {
+/* Press squeezes the whole group, whichever half is held, except the menu half: its menu is placed against the group, so a
+   squeeze dragged the opening menu sideways (the `press` variant in index.css skips popup triggers for the same reason). */
+.g-split:has(.g-split-seg:is(:active, [data-pressed]):not(:disabled):not(.g-split-inert):not([aria-haspopup])) {
   scale: 0.975;
 }
 /* The hairline ring is painted above the fills so the divider and the edge never fight. */

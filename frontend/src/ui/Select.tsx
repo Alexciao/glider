@@ -37,7 +37,7 @@ export function Select<T extends string>({
         style={{ minWidth }}
         className={cx(
           "group inline-flex h-8 items-center justify-between gap-2 rounded-md border border-border-strong bg-surface-2 pl-3 pr-2 text-sm text-fg",
-          "transition-[background-color,transform,scale] duration-150 ease-out hover:bg-surface-3 press:scale-[0.98] data-[state=open]:bg-surface-3 disabled:pointer-events-none disabled:opacity-45",
+          "transition-colors duration-150 ease-out hover:bg-surface-3 data-[state=open]:bg-surface-3 disabled:pointer-events-none disabled:opacity-45",
           className,
         )}
       >

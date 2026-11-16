@@ -14,8 +14,8 @@ const base =
 const variants: Record<ButtonVariant, string> = {
   primary: "bg-primary text-primary-fg shadow-sm hover:bg-primary-hover",
   secondary:
-    "border border-border-strong bg-surface-2 text-fg hover:bg-surface-3 active:bg-surface-active data-[open]:bg-surface-3",
-  ghost: "text-fg-muted hover:bg-surface-hover hover:text-fg active:bg-surface-active data-[open]:bg-surface-hover data-[open]:text-fg",
+    "border border-border-strong bg-surface-2 text-fg hover:bg-surface-3 active:bg-surface-active expanded:bg-surface-3",
+  ghost: "text-fg-muted hover:bg-surface-hover hover:text-fg active:bg-surface-active expanded:bg-surface-hover expanded:text-fg",
   danger: "bg-danger text-danger-fg shadow-sm hover:brightness-110",
 };
 
