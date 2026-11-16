@@ -3,8 +3,14 @@
 @import "./ui.css";
 @import "./ui-forms.css";
 
-/* "Pressed": the real :active, or the data-pressed pulse `pressFeedback.ts` sets (a menu that opens on pointerdown steals :active). */
-@custom-variant press (&:is(:active, [data-pressed]));
+/* "Pressed": the real :active, or the data-pressed pulse `pressFeedback.ts` sets (a menu that opens on pointerdown steals :active).
+   A trigger that opens a popup (menu, Select) is never squeezed: the popup is positioned against the trigger's box, so it
+   followed the squeeze and slid 1–2 px sideways and back while it was opening. Its open state (below) is the feedback. */
+@custom-variant press (&:is(:active, [data-pressed]):not([aria-haspopup]:not([aria-haspopup="false"]), [role="combobox"]));
+
+/* A trigger whose popup is open. Radix makes the page inert while a menu is open, so the trigger loses :hover at once; this
+   keeps it lit instead of fading back to rest under its own menu. `data-open` is for triggers that track it themselves. */
+@custom-variant expanded (&:is([aria-haspopup]:not([aria-haspopup="false"])[aria-expanded="true"], [role="combobox"][aria-expanded="true"], [data-open]));
 
 @utility app-drag {
   -webkit-app-region: drag;

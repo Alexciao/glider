@@ -8,6 +8,7 @@ import { Kbd } from "./Kbd";
  * One menu look for both a right-click menu and a "…" button menu. Radix's ContextMenu and DropdownMenu expose the
  * same parts, so the styled parts are built once per primitive and the same item list renders into either
  * (`GameMenuItems` takes a kit). Everything inherits the `g-pop` motion and hover language of `DropdownMenu`.
+ * Popups carry `app-no-drag`: one that flips up over the title bar (a window drag region) must still take clicks.
  */
 type Primitive = typeof DropdownMenuPrimitive;
 
@@ -27,7 +28,7 @@ function createKit(P: Primitive) {
       <P.Portal>
         <P.Content
           collisionPadding={12}
-          className={cx("g-pop z-50 min-w-52 rounded-lg border border-border-strong bg-popover p-1 text-sm shadow-lg outline-none", className)}
+          className={cx("app-no-drag g-pop z-50 min-w-52 rounded-lg border border-border-strong bg-popover p-1 text-sm shadow-lg outline-none", className)}
           {...rest}
         />
       </P.Portal>
@@ -87,7 +88,7 @@ function createKit(P: Primitive) {
             sideOffset={6}
             alignOffset={-5}
             collisionPadding={12}
-            className="g-pop z-50 min-w-48 max-w-72 rounded-lg border border-border-strong bg-popover p-1 text-sm shadow-lg outline-none"
+            className="app-no-drag g-pop z-50 min-w-48 max-w-72 rounded-lg border border-border-strong bg-popover p-1 text-sm shadow-lg outline-none"
           >
             {children}
           </P.SubContent>

@@ -246,7 +246,7 @@ function Scan() {
 
   return (
     <StepLayout footer={footer}>
-      <div className="g-step-in py-2">
+      <div className="py-2">
         <OfflineNote />
         <Heading title={title}>
           {phase === "importing"
@@ -284,7 +284,7 @@ function Folders() {
         </>
       }
     >
-      <div className="g-step-in py-2">
+      <div className="py-2">
         <OfflineNote />
         <Heading title="Where should games install?">Pick the default folder for new games.</Heading>
         <div className="mt-6">
@@ -340,7 +340,7 @@ function Mode() {
         </>
       }
     >
-      <div className="g-step-in py-2">
+      <div className="py-2">
         <OfflineNote />
         <Heading title="How should downloads behave?" />
         <ChoiceGroup<DownloadMode> aria-label="Download mode" className="mt-6" value={mode} onValueChange={(v) => void actions.updateSettings({ downloadMode: v })} options={MODES} />
@@ -419,6 +419,7 @@ export function Onboarding() {
           </div>
         </div>
       )}
+      {/* The step's one entrance. Content inside adds none of its own: a nested rise made some steps travel 20 px, others 12. */}
       <AnimatePresence mode="wait" initial={false}>
         <m.div
           key={shown}

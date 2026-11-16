@@ -5,7 +5,7 @@ import { Button, GameCover, cx } from "../../ui";
 import { TILE_TEXT } from "./gridLayout";
 import { SharedCover } from "./SharedCover";
 import { CoverProgress } from "./CoverProgress";
-import { MoreButton } from "./GameMenu";
+import { MoreButton, useMenuHeld } from "./GameMenu";
 import { describeState, quickAction, runQuick } from "./status";
 
 /** Badges sit on arbitrary art, so they carry their own dark glass: 22 px, black at 55 % with a blur and a hairline ring. */
@@ -57,6 +57,8 @@ export const GameTile = memo(function GameTile({ game, index, count, x, y, width
   // The hover extras (quick action, "…") exist only for the tile under the pointer: 30 tiles never pay for 60 buttons.
   const [hot, setHot] = useState(false);
   const [focused, setFocused] = useState(false);
+  // While its menu is open the tile keeps its hover look (lift, shadow, "…"), so the menu never loses its anchor.
+  const held = useMenuHeld(game.appName);
   const open = () => onOpen(game);
   return (
     <li
@@ -69,7 +71,7 @@ export const GameTile = memo(function GameTile({ game, index, count, x, y, width
       <div
         onPointerEnter={() => setHot(true)}
         onPointerLeave={() => setHot(false)}
-        className={cx("group/tile relative transition-transform duration-150 ease-out hover:-translate-y-[3px]", game.hidden && "opacity-60")}
+        className={cx("group/tile relative transition-transform duration-150 ease-out hover:-translate-y-[3px]", held && "-translate-y-[3px]", game.hidden && "opacity-60")}
       >
           <button
             type="button"
@@ -83,7 +85,10 @@ export const GameTile = memo(function GameTile({ game, index, count, x, y, width
             <span className="relative block">
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-0 rounded-lg opacity-0 shadow-[0_14px_28px_-10px_oklch(0_0_0/0.55)] transition-opacity duration-150 group-hover/tile:opacity-100"
+                className={cx(
+                  "pointer-events-none absolute inset-0 rounded-lg opacity-0 shadow-[0_14px_28px_-10px_oklch(0_0_0/0.55)] transition-opacity duration-150 group-hover/tile:opacity-100",
+                  held && "opacity-100",
+                )}
               />
               <GameCover art={game.art} title={game.title} size="thumb" priority={priority} className="rounded-lg" style={{ height: coverH }}>
                 <span aria-hidden className="pointer-events-none absolute inset-0 rounded-[inherit] shadow-[inset_0_0_0_1px_var(--g-border-strong)]" />
@@ -105,7 +110,7 @@ export const GameTile = memo(function GameTile({ game, index, count, x, y, width
           </button>
 
           {/* Siblings of the page button, placed over the cover. */}
-          {hot && (
+          {(hot || held) && (
             <div className="pointer-events-none absolute inset-x-0 top-0 [animation:g-fade-in_150ms_var(--ease-out)]" style={{ height: coverH }}>
               {quick && <span aria-hidden className="absolute inset-x-0 bottom-0 h-1/3 rounded-b-lg bg-gradient-to-t from-black/55 to-transparent" />}
               <MoreButton game={game} className="pointer-events-auto absolute right-2 top-2 z-[3]" />

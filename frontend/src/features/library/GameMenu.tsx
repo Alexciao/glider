@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { create } from "zustand";
 import { CircleArrowUp, Download, Eye, EyeOff, FolderInput, FolderOpen, Layers, MoreHorizontal, Play, Plus, ShieldCheck, Star, Trash2, Wrench } from "lucide-react";
 import type { GameSummary } from "../../ipc/contract.gen";
 import { actions } from "../../state/actions";
@@ -85,6 +86,14 @@ export function GameMenuItems({ kit, game }: { kit: MenuKit; game: GameSummary }
 }
 
 /**
+ * The game whose menu is open. Radix makes the page inert while a menu is open (`pointer-events: none` on the body), so the
+ * tile or row under it loses `:hover` and its pointer-leave fires as soon as the pointer heads for the menu: the tile dropped
+ * back, and the "…" button the menu came from vanished under it. The tile reads this to stay as it was until the menu closes.
+ */
+const useMenuTarget = create<{ appName: string | null }>(() => ({ appName: null }));
+export const useMenuHeld = (appName: string): boolean => useMenuTarget((s) => s.appName === appName);
+
+/**
  * One context menu for the whole library, not one per tile: mounting a Radix menu root per tile made every tile several
  * milliseconds dearer to mount, which is what a search or a filter pays 30 times over. The wrapper reads which tile was
  * hit (right-click, the context-menu key, or a tile's "…" button) and renders that game's items when it opens.
@@ -92,7 +101,7 @@ export function GameMenuItems({ kit, game }: { kit: MenuKit; game: GameSummary }
 export function LibraryContextMenu({ games, children }: { games: readonly GameSummary[]; children: ReactNode }) {
   const [target, setTarget] = useState<GameSummary | null>(null);
   return (
-    <ContextMenu>
+    <ContextMenu onOpenChange={(open) => !open && useMenuTarget.setState({ appName: null })}>
       <ContextMenuTrigger asChild>
         <div
           className="h-full"
@@ -101,7 +110,10 @@ export function LibraryContextMenu({ games, children }: { games: readonly GameSu
             const game = li ? games[Number(li.dataset.index)] : undefined;
             // Anywhere that is not a game keeps the browser's (or the host's) own behaviour.
             if (!game) e.stopPropagation();
-            else setTarget(game);
+            else {
+              setTarget(game);
+              useMenuTarget.setState({ appName: game.appName });
+            }
           }}
         >
           {children}

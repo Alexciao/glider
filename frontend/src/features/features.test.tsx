@@ -143,6 +143,23 @@ describe("Library page", () => {
     await waitFor(() => expect(useLibrary.getState().games.get("Fortnite")!.favorite).toBe(!before));
   });
 
+  it("the tile under an open menu keeps its hover extras until the menu closes", async () => {
+    const { user } = await mount("returning", <LibraryPage />);
+    await user.type(screen.getByRole("textbox", { name: "Search your library" }), "fortnite");
+    const tile = screen.getAllByRole("button", { name: /Fortnite/ })[0]!;
+    const hoverBox = tile.parentElement!;
+    fireEvent.pointerEnter(hoverBox);
+    expect(screen.getByRole("button", { name: "More actions for Fortnite" })).toBeInTheDocument();
+    fireEvent.contextMenu(tile);
+    await screen.findByRole("menu");
+    // The pointer heads for the menu: the tile is left, but the "…" the menu belongs to stays.
+    fireEvent.pointerLeave(hoverBox);
+    // (hidden: the open menu hides the rest of the page from assistive tech)
+    expect(screen.getByRole("button", { name: "More actions for Fortnite", hidden: true })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("button", { name: "More actions for Fortnite", hidden: true })).not.toBeInTheDocument());
+  });
+
   it("arrow keys move through the tiles with a single tab stop", async () => {
     const { user } = await mount("returning", <LibraryPage />);
     const tabStops = () => document.querySelectorAll<HTMLElement>("[data-tile-index][tabindex='0']");

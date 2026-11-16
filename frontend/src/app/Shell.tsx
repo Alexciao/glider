@@ -27,10 +27,14 @@ function PageHost({ route }: { route: Route }) {
     case "downloads":
     case "settings":
     case "store":
+      // The entrance sits inside Suspense: outside it, a page's first visit played it on an empty box while the chunk loaded,
+      // and the page then popped in with no entrance at all.
       return (
-        <div key={route.page} className="g-page-in h-full">
-          <Suspense fallback={null}>{route.page === "downloads" ? <Downloads /> : route.page === "store" ? <StorePage /> : <Settings />}</Suspense>
-        </div>
+        <Suspense fallback={null}>
+          <div key={route.page} className="g-page-in h-full">
+            {route.page === "downloads" ? <Downloads /> : route.page === "store" ? <StorePage /> : <Settings />}
+          </div>
+        </Suspense>
       );
   }
 }

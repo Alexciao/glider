@@ -107,6 +107,15 @@ export function Settings() {
   const stored = focus ? "downloads" : storedSection;
   const q = focus ? "" : query.trim();
   const current = sectionById(stored);
+  // The body rises in when the section changes, not on the way into Settings: the page wrapper (Shell) already plays the same
+  // entrance there, and both together moved the body twice as far as the header and faded it in late.
+  const bodyKey = q ? "search" : current.id;
+  const [shownKey, setShownKey] = useState(bodyKey);
+  const [switched, setSwitched] = useState(false);
+  if (bodyKey !== shownKey) {
+    setShownKey(bodyKey);
+    setSwitched(true);
+  }
 
   // Count the rows that survived the filter once the DOM has settled; zero shows the empty state.
   useEffect(() => {
@@ -187,9 +196,9 @@ export function Settings() {
 
         <div
           ref={body}
-          key={q ? "search" : current.id}
+          key={bodyKey}
           data-searching={q ? "" : undefined}
-          className={cx("w-[640px] min-w-0 max-w-full", !q && "g-page-in")}
+          className={cx("w-[640px] min-w-0 max-w-full", !q && switched && "g-page-in")}
           role="region"
           aria-label={q ? "Search results" : current.label}
         >

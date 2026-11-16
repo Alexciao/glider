@@ -4,6 +4,7 @@
  * `:active` on some presses and keeps it on others, so the squeeze played on the first click and not on the next. Here the
  * press is ours instead: pointer-down (or Space/Enter) puts `data-pressed` on the control, release takes it off after a
  * minimum hold, and the `press:` Tailwind variant (styles/index.css) styles `:active` and `[data-pressed]` alike.
+ * Popup triggers themselves are left out of the squeeze there (their popup is placed against them and would follow it).
  * Reduced motion removes the movement in ui.css, so only the colour change remains.
  */
 
