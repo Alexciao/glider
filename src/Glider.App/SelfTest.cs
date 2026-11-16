@@ -87,6 +87,7 @@ internal static partial class SelfTest
             await Step("close", () => CloseTest(rt, win));
             await Step("hide-suspend", () => HideSuspendTest(rt, win));
             await Step("mica-restore", () => MicaRestoreTest(rt, win, dir));
+            await Step("store-resume", () => StoreResumeTest(rt, win, dir));
         }
         catch (Exception ex)
         {
@@ -528,6 +529,73 @@ internal static partial class SelfTest
             await Ui(rt, () => view.SuspendDelay = Glider.Core.Store.StoreLifecycle.SuspendAfter);
             await store.DestroyAsync();
         }
+    }
+
+    /// <summary>
+    /// The Store shown again after it was hidden long enough to be suspended (the warm-up path: it loads hidden, suspends after
+    /// 60 s, and the user opens the tab later). Samples what is on screen in the Store's rectangle as it comes back.
+    /// </summary>
+    private static async Task StoreResumeTest(HostRuntime rt, MainWindow win, string dir)
+    {
+        var store = rt.Platform.StoreHost ?? throw new InvalidOperationException("no store host");
+        var bounds = new Glider.Core.Contracts.StoreBounds(72, 40, 800, 520);
+        var state = await store.ShowAsync(Glider.Core.Store.StoreUrls.Home("en-US"), bounds);
+        for (var i = 0; i < 40 && state.Phase is Glider.Core.Contracts.StorePhase.Loading or Glider.Core.Contracts.StorePhase.Creating; i++)
+        {
+            await Task.Delay(500);
+            state = store.State;
+        }
+
+        await Task.Delay(2000);
+        await Ui(rt, () => Report["storeResume.shown"] = SampleStore(win, dir, "shown"));
+        var view = rt.Platform.StoreIfCreated ?? throw new InvalidOperationException("no view");
+        await Ui(rt, () => view.SuspendDelay = TimeSpan.FromSeconds(3));
+        try
+        {
+            await store.HideAsync();
+            var suspended = await WaitFor(rt, () => view.IsSuspendedForTests, TimeSpan.FromSeconds(12));
+            Report["storeResume.suspended"] = suspended;
+            await store.ShowAsync(null, bounds);
+            var t0 = DateTime.UtcNow;
+            foreach (var ms in new[] { 50, 150, 300, 600, 1200, 2500, 4000 })
+            {
+                var wait = ms - (int)(DateTime.UtcNow - t0).TotalMilliseconds;
+                if (wait > 0)
+                {
+                    await Task.Delay(wait);
+                }
+
+                await Ui(rt, () => Report[$"storeResume.at{ms}"] = SampleStore(win, dir, $"at{ms}") + $" phase={store.State.Phase} visible={store.State.Visible} covered={store.State.Covered}");
+            }
+        }
+        finally
+        {
+            await Ui(rt, () => view.SuspendDelay = Glider.Core.Store.StoreLifecycle.SuspendAfter);
+            await store.DestroyAsync();
+        }
+    }
+
+    private static string SampleStore(MainWindow win, string dir, string label)
+    {
+        Win32.GetWindowRect(win.Hwnd, out var wr);
+        int w = wr.Right - wr.Left, h = wr.Bottom - wr.Top;
+        var px = Capture(dc => { var sdc = Win32.GetDC(0); var ok = BitBlt(dc, 0, 0, w, h, sdc, wr.Left, wr.Top, 0x00CC0020 | 0x40000000); _ = Win32.ReleaseDC(0, sdc); return ok; }, w, h);
+        SavePng(Path.Combine(dir, $"store-resume-{label}.png"), px, w, h);
+        var s = Win32.GetDpiForWindow(win.Hwnd) / 96.0;
+        var distinct = new HashSet<int>();
+        long sum = 0, n = 0;
+        for (var y = (int)(60 * s); y < Math.Min(h, (int)(540 * s)); y += 7)
+        {
+            for (var x = (int)(90 * s); x < Math.Min(w, (int)(860 * s)); x += 7)
+            {
+                var i = (y * w + x) * 4;
+                distinct.Add(px[i] | (px[i + 1] << 8) | (px[i + 2] << 16));
+                sum += px[i] + px[i + 1] + px[i + 2];
+                n++;
+            }
+        }
+
+        return $"distinct={distinct.Count} meanLuma={(n == 0 ? 0 : sum / n / 3)}";
     }
 
     private static async Task<bool> WaitFor(HostRuntime rt, Func<bool> condition, TimeSpan timeout)
