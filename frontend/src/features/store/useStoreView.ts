@@ -27,13 +27,25 @@ export function useStoreView(): StoreState | null {
 /** Anything the HTML draws above the page (dialogs, menus, the palette) would sit *under* the native view, so the page covers it. */
 export const OVERLAY_SELECTOR = '[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"],[data-radix-popper-content-wrapper]';
 
+/**
+ * Tooltips never cover the Store. They are Radix poppers too, but they are small and only informational: counting them swapped
+ * the live Store for its dimmed snapshot (a grey page) whenever the pointer rested on a rail item or the Store's own toolbar.
+ */
+export function hasCoveringOverlay(root: ParentNode = document): boolean {
+  for (const el of root.querySelectorAll(OVERLAY_SELECTOR)) {
+    if (el.matches("[data-radix-popper-content-wrapper]") && el.querySelector('[role="tooltip"]')) continue;
+    return true;
+  }
+  return false;
+}
+
 /** True while any Radix overlay is mounted. Calls `onChange` (deduplicated) as it comes and goes. */
 export function useOverlayWatcher(enabled: boolean, onChange: (covered: boolean) => void): void {
   useEffect(() => {
     if (!enabled) return;
     let last = false;
     const check = () => {
-      const now = document.querySelector(OVERLAY_SELECTOR) !== null;
+      const now = hasCoveringOverlay();
       if (now !== last) {
         last = now;
         onChange(now);

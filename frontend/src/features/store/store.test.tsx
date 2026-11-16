@@ -154,6 +154,34 @@ describe("StorePage", () => {
     await waitFor(() => expect(callsTo(call, "store.setCovered").at(-1)![1]).toEqual({ covered: false }));
   });
 
+  it("a tooltip never covers the native view (it turned the Store into its grey snapshot)", async () => {
+    const { call } = await mountStore();
+    await waitFor(() => expect(callsTo(call, "store.show")).toHaveLength(1));
+    await screen.findByText("store.epicgames.com", {}, { timeout: 4000 });
+
+    const tip = document.createElement("div");
+    tip.setAttribute("data-radix-popper-content-wrapper", "");
+    tip.innerHTML = '<div data-side="right">Store<span role="tooltip">Store</span></div>';
+    act(() => {
+      document.body.appendChild(tip);
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(callsTo(call, "store.setCovered").filter(([, p]) => (p as { covered: boolean }).covered)).toHaveLength(0);
+
+    // A menu in the same kind of wrapper still covers it.
+    const menu = document.createElement("div");
+    menu.setAttribute("data-radix-popper-content-wrapper", "");
+    menu.innerHTML = '<div role="menu"></div>';
+    act(() => {
+      document.body.appendChild(menu);
+    });
+    await waitFor(() => expect(callsTo(call, "store.setCovered").at(-1)![1]).toEqual({ covered: true }));
+    act(() => {
+      tip.remove();
+      menu.remove();
+    });
+  });
+
   it("signed out: one Open in browser (the fallback's), not a second one in the toolbar", async () => {
     await mountStore(false, true);
     expect(await screen.findByText("Sign in to use the Store")).toBeInTheDocument();

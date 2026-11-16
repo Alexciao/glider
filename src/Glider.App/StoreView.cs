@@ -1253,6 +1253,7 @@ internal sealed class StoreView : IStoreHost, IDisposable
             return _published;
         }
 
+        HostLog.Info(covered ? "store: covered by an overlay in the UI (snapshot shown)" : "store: uncovered");
         if (covered)
         {
             // A snapshot stands in for the live page while an HTML dialog sits above it.
