@@ -614,7 +614,7 @@ internal static partial class SelfTest
     /// </summary>
     private static async Task MicaRestoreTest(HostRuntime rt, MainWindow win, string dir)
     {
-        foreach (var (label, wait) in new[] { ("tray", 1500), ("traySuspended", 11_000), ("minimized", 1500) })
+        foreach (var (label, wait) in (Environment.GetEnvironmentVariable("GLIDER_MICA_REPEAT") == "1" ? Enumerable.Range(0, 6).Select(i => ($"tray{i}", 1500)).ToArray() : new[] { ("tray", 1500), ("traySuspended", 11_000), ("minimized", 1500) }))
         {
             string before = "", after = "";
             await Ui(rt, () =>

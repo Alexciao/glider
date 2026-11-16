@@ -544,6 +544,10 @@ internal static unsafe partial class Win32
     [LibraryImport("dwmapi.dll")]
     public static partial int DwmExtendFrameIntoClientArea(nint hwnd, ref MARGINS margins);
 
+    /// <summary>Blocks until DWM has composed its next frame.</summary>
+    [LibraryImport("dwmapi.dll")]
+    public static partial int DwmFlush();
+
     // ============================== shell32 ==============================
 
     [LibraryImport("shell32.dll", EntryPoint = "Shell_NotifyIconW")]

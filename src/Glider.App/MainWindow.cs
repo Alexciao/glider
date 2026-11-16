@@ -204,8 +204,8 @@ internal sealed partial class MainWindow : Window
         if (reshown)
         {
             // WebView2 loses its transparent background (it paints it opaque white, so the page sits on grey instead of Mica)
-            // when the controller is made visible before its re-shown parent window has been processed. So: show the window
-            // cloaked, let the show go through, then make the WebView visible and uncloak (ShowWebAfterReshow).
+            // when the controller is made visible before DWM has composed the re-shown parent window. So: show the window
+            // cloaked, wait for that, then make the WebView visible and uncloak (ShowWebAfterReshow).
             SetCloak(true);
             Show();
         }
@@ -223,7 +223,13 @@ internal sealed partial class MainWindow : Window
 
         if (reshown)
         {
-            Dispatcher.BeginInvoke(DispatcherPriority.Background, ShowWebAfterReshow);
+            // Background priority lets the Show go through; DwmFlush then waits for DWM to compose the re-shown (still cloaked)
+            // window once. Without the flush the WebView still came back opaque about one time in six.
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
+            {
+                _ = Win32.DwmFlush();
+                ShowWebAfterReshow();
+            });
         }
         else
         {
