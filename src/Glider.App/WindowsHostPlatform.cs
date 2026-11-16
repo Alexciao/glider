@@ -201,6 +201,12 @@ internal sealed class WindowsHostPlatform : IHostPlatform
 
     public WindowInfo GetWindowInfo() => _window?.Info ?? new WindowInfo(false, false, false);
 
+    public void RestartToUpdate()
+    {
+        AppUpdater.RestartAfterExit();
+        Quit();
+    }
+
     public void Quit()
     {
         Ui.BeginInvoke(() =>

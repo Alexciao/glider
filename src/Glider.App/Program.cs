@@ -208,7 +208,7 @@ internal static class HostApp
         var (theme, startMinimized) = HostSettingsPeek.Read(paths);
         ThemeState.Mode = theme;
 
-        var rt = new HostRuntime(paths, app.Dispatcher, shellIntegration: !options.IsTestRun);
+        var rt = new HostRuntime(paths, app.Dispatcher, shellIntegration: !options.IsTestRun && !ShellRegistration.Disabled);
         Runtime = rt;
         _ = ObserveEnvironmentAsync(rt);
         rt.RpcTask.ContinueWith(t => HostLog.Error("Composition.Build failed", t.Exception), TaskContinuationOptions.OnlyOnFaulted);

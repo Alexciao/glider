@@ -51,8 +51,19 @@ internal sealed class WindowsShellIntegration : IShellIntegration
 /// </summary>
 internal static class ShellRegistration
 {
+    /// <summary>
+    /// GLIDER_NO_SHELL_INTEGRATION=1: a side-by-side test install (e.g. the self-update test) must not take over, or on uninstall
+    /// remove, the real install's glider:// and Epic link handlers, shortcuts or data root.
+    /// </summary>
+    public static bool Disabled => Environment.GetEnvironmentVariable("GLIDER_NO_SHELL_INTEGRATION") == "1";
+
     public static void OnInstalledOrUpdated()
     {
+        if (Disabled)
+        {
+            return;
+        }
+
         try
         {
             var paths = AppPaths.ForCurrentUser();
@@ -66,6 +77,11 @@ internal static class ShellRegistration
 
     public static void OnUninstalling()
     {
+        if (Disabled)
+        {
+            return;
+        }
+
         var moved = MoveDataOutOfInstallRoot();
         var paths = AppPaths.ForCurrentUser();
         var outside = !string.Equals(paths.Root, DataRoot.LegacyRootFor(DataRoot.LocalAppDataFolder), StringComparison.OrdinalIgnoreCase);

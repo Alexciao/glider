@@ -304,6 +304,7 @@ internal sealed partial class MainWindow : Window
         _web = null;
         _overlays?.Dispose();
         _overlays = null;
+        AppUpdater.ApplyAfterExit(); // a staged self-update installs once this process is gone
         Application.Current.Shutdown();
     }
 

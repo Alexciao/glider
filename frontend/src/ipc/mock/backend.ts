@@ -143,7 +143,7 @@ const READ_ONLY = new Set<string>([
   "app.getSnapshot", "app.getLogs", "app.getLicenses", "app.ready", "window.getInfo", "library.get", "game.getDetail",
   "game.planInstall", "game.prepareLaunch", "saves.get", "jobs.getHistory", "freeGames.get", "freeGames.refresh", "store.getState",
   "store.openInBrowser", "store.setCovered", "egl.validateFolder",
-  "egl.checkReadiness", "store.setBounds", "app.openPath", "app.openSecurity", "app.openExternal", "app.copyLogs", "game.openFolder", "saves.openBackups",
+  "egl.checkReadiness", "store.setBounds", "app.openPath", "app.openSecurity", "app.restartToUpdate", "app.openExternal", "app.copyLogs", "game.openFolder", "saves.openBackups",
   "window.minimize", "window.toggleMaximize", "window.close", "app.quit", "app.pickFolder",
 ]);
 
@@ -1534,6 +1534,7 @@ export class MockBackend {
     "app.openExternal": async () => {},
     "app.openPath": async () => {},
     "app.openSecurity": async () => {},
+    "app.restartToUpdate": async () => {},
     "app.pickFolder": async (r) => {
       await this.sleep(500);
       const located = /locate/i.test(r.title ?? "");

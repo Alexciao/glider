@@ -549,6 +549,8 @@ public sealed class GliderService : IGliderRpc, IDisposable
 
     public Task Quit() => Rpc(nameof(Quit), _c.Host.Quit);
 
+    public Task RestartToUpdate() => Rpc(nameof(RestartToUpdate), _c.Host.RestartToUpdate);
+
     // ================================================================== onboarding
 
     public Task<OnboardingState> SetOnboardingStep(OnboardingStepRequest request) => Rpc(nameof(SetOnboardingStep), async _ =>

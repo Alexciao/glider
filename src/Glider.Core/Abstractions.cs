@@ -84,6 +84,9 @@ public interface IHostPlatform
     WindowInfo GetWindowInfo();
     void Quit();
 
+    /// <summary>Quit, install the staged self-update and start the new version. Hosts without self-update just quit.</summary>
+    void RestartToUpdate() => Quit();
+
     bool IsWindows11 { get; }
     BackdropKind Backdrop { get; }
 

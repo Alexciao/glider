@@ -133,4 +133,5 @@ export const FIX_LABELS: Record<FixAction, string> = {
   playOffline: "Play offline",
   update: "Update",
   openSecurity: "Open Windows Security",
+  restartToUpdate: "Restart",
 };

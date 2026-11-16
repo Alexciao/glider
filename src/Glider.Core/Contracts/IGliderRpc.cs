@@ -30,6 +30,8 @@ public interface IGliderRpc
     /// <summary>Called by the UI once it has painted; the host reveals the window then.</summary>
     [RpcMethod("app.ready")] Task Ready();
     [RpcMethod("app.quit")] Task Quit();
+    /// <summary>Quits and lets the staged self-update install, then starts the new version.</summary>
+    [RpcMethod("app.restartToUpdate")] Task RestartToUpdate();
 
     // ---- onboarding ----
     /// <summary>Persist the current step (and whether the previous one was skipped) so the flow resumes after a restart.</summary>

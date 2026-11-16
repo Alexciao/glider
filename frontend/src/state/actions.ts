@@ -534,6 +534,9 @@ export function runFix(fix: FixAction, ctx: FixContext = {}): void {
     case "update":
       if (ctx.appName) void actions.update(ctx.appName);
       return;
+    case "restartToUpdate":
+      void run("restartToUpdate", () => rpc().call("app.restartToUpdate"), asToast());
+      return;
   }
 }
 
