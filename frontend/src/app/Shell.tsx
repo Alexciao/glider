@@ -31,7 +31,9 @@ function PageHost({ route }: { route: Route }) {
       // and the page then popped in with no entrance at all.
       return (
         <Suspense fallback={null}>
-          <div key={route.page} className="g-page-in h-full">
+          {/* The Store only fades: its native view is placed from the placeholder's box, so a rising entrance moved the view
+              along with it, and the view can't fade, so it popped in against moving HTML. */}
+          <div key={route.page} className={route.page === "store" ? "g-fade-page h-full" : "g-page-in h-full"}>
             {route.page === "downloads" ? <Downloads /> : route.page === "store" ? <StorePage /> : <Settings />}
           </div>
         </Suspense>

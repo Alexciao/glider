@@ -460,6 +460,7 @@ internal static partial class SelfTest
         if (rt.Platform.StoreIfCreated is { } view)
         {
             await rt.Ui.InvokeAsync(() => Report["store.nativeBounds"] = view.DescribeBoundsForTests());
+            Report["store.epicNav"] = await rt.Ui.InvokeAsync(view.DescribeNavForTestsAsync).Task.Unwrap();
         }
 
         await rt.Ui.InvokeAsync(() => Screenshot(win, Path.Combine(dir, "store.png"), "store"));

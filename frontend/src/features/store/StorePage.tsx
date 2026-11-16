@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ExternalLink, Lock, RefreshCw, Store, WifiOff } from "lucide-react";
+import { ArrowLeft, ExternalLink, House, Lock, RefreshCw, Store, WifiOff } from "lucide-react";
 import type { GliderError, StoreBounds, StoreTarget } from "../../ipc/contract.gen";
 import { isHosted } from "../../ipc/client";
 import { rpc } from "../../ipc/rpc";
@@ -81,12 +81,20 @@ export function StorePage() {
 
   const openInBrowser = () => void rpc().call("store.openInBrowser").catch(() => {});
   const reload = () => void rpc().call("store.reload").catch(() => {});
+  const goHome = () => {
+    const bounds = measure();
+    if (bounds) void rpc().call("store.show", { target: { kind: "home", slug: null }, bounds }).catch(() => {});
+  };
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-10 shrink-0 items-center gap-1 border-b px-2">
         <IconButton label="Back" size="sm" disabled={!view?.canGoBack} onClick={() => void rpc().call("store.back").catch(() => {})}>
           <ArrowLeft size={16} />
+        </IconButton>
+        {/* Epic's own top bar (and its STORE logo link home) is hidden by the host, so home lives here. */}
+        <IconButton label="Store home" size="sm" onClick={goHome}>
+          <House size={15} />
         </IconButton>
         <IconButton label="Reload" size="sm" onClick={reload}>
           {view?.loading ? <Spinner size={14} /> : <RefreshCw size={14} />}

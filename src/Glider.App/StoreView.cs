@@ -42,6 +42,7 @@ internal sealed class StoreView : IStoreHost, IDisposable
     private readonly HashSet<string> _deniedHostsLogged = new(StringComparer.OrdinalIgnoreCase);
 
     private CoreWebView2Controller? _controller;
+    private nint _hostHwnd; // the view's own child window inside the main window (WebView2 has no API for it: found by creation diff)
     private CoreWebView2? _web;
     private Task<bool>? _creating;
     private StoreBounds _bounds = new(0, 0, 0, 0);
@@ -327,6 +328,10 @@ internal sealed class StoreView : IStoreHost, IDisposable
     internal string DescribeBoundsForTests() =>
         _controller is null ? "no controller" : $"{_controller.Bounds} dpi={(_window() is { } w ? Win32.GetDpiForWindow(w.Hwnd) : 0)} visible={_controller.IsVisible}";
 
+    /// <summary>Self-test: whether Epic's top bar is hidden in the live page.</summary>
+    internal Task<string> DescribeNavForTestsAsync() =>
+        _web?.ExecuteScriptAsync("(()=>{const n=document.querySelector('egs-navigation');return 'sheet='+document.adoptedStyleSheets.includes(window.__gliderNavSheet)+' nav='+(n?getComputedStyle(n).display:'none-found')+' wrapper='+(n?getComputedStyle(n.parentElement).display:'-');})()") ?? Task.FromResult("no web");
+
     /// <summary>Called by MainWindow before it suspends itself (tray idle): suspend the Store too.</summary>
     public Task SuspendNowAsync() => SuspendAsync();
 
@@ -518,10 +523,17 @@ internal sealed class StoreView : IStoreHost, IDisposable
             var options = env.CreateCoreWebView2ControllerOptions();
             options.ProfileName = HostConstants.WebViewProfileEpic;
             options.DefaultBackgroundColor = DrawingColor.FromArgb(unchecked((int)ThemeState.BackgroundArgb));
+            var before = Win32.DirectChildren(window.Hwnd);
             var controller = await env.CreateCoreWebView2ControllerAsync(window.Hwnd, options);
             controller.IsVisible = false; // shown once there is something to see
+            _hostHwnd = Win32.DirectChildren(window.Hwnd).Find(h => !before.Contains(h));
+            if (_hostHwnd == 0)
+            {
+                HostLog.Warn("store: the view's window wasn't found; it may sit under the main page");
+            }
             var web = controller.CoreWebView2;
             WebViewSetup.ConfigureStoreSettings(web.Settings);
+            await web.AddScriptToExecuteOnDocumentCreatedAsync(HideEpicNavigationScript); // before the first navigation, not racing it
             Attach(controller, web);
             _controller = controller;
             _web = web;
@@ -609,6 +621,7 @@ internal sealed class StoreView : IStoreHost, IDisposable
 
         _controller = null;
         _web = null;
+        _hostHwnd = 0;
         ResetReveal();
         _navStarted.Clear();
         _navGeneration++;
@@ -746,6 +759,20 @@ internal sealed class StoreView : IStoreHost, IDisposable
     }
 
     // ================================================================== events
+
+    /// <summary>
+    /// Hides Epic's top bar on Store pages: its apps menu, Support, Distribute, language, account menu and the "Download" launcher
+    /// promotion are either not needed in a launcher or duplicate Glider (the toolbar's Home button replaces the STORE logo).
+    /// Its wrapper goes too (`:has`), or an empty 72 px strip stays. The Store's own search/browse row is untouched.
+    /// </summary>
+    private const string HideEpicNavigationScript =
+        "(()=>{if(location.hostname!=='store.epicgames.com')return;const css='egs-navigation,:has(> egs-navigation){display:none!important}';" +
+        // A constructed sheet is not a node in <head>, so the page's hydration (which rewrites <head>) can't drop it.
+        "try{const sh=new CSSStyleSheet();sh.replaceSync(css);window.__gliderNavSheet=sh;" +
+        "const keep=()=>{if(!document.adoptedStyleSheets.includes(sh))document.adoptedStyleSheets=[...document.adoptedStyleSheets,sh];};" +
+        "keep();document.addEventListener('DOMContentLoaded',keep);addEventListener('load',keep);}catch(e){" +
+        "const add=()=>{if(document.getElementById('glider-hide-nav'))return;const s=document.createElement('style');s.id='glider-hide-nav';s.textContent=css;" +
+        "(document.head||document.documentElement).appendChild(s);};add();document.addEventListener('DOMContentLoaded',add);}})()";
 
     private void Attach(CoreWebView2Controller controller, CoreWebView2 web)
     {
@@ -1201,6 +1228,7 @@ internal sealed class StoreView : IStoreHost, IDisposable
         if (shouldShow)
         {
             ApplyBounds();
+            RaiseAboveMainPage();
         }
 
         SchedulePublish();
@@ -1221,7 +1249,7 @@ internal sealed class StoreView : IStoreHost, IDisposable
                 if (visible)
                 {
                     _controller.NotifyParentWindowPositionChanged();
-                    _window()?.Overlays?.Raise();
+                    RaiseAboveMainPage();
                 }
             }
         }
@@ -1229,6 +1257,21 @@ internal sealed class StoreView : IStoreHost, IDisposable
         {
             HostLog.Warn("Store: IsVisible failed", ex);
         }
+    }
+
+    /// <summary>
+    /// The view's window is a sibling of the main page's, and it was created *under* it (WebView2 places a new controller's window
+    /// at the bottom): the Store loaded and rendered, but behind the page, so the tab showed an empty dark area. Put it right
+    /// under the caption overlays whenever it is shown.
+    /// </summary>
+    private void RaiseAboveMainPage()
+    {
+        if (_hostHwnd != 0)
+        {
+            Win32.SetWindowPos(_hostHwnd, Win32.HWND_TOP, 0, 0, 0, 0, Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE);
+        }
+
+        _window()?.Overlays?.Raise();
     }
 
     private void TrySetMemory(CoreWebView2MemoryUsageTargetLevel level)

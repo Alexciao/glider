@@ -19,7 +19,9 @@ internal static class WebViewSetup
 #endif
     }
 
-    public const string DefaultBrowserArguments = "--disable-features=msSmartScreenProtection,msEdgeShopping,msEdgeCollections,msUndersideButton,msEdgeUpsell";
+    // OverlayScrollbar + msOverlayScrollbarWinStyle(+Animation): Windows 11's thin overlay scrollbars (shown while scrolling or
+    // hovered) instead of the classic browser bars with arrows, in the Store and Glider's own UI alike.
+    public const string DefaultBrowserArguments = "--disable-features=msSmartScreenProtection,msEdgeShopping,msEdgeCollections,msUndersideButton,msEdgeUpsell --enable-features=OverlayScrollbar,msOverlayScrollbarWinStyle,msOverlayScrollbarWinStyleAnimation";
 
     public static CoreWebView2EnvironmentOptions CreateEnvironmentOptions() => new()
     {

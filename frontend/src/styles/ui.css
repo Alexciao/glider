@@ -137,6 +137,9 @@
 .g-page-in {
   animation: g-page-in 220ms var(--ease-out) both;
 }
+.g-fade-page {
+  animation: g-fade-in 120ms var(--ease-out) both;
+}
 /* A page's content waits a beat for its container (the hero morphing in), then settles in 160 ms. */
 .g-rise {
   animation: g-rise 160ms var(--ease-out) both;

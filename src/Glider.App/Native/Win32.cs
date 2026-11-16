@@ -544,6 +544,24 @@ internal static unsafe partial class Win32
     [LibraryImport("dwmapi.dll")]
     public static partial int DwmExtendFrameIntoClientArea(nint hwnd, ref MARGINS margins);
 
+    public const uint GW_HWNDNEXT = 2;
+    public const uint GW_CHILD = 5;
+
+    [LibraryImport("user32.dll")]
+    public static partial nint GetWindow(nint hwnd, uint cmd);
+
+    /// <summary>The direct child windows of <paramref name="parent"/>, top of the z-order first.</summary>
+    public static List<nint> DirectChildren(nint parent)
+    {
+        var list = new List<nint>();
+        for (var h = GetWindow(parent, GW_CHILD); h != 0 && list.Count < 256; h = GetWindow(h, GW_HWNDNEXT))
+        {
+            list.Add(h);
+        }
+
+        return list;
+    }
+
     /// <summary>Blocks until DWM has composed its next frame.</summary>
     [LibraryImport("dwmapi.dll")]
     public static partial int DwmFlush();
