@@ -4,7 +4,7 @@ import type { GameSummary } from "../../ipc/contract.gen";
 import { formatBytes, formatRelativeTime } from "../../state/format";
 import { ArtThumb, Button, ProgressRing, cx } from "../../ui";
 import { useJobState } from "./CoverProgress";
-import { MoreButton } from "./GameMenu";
+import { MoreButton, useMenuHeld } from "./GameMenu";
 import { LIST_ROW, type ListColumns } from "./gridLayout";
 import { TONE_TEXT } from "../game/statusLevels";
 import { describeState, quickAction, rowStatus, runQuick } from "./status";
@@ -48,6 +48,7 @@ export interface GameListRowProps {
 export const GameListRow = memo(function GameListRow({ game, index, count, y, cols, tabbable, onOpen }: GameListRowProps) {
   const quick = quickAction(game);
   const [hot, setHot] = useState(false);
+  const held = useMenuHeld(game.appName);
   const size = game.installStatus === "installed" || game.installStatus === "broken" ? (game.installedSizeBytes ?? game.installSizeBytes) : game.installSizeBytes;
   const open = () => onOpen(game);
   return (
@@ -61,7 +62,7 @@ export const GameListRow = memo(function GameListRow({ game, index, count, y, co
       <div
           onPointerEnter={() => setHot(true)}
           onPointerLeave={() => setHot(false)}
-          className={cx("group/row relative mx-[-8px] h-[60px] rounded-lg transition-colors duration-100 hover:bg-surface-hover", game.hidden && "opacity-60")}
+          className={cx("group/row relative mx-[-8px] h-[60px] rounded-lg transition-colors duration-100 hover:bg-surface-hover", held && "bg-surface-hover", game.hidden && "opacity-60")}
         >
           <button
             type="button"
@@ -95,7 +96,7 @@ export const GameListRow = memo(function GameListRow({ game, index, count, y, co
             )}
             <span className="sr-only">{describeState(game)}</span>
           </button>
-          {hot && (
+          {(hot || held) && (
             <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center gap-1.5 [animation:g-fade-in_150ms_var(--ease-out)]">
               {quick && (
                 <Button
