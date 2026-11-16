@@ -25,7 +25,12 @@ export function Tooltip({ content, shortcut, side = "top", align = "center", dis
   if (disabled || content == null || content === "") return children;
   return (
     <T.Root>
-      <T.Trigger asChild>{children}</T.Trigger>
+      {/* Opens on keyboard focus only. Radix opens on any focus not preceded by a pointerdown, and WebView2 re-focuses the last
+          focused control whenever Glider gets focus back (Alt+Tab, the native Store view): a clicked rail item then showed its
+          tooltip with nothing hovered, and on the Store tab that tooltip covered the page. */}
+      <T.Trigger asChild onFocus={(e) => !e.currentTarget.matches(":focus-visible") && e.preventDefault()}>
+        {children}
+      </T.Trigger>
       <T.Portal>
         <T.Content
           side={side}

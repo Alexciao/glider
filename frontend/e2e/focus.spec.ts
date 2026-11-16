@@ -101,3 +101,27 @@ for (const theme of ["dark", "light"] as const) {
     });
   }
 }
+
+/**
+ * WebView2 hands the page's last focused control a focus event again whenever Glider gets focus back (Alt+Tab, the native
+ * Store view). After a click that must not open the control's tooltip: on the Store tab an open tooltip covered the page.
+ * Keyboard focus still opens it.
+ */
+test("a tooltip opens on keyboard focus, not when a clicked control gets focus back", async ({ page }) => {
+  await page.goto("/?scenario=returning&dev=0");
+  await page.waitForSelector("html[data-ready='1']");
+  const store = page.getByRole("button", { name: "Store", exact: true });
+  await store.click();
+  await page.mouse.move(700, 400);
+  await page.evaluate(() => {
+    const el = document.activeElement as HTMLElement;
+    el.blur();
+    el.focus();
+  });
+  await page.waitForTimeout(700);
+  await expect(page.locator('[role="tooltip"]')).toHaveCount(0);
+
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+  await expect(page.locator('[role="tooltip"]')).toHaveCount(1, { timeout: 2000 });
+});
