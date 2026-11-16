@@ -15,7 +15,7 @@ export function DropdownMenuContent({ className, align = "end", sideOffset = 8, 
         sideOffset={sideOffset}
         collisionPadding={12}
         className={cx(
-          "g-pop z-50 min-w-52 rounded-lg border border-border-strong bg-popover p-1 text-sm shadow-lg outline-none",
+          "app-no-drag g-pop z-50 min-w-52 rounded-lg border border-border-strong bg-popover p-1 text-sm shadow-lg outline-none",
           className,
         )}
         {...rest}
@@ -61,7 +61,7 @@ export function DropdownMenuLabel({ children }: { children: ReactNode }) {
 
 /* ---- Sub-menus and checkable items (collections, shortcuts) ---- */
 
-const contentClass = "g-pop z-50 min-w-52 rounded-lg border border-border-strong bg-popover p-1 text-sm shadow-lg outline-none";
+const contentClass = "app-no-drag g-pop z-50 min-w-52 rounded-lg border border-border-strong bg-popover p-1 text-sm shadow-lg outline-none";
 
 export const DropdownMenuSub = M.Sub;
 

@@ -7,7 +7,7 @@ const sizes = { sm: "w-[400px]", md: "w-[480px]", lg: "w-[560px]" } as const;
 const overlay = "g-overlay fixed inset-0 z-40 bg-overlay backdrop-blur-[2px]";
 const content = (size: keyof typeof sizes, anchor: "center" | "top" = "center") =>
   cx(
-    "g-dialog fixed z-50 m-auto flex h-fit max-w-[calc(100vw-32px)] flex-col overflow-hidden",
+    "app-no-drag g-dialog fixed z-50 m-auto flex h-fit max-w-[calc(100vw-32px)] flex-col overflow-hidden",
     // A dialog whose content arrives after it opens hangs from a fixed top edge (where the palette sits) instead of re-centring as it grows.
     anchor === "top" ? "inset-x-0 top-[12vh] max-h-[calc(88vh-24px)]" : "inset-0 max-h-[calc(100vh-48px)]",
     "rounded-xl border border-border-strong bg-popover shadow-lg outline-none",

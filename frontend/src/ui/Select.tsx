@@ -51,7 +51,7 @@ export function Select<T extends string>({
           position="popper"
           sideOffset={6}
           collisionPadding={12}
-          className="g-pop g-select-pop z-50 max-h-72 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border-strong bg-popover p-1 shadow-lg"
+          className="app-no-drag g-pop g-select-pop z-50 max-h-72 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border-strong bg-popover p-1 shadow-lg"
         >
           <S.Viewport>
             {options.map((o) => (

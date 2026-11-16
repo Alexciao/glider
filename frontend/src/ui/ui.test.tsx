@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { sheenSeconds } from "./ProgressBar";
-import { Avatar, Badge, Button, ErrorCallout, IconButton, ProgressBar, SegmentedControl, Switch, TooltipProvider, initialsOf } from "./index";
+import { Avatar, Badge, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, ErrorCallout, IconButton, ProgressBar, SegmentedControl, Select, Switch, TooltipProvider, initialsOf } from "./index";
 
 describe("Button", () => {
   it("is busy and non-interactive while loading", () => {
@@ -148,5 +148,28 @@ describe("Avatar & Badge", () => {
       </>,
     );
     expect(screen.getByText("Up to date")).toBeInTheDocument();
+  });
+});
+
+describe("Popups over the title bar", () => {
+  // The title bar is a window drag region; a popup that overlaps it must opt out or the host turns its clicks into a window drag.
+  it("menus and Selects are not drag regions", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <DropdownMenu>
+          <DropdownMenuTrigger>Menu</DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem>One</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Select aria-label="Pick" value="a" onValueChange={() => {}} options={[{ value: "a", label: "A" }]} />
+      </>,
+    );
+    await user.click(screen.getByRole("button", { name: "Menu" }));
+    expect(await screen.findByRole("menu")).toHaveClass("app-no-drag");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("combobox", { name: "Pick" }));
+    expect((await screen.findByRole("listbox")).closest(".app-no-drag")).not.toBeNull();
   });
 });
