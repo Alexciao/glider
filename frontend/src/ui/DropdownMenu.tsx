@@ -85,26 +85,31 @@ export function DropdownMenuSubTrigger({ icon, className, children, ...rest }: O
 export function DropdownMenuSubContent({ className, ...rest }: ComponentProps<typeof M.SubContent>) {
   return (
     <M.Portal>
-      <M.SubContent sideOffset={6} alignOffset={-4} collisionPadding={12} className={cx(contentClass, className)} {...rest} />
+      <M.SubContent sideOffset={6} alignOffset={-5} collisionPadding={12} className={cx(contentClass, className)} {...rest} />
     </M.Portal>
   );
 }
 
-/** A menu item with a check: membership (collections) and toggles (shortcuts). Stays open on select so several can be set. */
+/**
+ * A menu item with a check: membership (collections) and toggles (shortcuts). Stays open on select so several can be set.
+ * The check sits in the icon slot, as in `Menu.tsx`'s CheckItem, so the same list lines up in either menu.
+ */
 export function DropdownMenuCheckboxItem({ className, children, ...rest }: ComponentProps<typeof M.CheckboxItem>) {
   return (
     <M.CheckboxItem
       onSelect={(e) => e.preventDefault()}
       className={cx(
-        "relative flex h-8 cursor-default select-none items-center gap-2.5 rounded-md pl-8 pr-2.5 text-fg outline-none",
+        "flex h-8 cursor-default select-none items-center gap-2.5 rounded-md px-2.5 text-fg outline-none",
         "transition-colors duration-100 data-[highlighted]:bg-surface-hover data-[disabled]:opacity-45",
         className,
       )}
       {...rest}
     >
-      <M.ItemIndicator className="absolute left-2.5 text-accent-text">
-        <Check size={14} strokeWidth={2.25} />
-      </M.ItemIndicator>
+      <span className="grid size-4 shrink-0 place-items-center text-accent-text">
+        <M.ItemIndicator>
+          <Check size={14} strokeWidth={2.25} />
+        </M.ItemIndicator>
+      </span>
       <span className="min-w-0 flex-1 truncate">{children}</span>
     </M.CheckboxItem>
   );
