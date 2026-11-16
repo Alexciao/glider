@@ -1,9 +1,8 @@
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/glider-wordmark.svg">
-  <img src="assets/brand/glider-wordmark-onlight.svg" alt="Glider" width="260">
-</picture>
+<img src="assets/brand/png/glider-256.png" alt="Glider's app icon" width="112">
+
+# Glider
 
 ### Your Epic games, without the weight.
 
