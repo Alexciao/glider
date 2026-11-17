@@ -292,7 +292,7 @@ public static class GameCatalog
             entry.Hidden,
             addedAt.For(item),
             entry.LastPlayedAt,
-            entry.PlaytimeSeconds,
+            entry.TotalPlaytimeSeconds,
             ArtFor(item, ctx),
             run.RunState,
             run.ActiveJobId,
@@ -308,7 +308,7 @@ public static class GameCatalog
             app, d.Title, d.Categories.Contains("addons/launchable") ? GameKind.LaunchableAddon : GameKind.Dlc, baseItem.AppName,
             baseItem.Namespace, d.ItemId, baseItem.Developer, InstallStatus.NotInstallable, null, null, false, null, null, null, null,
             false, SaveSyncStatus.NotSupported, baseItem.CanRunOffline, ThirdPartyStore.None, null, 0, entry.Favorite, entry.Hidden,
-            addedAt.For(baseItem), entry.LastPlayedAt, entry.PlaytimeSeconds, ArtFor(baseItem, ctx) with { Placeholder = Placeholder(app) },
+            addedAt.For(baseItem), entry.LastPlayedAt, entry.TotalPlaytimeSeconds, ArtFor(baseItem, ctx) with { Placeholder = Placeholder(app) },
             RunState.Idle, null, null, false, false);
     }
 
@@ -325,7 +325,7 @@ public static class GameCatalog
             installed?.Version, latest, update, installed?.InstallPath ?? record?.InstallPath,
             installed is { InstallSizeBytes: > 0 } i ? i.InstallSizeBytes : null, installed is null ? null : run.InstalledSizeBytes,
             update ? run.UpdateDownloadBytes : null, false, SaveSyncStatus.NotSupported, installed?.CanRunOffline ?? true, ThirdPartyStore.None,
-            null, 0, entry.Favorite, entry.Hidden, null, entry.LastPlayedAt, entry.PlaytimeSeconds,
+            null, 0, entry.Favorite, entry.Hidden, null, entry.LastPlayedAt, entry.TotalPlaytimeSeconds,
             ctx.CachedArt?.GetValueOrDefault(app) ?? new GameArt(null, null, null, null, Placeholder(app)),
             run.RunState, run.ActiveJobId, run.ActiveJobKind, installed?.SharedWithEgl ?? false, installed?.NeedsVerification ?? false);
     }

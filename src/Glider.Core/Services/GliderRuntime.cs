@@ -126,6 +126,7 @@ public sealed class GliderRuntime : IAsyncDisposable
                 ArtFetcher = options.ArtFetcher,
                 WarmSerializers = options.WarmSerializers,
                 FreeGamesBackground = options.FreeGamesBackground,
+                EpicPlaytimeBackground = options.EpicPlaytimeBackground,
                 ConnectivityProbe = options.ConnectivityBackground ? new HttpConnectivityProbe() : null,
                 NetworkChangeSignal = options.ConnectivityBackground ? new SystemNetworkChangeSignal() : null,
                 FreeGames = options.FreeGames,
@@ -187,6 +188,9 @@ public sealed class GliderRuntimeOptions
 
     /// <summary>Fetch Epic's free-games feed in the background. Defaults to on; tests that run the real runtime turn it off.</summary>
     public bool FreeGamesBackground { get; init; } = true;
+
+    /// <summary>Import Epic's own playtime record in the background. Defaults to on; tests that run the real runtime turn it off.</summary>
+    public bool EpicPlaytimeBackground { get; init; } = true;
 
     public Store.FreeGamesOptions? FreeGames { get; init; }
 

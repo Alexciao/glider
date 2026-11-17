@@ -73,6 +73,7 @@ internal sealed class RealRuntimeHarness : IAsyncDisposable
             ProcessStarter = GameProcesses,
             DiskInfo = Disk,
             FreeGamesBackground = false, // never touch Epic from tests
+            EpicPlaytimeBackground = false,
             ServiceQuery = new FakeServices { Installed = { "EasyAntiCheat_EOS" } },
             LibraryCoalesceInterval = TimeSpan.Zero,
             LibraryCacheDelay = TimeSpan.Zero,

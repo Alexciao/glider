@@ -150,6 +150,12 @@ public sealed class GliderServiceOptions
     /// <summary>Endpoint, region, HTTP handler and timing of the free-games feed (tests inject a handler).</summary>
     public Store.FreeGamesOptions? FreeGames { get; init; }
 
+    /// <summary>Import Epic's own playtime record after pre-warm, hourly and after a game closes (the runtime turns this on; unit tests never touch the network).</summary>
+    public bool EpicPlaytimeBackground { get; init; }
+
+    /// <summary>HTTP handler for Epic's playtime service (tests inject one). Null = a real one.</summary>
+    public HttpMessageHandler? EpicPlaytimeHandler { get; init; }
+
     private static string DefaultAppVersion()
     {
         var v = typeof(GliderServiceOptions).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0";

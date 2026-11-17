@@ -72,6 +72,9 @@ public sealed class GamesStore : IGamesStore, IDisposable
             {
                 Install = install,
                 PlaytimeSeconds = Math.Max(0, raw.PlaytimeSeconds),
+                EpicPlaytimeSeconds = raw.EpicPlaytimeSeconds is { } epic ? Math.Max(0, epic) : null,
+                GliderOnlySeconds = Math.Max(0, raw.GliderOnlySeconds),
+                SettledLocalSeconds = Math.Clamp(raw.SettledLocalSeconds, 0, Math.Max(0, raw.PlaytimeSeconds)),
                 Settings = raw.Settings ?? GameSettings.Default,
                 Shortcuts = raw.Shortcuts ?? new ShortcutState(false, false),
             };

@@ -186,7 +186,7 @@ public sealed record GameSummary(
     /// <summary>Purchase/claim date (Epic grant date), else catalog creation date.</summary>
     DateTimeOffset? AddedAt,
     DateTimeOffset? LastPlayedAt,
-    /// <summary>Local playtime under Glider, seconds.</summary>
+    /// <summary>Total playtime, seconds: Epic's own record (imported) plus the time played under Glider.</summary>
     long PlaytimeSeconds,
     GameArt Art,
     RunState RunState,

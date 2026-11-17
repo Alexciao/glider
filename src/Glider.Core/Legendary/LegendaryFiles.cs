@@ -156,6 +156,46 @@ internal static class LegendaryFiles
         }
     }
 
+    /// <summary>
+    /// The signed-in session for one direct call to an Epic API (account id, access token, expiry), or null when there is none or the
+    /// file is mid-write. The token is a credential: callers keep it in memory for one request and never log it. Glider never refreshes
+    /// or writes it; that stays Legendary's job.
+    /// </summary>
+    public static async Task<EpicSession?> ReadSessionAsync(string path, CancellationToken ct)
+    {
+        byte[]? bytes;
+        try
+        {
+            bytes = await AtomicFile.TryReadAllBytesAsync(path, ct).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+
+        if (bytes is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(bytes, DocOptions);
+            var root = doc.RootElement;
+            var id = Str(root, "account_id");
+            var token = Str(root, "access_token");
+            var expires = Str(root, "expires_at");
+            return string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(token)
+                || !DateTimeOffset.TryParse(expires, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var at)
+                ? null
+                : new EpicSession(id, token, at);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>user.json (OAuth token response): only the non-secret identity fields are read.</summary>
     public static (string? DisplayName, string? AccountId) ParseUser(JsonElement root) =>
         root.ValueKind == JsonValueKind.Object ? (Str(root, "displayName"), Str(root, "account_id")) : (null, null);
@@ -205,3 +245,9 @@ internal enum UserFileKind
 }
 
 internal readonly record struct UserFile(UserFileKind Kind, LegendaryAccount? Account);
+
+/// <summary>An Epic session read from user.json. <see cref="ToString"/> leaves the token out, so it can't reach a log by accident.</summary>
+public sealed record EpicSession(string AccountId, string AccessToken, DateTimeOffset ExpiresAt)
+{
+    public override string ToString() => $"EpicSession(account {AccountId}, expires {ExpiresAt:O}, token hidden)";
+}

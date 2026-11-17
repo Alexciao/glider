@@ -37,6 +37,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
     private readonly Overlay.OverlayService _overlay;
     private readonly Store.StoreService _store;
     private readonly Store.FreeGamesService _freeGames;
+    private readonly Game.EpicPlaytimeService _epicPlaytime;
     private readonly ShortcutService _shortcuts;
     private readonly LinkService _links;
     private readonly ThirdPartyService _thirdParty;
@@ -108,6 +109,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
             ResumeNetworkCasualties();
         };
         _freeGames = new Store.FreeGamesService(paths, log, time, () => _c.Library.Games.Values.ToList(), events, options.FreeGames);
+        _epicPlaytime = new Game.EpicPlaytimeService(_c, options.EpicPlaytimeHandler);
         _store = new Store.StoreService(_c, events, (r, ct) => _launch.LaunchAsync(r, ct));
         _prewarm = new Prewarm(_c, _auth, _egl, _updates, _install, _launch);
         _shortcuts = new ShortcutService(_c);
@@ -158,6 +160,8 @@ public sealed class GliderService : IGliderRpc, IDisposable
     internal LibraryService LibraryForTests => _c.Library;
 
     internal ShortcutService ShortcutsForTests => _shortcuts;
+
+    internal Game.EpicPlaytimeService EpicPlaytimeForTests => _epicPlaytime;
 
     internal InstalledSizeMeter SizesForTests => _c.Sizes;
 
@@ -316,7 +320,10 @@ public sealed class GliderService : IGliderRpc, IDisposable
         try
         {
             await WarmupTask;
-            await Task.WhenAll(_updates.RunPeriodicAsync(t => _egl.RescanAsync(t), ct), _overlay.RunPeriodicAsync(ct));
+            await Task.WhenAll(
+                _updates.RunPeriodicAsync(t => _egl.RescanAsync(t), ct),
+                _overlay.RunPeriodicAsync(ct),
+                _c.Options.EpicPlaytimeBackground ? _epicPlaytime.RunPeriodicAsync(ct) : Task.CompletedTask);
         }
         catch (OperationCanceledException)
         {
@@ -370,6 +377,10 @@ public sealed class GliderService : IGliderRpc, IDisposable
     private void OnSessionEnded(string app)
     {
         _updates.TryAutoUpdate(app);
+        if (_c.Options.EpicPlaytimeBackground)
+        {
+            _epicPlaytime.RefreshSoon();
+        }
     }
 
     /// <summary>Marks this run as having migrated older data (AppInfo.MigratedFrom).</summary>
@@ -402,6 +413,7 @@ public sealed class GliderService : IGliderRpc, IDisposable
         _network.Dispose();
         _store.Dispose();
         _freeGames.Dispose();
+        _epicPlaytime.Dispose();
         _shortcuts.Dispose();
         _overlay.Dispose();
         _prereqs.Dispose();

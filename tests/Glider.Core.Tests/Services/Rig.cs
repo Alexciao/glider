@@ -77,6 +77,9 @@ public sealed class Rig : IDisposable
 
     internal Glider.Core.Saves.SaveOptions? SaveOptions { get; set; }
 
+    /// <summary>Epic's playtime service (set before first use of <see cref="Service"/>; null = a real handler, never reached unless a test calls it).</summary>
+    public HttpMessageHandler? EpicPlaytimeHandler { get; set; }
+
     /// <summary>Library delta coalescing window (zero = rebuild at once; with a value, deltas wait for <see cref="Time"/>).</summary>
     public TimeSpan LibraryCoalesce { get; set; } = TimeSpan.Zero;
 
@@ -114,6 +117,7 @@ public sealed class Rig : IDisposable
                         LibraryCoalesceInterval = LibraryCoalesce,
                         SavesLegendary = SavesLegendary,
                         SaveOptions = SaveOptions,
+                        EpicPlaytimeHandler = EpicPlaytimeHandler,
                         ConnectivityProbe = Probe,
                         NetworkChangeSignal = NetworkSignal,
                         LibraryCacheDelay = LibraryCacheDelay,
