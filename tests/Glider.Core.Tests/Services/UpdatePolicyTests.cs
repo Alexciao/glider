@@ -17,6 +17,19 @@ public class UpdatePolicyTests
         Assert.True(condition());
     }
 
+    /// <summary>The file's text, or "" while the service is replacing it (Windows refuses the read mid-replace).</summary>
+    private static string ReadWhileWritten(string path)
+    {
+        try
+        {
+            return File.ReadAllText(path);
+        }
+        catch (IOException)
+        {
+            return "";
+        }
+    }
+
     private static int Syncs(Rig rig) => rig.Calls.Count("legendary.checkUpdates") + rig.Calls.Count("legendary.list");
 
     [Fact]
@@ -121,7 +134,7 @@ public class UpdatePolicyTests
         await rig.Service.LibraryForTests.SyncTask;
         rig.Service.UpdatesForTests.Evaluate();
         Assert.Single(rig.Sink.Of<Notice>(RpcEvents.Notice));
-        await Eventually(() => File.ReadAllText(Path.Combine(rig.Paths.Cache, "update-notices.json")).Contains("v3", StringComparison.Ordinal));
+        await Eventually(() => ReadWhileWritten(Path.Combine(rig.Paths.Cache, "update-notices.json")).Contains("v3", StringComparison.Ordinal));
     }
 
     // ------------------------------------------------------------------ background checks
