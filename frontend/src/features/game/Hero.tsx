@@ -1,5 +1,5 @@
 import { Star } from "lucide-react";
-import type { AppSnapshot, GameDetail, GameSummary } from "../../ipc/contract.gen";
+import type { AppSnapshot, GameDetail, GameSummary, ShortcutState } from "../../ipc/contract.gen";
 import { actions } from "../../state/actions";
 import { Tooltip, cx } from "../../ui";
 import type { GameAction } from "./actionModel";
@@ -41,12 +41,14 @@ export function Hero({
   detail,
   action,
   moment,
+  onShortcuts,
 }: {
   snap: AppSnapshot;
   game: GameSummary;
   detail: GameDetail | null;
   action: GameAction;
   moment: boolean;
+  onShortcuts?: (state: ShortcutState) => void;
 }) {
   const logo = game.art.logo;
   const job = action.job;
@@ -73,7 +75,7 @@ export function Hero({
         </div>
 
         <div className="g-rise mt-6 flex items-center gap-2" style={{ ["--g-i" as string]: 1 }}>
-          <GameActions snap={snap} game={game} detail={detail} action={action} moment={moment} />
+          <GameActions snap={snap} game={game} detail={detail} action={action} moment={moment} onShortcuts={onShortcuts} />
           <FavoriteButton game={game} />
           {/* Progress sits beside the buttons, not under the title: the title never jumps when a job starts. */}
           {showBar && job && (

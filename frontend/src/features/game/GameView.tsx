@@ -148,7 +148,7 @@ function GamePage({ game }: { game: GameSummary }) {
   return (
     <Frame>
       <BackLink />
-      <Hero snap={snap} game={game} detail={detail} action={action} moment={moment} />
+      <Hero snap={snap} game={game} detail={detail} action={action} moment={moment} onShortcuts={(shortcuts) => patch((d) => ({ ...d, shortcuts }))} />
 
       <div className="mt-5 flex flex-col gap-3 empty:hidden">
         <GameNotices game={game} detail={detail} failedJob={failedJob} session={session} />

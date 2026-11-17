@@ -19,7 +19,7 @@ import {
   Wrench,
   ArrowUpToLine,
 } from "lucide-react";
-import type { AppSnapshot, GameDetail, GameSummary, ShortcutLocation } from "../../ipc/contract.gen";
+import type { AppSnapshot, GameDetail, GameSummary, ShortcutLocation, ShortcutState } from "../../ipc/contract.gen";
 import { actions } from "../../state/actions";
 import { JOB_NOUN, isBusy } from "../../state/derive";
 import { openInstall, prefetchInstallPlan } from "../../state/installPlan";
@@ -97,12 +97,15 @@ export function GameActions({
   detail,
   action,
   moment,
+  onShortcuts,
 }: {
   snap: AppSnapshot;
   game: GameSummary;
   detail: GameDetail | null;
   action: GameAction;
   moment: boolean;
+  /** game.setShortcut's answer; shortcuts aren't in the summary, so the detail would otherwise never refetch. */
+  onShortcuts?: (state: ShortcutState) => void;
 }) {
   const { appName } = game;
   const warm = action.intent === "launch" ? () => void actions.prepareLaunch(appName) : action.intent === "install" ? () => void prefetchInstallPlan(appName) : undefined;
@@ -119,12 +122,24 @@ export function GameActions({
       aria-label={`${game.title} actions`}
       onPress={() => pressPrimary(action, appName)}
       primaryProps={{ onPointerEnter: warm, onFocus: warm, "data-kind": action.kind }}
-      menu={<GameMenuItems snap={snap} game={game} detail={detail} action={action} />}
+      menu={<GameMenuItems snap={snap} game={game} detail={detail} action={action} onShortcuts={onShortcuts} />}
     />
   );
 }
 
-function GameMenuItems({ snap, game, detail, action }: { snap: AppSnapshot; game: GameSummary; detail: GameDetail | null; action: GameAction }) {
+function GameMenuItems({
+  snap,
+  game,
+  detail,
+  action,
+  onShortcuts,
+}: {
+  snap: AppSnapshot;
+  game: GameSummary;
+  detail: GameDetail | null;
+  action: GameAction;
+  onShortcuts?: (state: ShortcutState) => void;
+}) {
   const openDialog = useUi((s) => s.openDialog);
   const go = useUi((s) => s.go);
   const { appName } = game;
@@ -134,7 +149,8 @@ function GameMenuItems({ snap, game, detail, action }: { snap: AppSnapshot; game
   const job = action.job;
   const collections = snap.collections;
 
-  const toggleShortcut = (location: ShortcutLocation, create: boolean) => void actions.setShortcut(appName, location, create);
+  const toggleShortcut = (location: ShortcutLocation, create: boolean) =>
+    void actions.setShortcut(appName, location, create).then((s) => s && onShortcuts?.(s));
   const items: ReactNode[] = [];
 
   if (action.kind === "update" && game.installStatus === "installed") {

@@ -208,6 +208,27 @@ describe("Game page: hero and the one primary action", () => {
     }
   });
 
+  it("Create shortcut: the tick follows the backend's answer, so the next press does the opposite", async () => {
+    const { user } = await mount("returning", (b) => <GameView appName={b.find(idleInstalled).appName} />);
+    const openSub = async () => {
+      while (screen.queryAllByRole("menu").length > 0) await user.keyboard("{Escape}");
+      await user.click(screen.getByRole("button", { name: "More actions" }));
+      await user.click(await screen.findByRole("menuitem", { name: "Create shortcut" }));
+      return screen.findByRole("menuitemcheckbox", { name: "In Start menu" });
+    };
+    for (const [was, title] of [
+      ["false", "Shortcut added to the Start menu"],
+      ["true", "Shortcut removed from the Start menu"],
+    ] as const) {
+      const item = await openSub();
+      expect(item).toHaveAttribute("aria-checked", was);
+      act(() => item.focus());
+      await user.keyboard("{Enter}");
+      await waitFor(() => expect(useNotices.getState().items.map((t) => t.title)).toContain(title));
+    }
+    expect(await openSub()).toHaveAttribute("aria-checked", "false");
+  });
+
   it("favorites toggle optimistically and the backend's delta agrees", async () => {
     const { user } = await mount("returning", <GameView appName="Fortnite" />);
     await user.click(screen.getByRole("button", { name: "Favorite" }));

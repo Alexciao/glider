@@ -188,8 +188,14 @@ export const actions = {
     }
   },
 
+  /** The menu closes on click, so the result is confirmed with a toast; the caller writes the returned state into its detail. */
   async setShortcut(appName: string, location: ShortcutLocation, create: boolean): Promise<ShortcutState | undefined> {
-    return run(pendingKey("shortcut", appName), () => rpc().call("game.setShortcut", { appName, location, create }), asToast());
+    const r = await run(pendingKey("shortcut", appName), () => rpc().call("game.setShortcut", { appName, location, create }), asToast());
+    if (r) {
+      const where = location === "desktop" ? "the desktop" : "the Start menu";
+      toast({ level: "success", title: create ? `Shortcut added to ${where}` : `Shortcut removed from ${where}`, duration: 3000 });
+    }
+    return r;
   },
 
   /** Persist one game's launch settings; the caller shows the new value optimistically and rolls back on undefined. */
