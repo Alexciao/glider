@@ -221,6 +221,7 @@ internal sealed partial class MainWindow
         ApplyDefaultBackground();
         HostEnvironment.ActiveBackdrop = mica ? BackdropKind.Mica : BackdropKind.Solid;
         PushSurface(mica, mica && decision.TranslucentPage, force: wasMica != mica);
+        _rt.Platform.StoreIfCreated?.ApplyBackdrop();
     }
 
     /// <summary>Self-test: what DWM, WPF and WebView2 currently hold for the backdrop.</summary>

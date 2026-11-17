@@ -84,6 +84,9 @@ internal sealed partial class MainWindow : Window
 
     public bool IsMicaActive { get; private set; }
 
+    /// <summary>The page currently lets Mica through (false while Windows shows its flat fallback, e.g. the window is inactive).</summary>
+    public bool IsPageTranslucent => _lastTranslucent == true;
+
     public bool IsMinimized => _minimized;
 
     /// <summary>The Store view asked to hand keyboard focus back to the UI (Tab out of the Store page).</summary>

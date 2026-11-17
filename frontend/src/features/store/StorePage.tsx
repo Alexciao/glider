@@ -124,7 +124,7 @@ export function StorePage() {
         )}
       </div>
 
-      <div ref={hostRef} data-store-host className="relative min-h-0 flex-1 bg-bg-elevated">
+      <div ref={hostRef} data-store-host className="relative min-h-0 flex-1">
         {view?.covered && view.coverUrl && (
           <img src={view.coverUrl} alt="" className="absolute inset-0 size-full object-cover object-top-left opacity-60" draggable={false} />
         )}
@@ -172,7 +172,7 @@ interface FallbackAction {
 /** What the native view can't draw: a title, at most one sentence, the one thing to do, and the one other way. */
 function Fallback({ icon, title, description, primary, secondary }: { icon: React.ReactNode; title: string; description?: string; primary: FallbackAction; secondary?: FallbackAction }) {
   return (
-    <div className="absolute inset-0 grid place-items-center bg-bg-elevated">
+    <div className="absolute inset-0 grid place-items-center">
       <EmptyState
         icon={icon}
         title={title}

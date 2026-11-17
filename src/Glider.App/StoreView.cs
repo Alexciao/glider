@@ -266,6 +266,7 @@ internal sealed class StoreView : IStoreHost, IDisposable
     public void OnWindowShown()
     {
         _windowHidden = false;
+        ApplyBackdrop();
         if (_warmRequested && _controller is null && !_wantVisible && !_disposed)
         {
             _ = WarmCoreAsync(); // the warm-up was asked for before the window had a handle (started in the tray)
@@ -522,7 +523,7 @@ internal sealed class StoreView : IStoreHost, IDisposable
             var env = await _rt.EnvTask; // the single shared environment: never create another one for the same user data folder
             var options = env.CreateCoreWebView2ControllerOptions();
             options.ProfileName = HostConstants.WebViewProfileEpic;
-            options.DefaultBackgroundColor = DrawingColor.FromArgb(unchecked((int)ThemeState.BackgroundArgb));
+            options.DefaultBackgroundColor = ViewBackground();
             var before = Win32.DirectChildren(window.Hwnd);
             var controller = await env.CreateCoreWebView2ControllerAsync(window.Hwnd, options);
             controller.IsVisible = false; // shown once there is something to see
@@ -534,6 +535,7 @@ internal sealed class StoreView : IStoreHost, IDisposable
             var web = controller.CoreWebView2;
             WebViewSetup.ConfigureStoreSettings(web.Settings);
             await web.AddScriptToExecuteOnDocumentCreatedAsync(HideEpicNavigationScript); // before the first navigation, not racing it
+            await web.AddScriptToExecuteOnDocumentCreatedAsync(MicaPageScript);
             Attach(controller, web);
             _controller = controller;
             _web = web;
@@ -758,6 +760,75 @@ internal sealed class StoreView : IStoreHost, IDisposable
         }
     }
 
+    // ================================================================== backdrop (cosmetic only)
+
+    /// <summary>The view's own background: transparent while the window has Mica (the page under it shows), the theme colour otherwise.</summary>
+    private DrawingColor ViewBackground() =>
+        _window()?.IsMicaActive == true ? DrawingColor.Transparent : DrawingColor.FromArgb(unchecked((int)ThemeState.BackgroundArgb));
+
+    /// <summary>
+    /// Puts the Store on Mica like the other tabs: the view goes transparent, and on dark theme Epic's flat page colour is dropped
+    /// so Glider's content layer shows through. Purely cosmetic: only background colours change. Called by the main window on
+    /// every theme, activation and backdrop change.
+    /// </summary>
+    public void ApplyBackdrop()
+    {
+        if (_controller is { } controller)
+        {
+            try
+            {
+                controller.DefaultBackgroundColor = ViewBackground();
+            }
+            catch (Exception ex) when (ex is NotImplementedException or InvalidCastException or System.Runtime.InteropServices.COMException)
+            {
+                HostLog.Warn("store: DefaultBackgroundColor not settable", ex);
+            }
+        }
+
+        PushMicaPage();
+    }
+
+    /// <summary>
+    /// The field Glider's content card paints (frontend tokens.css, dark theme): on Mica the frame tint plus the thin content layer
+    /// (--g-bg 12% and --g-layer 3.5% white); while Windows shows its flat fallback, the solid card colour. The Store view composes
+    /// straight onto the window's Mica, not onto Glider's page, so its page paints the same field itself.
+    /// </summary>
+    private const string MicaField = "linear-gradient(oklch(1 0 0/.035),oklch(1 0 0/.035)),oklch(0.165 0.006 265/.12)";
+    private const string SolidField = "oklch(0.2 0.007 265)";
+
+    /// <summary>Turns the page's Mica sheet on or off (dark theme on Mica only: Epic's light text needs a dark field under it).</summary>
+    private void PushMicaPage()
+    {
+        if (_web is not { } web)
+        {
+            return;
+        }
+
+        var window = _window();
+        var field = window?.IsMicaActive == true && ThemeState.IsDark ? (window.IsPageTranslucent ? MicaField : SolidField) : null;
+        try
+        {
+            _ = web.ExecuteScriptAsync($"window.__gliderMica&&window.__gliderMica({(field is null ? "null" : "'" + field + "'")})");
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException or System.Runtime.InteropServices.COMException)
+        {
+            // the view is going away; the next one is set up from scratch
+        }
+    }
+
+    /// <summary>
+    /// A constructed sheet, off until the host turns it on, in the top frame of store.epicgames.com only (never the sign-in pages,
+    /// checkout frames or popups). It changes backgrounds and nothing else: the page paints Glider's content field (see
+    /// <see cref="MicaField"/>) instead of Epic's flat colour, and Epic's sticky search/browse bar keeps a translucent tint so
+    /// content scrolling under it stays legible.
+    /// </summary>
+    private const string MicaPageScript =
+        "(()=>{if(location.hostname!=='store.epicgames.com'||window!==window.top)return;try{const sh=new CSSStyleSheet();sh.disabled=true;" +
+        "window.__gliderMica=(field)=>{if(!field){sh.disabled=true;return;}" +
+        "sh.replaceSync('html{background:'+field+'!important}body{background:transparent!important}nav[class^=\"_topNav_\"],nav[class*=\" _topNav_\"]{background:rgb(20 21 25/.72)!important;-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px)}');sh.disabled=false;};" +
+        "const keep=()=>{if(!document.adoptedStyleSheets.includes(sh))document.adoptedStyleSheets=[...document.adoptedStyleSheets,sh];};" +
+        "keep();document.addEventListener('DOMContentLoaded',keep);addEventListener('load',keep);}catch(e){}})()";
+
     // ================================================================== events
 
     /// <summary>
@@ -781,7 +852,11 @@ internal sealed class StoreView : IStoreHost, IDisposable
         web.SourceChanged += (_, _) => SchedulePublish();
         web.HistoryChanged += (_, _) => SchedulePublish();
         web.DocumentTitleChanged += (_, _) => SchedulePublish();
-        web.DOMContentLoaded += (_, _) => _reveal.OnDomContentLoaded(_web?.Source, DateTimeOffset.UtcNow);
+        web.DOMContentLoaded += (_, _) =>
+        {
+            PushMicaPage();
+            _reveal.OnDomContentLoaded(_web?.Source, DateTimeOffset.UtcNow);
+        };
         web.FrameNavigationStarting += OnFrameNavigationStarting;
         web.LaunchingExternalUriScheme += OnLaunchingExternalUri;
         web.NewWindowRequested += OnNewWindowRequested;
