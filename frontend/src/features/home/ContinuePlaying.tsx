@@ -36,7 +36,7 @@ export function ContinueCard({ game }: { game: GameSummary }) {
           <span className="block rounded-xl transition-shadow duration-150 ease-out group-hover/card:shadow-[0_14px_28px_-12px_oklch(0_0_0/0.5)]">
             <span className="relative block">
               <GameCover art={game.art} title={game.title} shape="wide" priority className="rounded-xl shadow-[inset_0_0_0_1px_var(--g-border-strong)]" />
-              {armed && <SharedCover id={game.appName} radius={16} />}
+              {armed && <SharedCover id={game.appName} radius={16} shape="wide" />}
             </span>
           </span>
           <span className="mt-3 block">

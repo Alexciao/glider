@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { startTransition, useCallback, useEffect, useState } from "react";
 import type { GameDetail, GameSummary, GliderError } from "../../ipc/contract.gen";
 import { toGliderError } from "../../state/actions";
 import { rpc } from "../../ipc/rpc";
@@ -32,7 +32,8 @@ export function useGameDetail(appName: string, summary: GameSummary | undefined)
     rpc()
       .call("game.getDetail", { appName })
       .then((detail) => {
-        if (alive) setState({ appName, detail, error: null, done: true });
+        // A transition: the sections it fills render in slices, so a hero morph still running keeps its frames.
+        if (alive) startTransition(() => setState({ appName, detail, error: null, done: true }));
       })
       .catch((e: unknown) => {
         if (alive) setState((s) => ({ appName, detail: s.appName === appName ? s.detail : null, error: toGliderError(e), done: true }));

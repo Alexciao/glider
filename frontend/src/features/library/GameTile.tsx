@@ -94,7 +94,7 @@ export const GameTile = memo(function GameTile({ game, index, count, x, y, width
                 <span aria-hidden className="pointer-events-none absolute inset-0 rounded-[inherit] shadow-[inset_0_0_0_1px_var(--g-border-strong)]" />
                 {game.activeJobId && <CoverProgress jobId={game.activeJobId} />}
               </GameCover>
-              {(hot || focused) && <SharedCover id={game.appName} radius={12} />}
+              {(hot || focused) && <SharedCover id={game.appName} radius={12} shape="tall" />}
               {badge && (
                 <span aria-hidden title={badge.label} className="absolute left-2 top-2 z-[2]">
                   {badge.node}
