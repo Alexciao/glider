@@ -82,7 +82,7 @@ function StepLayout({ children, footer, narrow }: { children: ReactNode; footer:
       >
         <div className={cx("mx-auto flex min-h-full w-full flex-col px-6 pb-6 pt-4", narrow ? "max-w-[520px]" : "max-w-[680px]")}>{children}</div>
       </div>
-      <footer className="relative shrink-0 border-t border-border bg-bg-elevated">
+      <footer className="relative shrink-0 border-t border-border bg-layer backdrop-blur-xl">
         <div className="mx-auto flex h-16 w-full max-w-[680px] items-center gap-2 px-6">{footer}</div>
       </footer>
     </>

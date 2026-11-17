@@ -17,7 +17,7 @@ const BOTTOM = 40;
 
 function ListHeader({ cols }: { cols: ReturnType<typeof listColumns> }) {
   return (
-    <div aria-hidden className="sticky top-0 z-10 -mx-2 flex h-8 items-center gap-4 bg-bg-elevated px-2 text-xs text-fg-subtle">
+    <div aria-hidden className="sticky top-0 z-10 -mx-2 flex h-8 items-center gap-4 bg-layer px-2 backdrop-blur-xl text-xs text-fg-subtle">
       <span className="w-[39px] shrink-0" />
       <span className="min-w-0 flex-1">Name</span>
       {cols.status && <span className={cx("shrink-0", LIST_COL.status)}>Status</span>}

@@ -76,6 +76,8 @@
   /* App background. On Mica it is translucent so the backdrop shows through. */
   --g-bg: oklch(0.165 0.006 265);
   --g-bg-elevated: oklch(0.2 0.007 265);
+  /* The content card beside the rail. Solid: the elevated tint. On Mica: a thin layer, so the content sits on Mica too. */
+  --g-layer: var(--g-bg-elevated);
 
   /* Surfaces are layered translucency on top of bg → they work on Mica and solid alike. */
   --g-surface-1: oklch(1 0 0 / 0.035);
@@ -139,9 +141,12 @@
   --g-scrim: linear-gradient(180deg, oklch(0.165 0.006 265 / 0) 0%, oklch(0.165 0.006 265 / 0.55) 55%, oklch(0.165 0.006 265 / 0.96) 100%);
 }
 
+/* On Mica the frame (title bar, rail) is nearly raw Mica and the content card is a thin layer over it, as in Windows 11's own
+   apps (WinUI's LayerFillColorDefault): the backdrop shows through everywhere, text sits on Mica's own neutral tint. */
 [data-theme="dark"][data-backdrop="mica"] {
-  --g-bg: oklch(0.165 0.006 265 / 0.62);
+  --g-bg: oklch(0.165 0.006 265 / 0.12);
   --g-bg-elevated: oklch(0.2 0.007 265 / 0.8);
+  --g-layer: oklch(1 0 0 / 0.035);
 }
 
 /* The host sets data-surface="solid" when Windows swaps Mica for its flat fallback (window inactive, transparency effects off,
@@ -149,6 +154,7 @@
 [data-theme="dark"][data-backdrop="mica"][data-surface="solid"] {
   --g-bg: oklch(0.165 0.006 265);
   --g-bg-elevated: oklch(0.2 0.007 265);
+  --g-layer: var(--g-bg-elevated);
 }
 
 /* =========================== Light =========================== */
@@ -157,6 +163,7 @@
 
   --g-bg: oklch(0.975 0.002 265);
   --g-bg-elevated: oklch(1 0 0);
+  --g-layer: var(--g-bg-elevated);
 
   --g-surface-1: oklch(1 0 0 / 0.55);
   --g-surface-2: oklch(1 0 0 / 0.85);
@@ -214,19 +221,22 @@
 }
 
 [data-theme="light"][data-backdrop="mica"] {
-  --g-bg: oklch(0.975 0.002 265 / 0.66);
+  --g-bg: oklch(0.975 0.002 265 / 0.15);
   --g-bg-elevated: oklch(1 0 0 / 0.85);
+  --g-layer: oklch(1 0 0 / 0.5);
 }
 
 [data-theme="light"][data-backdrop="mica"][data-surface="solid"] {
   --g-bg: oklch(0.975 0.002 265);
   --g-bg-elevated: oklch(1 0 0);
+  --g-layer: var(--g-bg-elevated);
 }
 
 /* Expose theme variables as Tailwind utilities. */
 @theme inline {
   --color-bg: var(--g-bg);
   --color-bg-elevated: var(--g-bg-elevated);
+  --color-layer: var(--g-layer);
   --color-surface-1: var(--g-surface-1);
   --color-surface-2: var(--g-surface-2);
   --color-surface-3: var(--g-surface-3);

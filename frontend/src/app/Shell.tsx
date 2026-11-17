@@ -104,7 +104,7 @@ export function Shell() {
       <div className="flex min-h-0 flex-1">
         {onboarded && <Rail />}
         <main
-          className={cx("relative min-w-0 flex-1 overflow-hidden border-t bg-bg-elevated", onboarded ? "rounded-tl-xl border-l" : "rounded-t-xl")}
+          className={cx("relative min-w-0 flex-1 overflow-hidden border-t bg-layer", onboarded ? "rounded-tl-xl border-l" : "rounded-t-xl")}
         >
           {onboarded ? <PageHost route={route} /> : <Onboarding />}
         </main>

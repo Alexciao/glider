@@ -14,7 +14,7 @@ export function Splash() {
           <Skeleton className="h-[54px] w-[60px] rounded-lg" />
           <Skeleton className="h-[54px] w-[60px] rounded-lg" />
         </div>
-        <main className="relative flex-1 overflow-hidden rounded-tl-xl border-l border-t bg-bg-elevated">
+        <main className="relative flex-1 overflow-hidden rounded-tl-xl border-l border-t bg-layer">
           <div className="absolute inset-x-12 bottom-12 flex flex-col gap-4">
             <Skeleton className="h-10 w-64" />
             <Skeleton className="h-4 w-40" />
@@ -31,7 +31,7 @@ export function BootFailed({ onRetry, error = null }: { onRetry: () => void; err
   return (
     <div className="flex h-full flex-col">
       <TitleBar minimal />
-      <main className="grid flex-1 place-items-center rounded-t-xl border-t bg-bg-elevated">
+      <main className="grid flex-1 place-items-center rounded-t-xl border-t bg-layer">
         <div className="flex max-w-sm flex-col items-center text-center">
           <div className="mb-4 grid size-11 place-items-center rounded-xl bg-danger-soft text-danger-text">
             <TriangleAlert size={20} />
