@@ -3,6 +3,7 @@ import type { AppSnapshot, GameDetail, GameSummary, ShortcutState } from "../../
 import { actions } from "../../state/actions";
 import { Tooltip, cx } from "../../ui";
 import type { GameAction } from "./actionModel";
+import { ACTIONS_CANDIDATE, CandidateActions, candidateStatus } from "./ActionCandidates";
 import { GameActions } from "./GameActions";
 import { GameStatus } from "./GameStatus";
 import { HeroArt } from "./HeroArt";
@@ -52,7 +53,8 @@ export function Hero({
 }) {
   const logo = game.art.logo;
   const job = action.job;
-  const showBar = !!job && (action.kind === "pause" || action.kind === "resume" || action.kind === "cancel") && job.status !== "queued" && job.status !== "waiting";
+  const status = candidateStatus(ACTIONS_CANDIDATE, action);
+  const showBar = !!job &&(action.kind === "pause" || action.kind === "resume" || action.kind === "cancel") && job.status !== "queued" && job.status !== "waiting";
   return (
     <header data-hero data-theme="dark" className="relative isolate text-fg">
       <HeroArt appName={game.appName} art={game.art} />
@@ -71,17 +73,23 @@ export function Hero({
               {game.title}
             </h1>
           )}
-          {(!action.status.quiet || moment) && <GameStatus status={action.status} moment={moment} className="mt-2" />}
+          {(!status.quiet || moment) && <GameStatus status={status} moment={moment} className="mt-2" />}
         </div>
 
-        <div className="g-rise mt-6 flex items-center gap-2" style={{ ["--g-i" as string]: 1 }}>
-          <GameActions snap={snap} game={game} detail={detail} action={action} moment={moment} onShortcuts={onShortcuts} />
-          <FavoriteButton game={game} />
-          {/* Progress sits beside the buttons, not under the title: the title never jumps when a job starts. */}
-          {showBar && job && (
-            <div className="ml-4 min-w-0 max-w-[440px] flex-1">
-              <HeroProgress job={job} />
-            </div>
+        <div data-hero-actions className="g-rise mt-6 flex items-center gap-2" style={{ ["--g-i" as string]: 1 }}>
+          {ACTIONS_CANDIDATE ? (
+            <CandidateActions candidate={ACTIONS_CANDIDATE} snap={snap} game={game} detail={detail} action={action} moment={moment} showBar={showBar} onShortcuts={onShortcuts} />
+          ) : (
+            <>
+              <GameActions snap={snap} game={game} detail={detail} action={action} moment={moment} onShortcuts={onShortcuts} />
+              <FavoriteButton game={game} />
+              {/* Progress sits beside the buttons, not under the title: the title never jumps when a job starts. */}
+              {showBar && job && (
+                <div className="ml-4 min-w-0 max-w-[440px] flex-1">
+                  <HeroProgress job={job} />
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

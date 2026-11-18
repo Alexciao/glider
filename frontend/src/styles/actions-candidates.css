@@ -1,0 +1,379 @@
+/*
+ * Hero action-group candidates (features/game/ActionCandidates.tsx, `?actions=a|b|c`). Dev-only until one is picked; the
+ * kept one moves into ui.css and this file goes. Everything here is drawn inside the hero, which is always dark.
+ */
+
+/* ---------- shared ---------- */
+.ga-inert {
+  cursor: default;
+}
+.ga-star {
+  transition: fill 150ms var(--ease-out), scale 150ms var(--ease-out);
+}
+[aria-pressed="true"] > .ga-star {
+  color: var(--g-warning-text);
+}
+/* The ready sheen, clipped to the control (the control itself isn't clipped, so the ready ring can grow out of it). */
+.ga-sheen {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+}
+.ga-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 32%, oklch(1 0 0 / 0.55) 50%, transparent 68%);
+  animation: g-sheen 1100ms var(--ease-out) 150ms 1 both;
+}
+
+/* Menus: rounder, roomier surfaces that match the controls they open from. */
+.ga-menu {
+  border-radius: 14px;
+  padding: 6px;
+}
+.ga-menu :is([role="menuitem"], [role="menuitemcheckbox"]) {
+  border-radius: 8px;
+}
+.ga-menu [role="separator"] {
+  margin: 6px -6px;
+}
+.ga-menu-glass {
+  background: color-mix(in oklab, var(--g-popover) 80%, transparent);
+  -webkit-backdrop-filter: blur(28px) saturate(1.6);
+  backdrop-filter: blur(28px) saturate(1.6);
+  border-color: oklch(1 0 0 / 0.12);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.06), var(--g-shadow-lg);
+}
+.gb-menu {
+  border-radius: 16px;
+}
+.gc-menu {
+  border-radius: 18px;
+  padding: 8px;
+}
+.gc-menu :is([role="menuitem"], [role="menuitemcheckbox"]) {
+  height: 34px;
+  border-radius: 10px;
+  padding-inline: 12px;
+}
+.gc-menu [role="separator"] {
+  margin: 8px -8px;
+}
+
+/* =========================================================== a · Dock */
+.ga-dock {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  height: 52px;
+  padding: 4px;
+  border-radius: 18px; /* 14 inside + 4 padding: concentric */
+  background: oklch(1 0 0 / 0.075);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  backdrop-filter: blur(20px) saturate(1.5);
+  box-shadow:
+    inset 0 0 0 1px oklch(1 0 0 / 0.13),
+    inset 0 1px 0 oklch(1 0 0 / 0.08),
+    0 10px 28px -12px oklch(0 0 0 / 0.6);
+}
+.ga-dock-primary,
+.ga-dock-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  border-radius: 14px;
+  outline: none;
+  transition:
+    background-color 140ms var(--ease-out),
+    color 140ms var(--ease-out),
+    box-shadow 150ms var(--ease-out),
+    scale 140ms var(--ease-out),
+    opacity 140ms var(--ease-out);
+}
+.ga-dock-primary {
+  min-width: 8.5rem;
+  padding: 0 20px;
+  font-size: var(--text-md);
+  line-height: var(--text-md--line-height);
+  font-weight: 600;
+  color: var(--g-fg);
+  --lit-a: oklch(0.78 0.13 250);
+  --lit-b: oklch(0.7 0.15 254);
+}
+.ga-dock-icon {
+  width: 44px;
+  color: var(--g-fg-muted);
+}
+@media (hover: hover) and (pointer: fine) {
+  .ga-dock-primary:not([data-tone="primary"]):hover:not(:disabled):not(.ga-inert),
+  .ga-dock-icon:hover {
+    background: oklch(1 0 0 / 0.08);
+    color: var(--g-fg);
+  }
+  .ga-dock-primary[data-tone="primary"]:hover:not(:disabled):not(.ga-inert) {
+    --lit-a: oklch(0.82 0.12 250);
+    --lit-b: oklch(0.74 0.145 254);
+  }
+}
+.ga-dock-icon[aria-expanded="true"] {
+  background: oklch(1 0 0 / 0.11);
+  color: var(--g-fg);
+}
+.ga-dock-icon[aria-pressed="true"] {
+  color: var(--g-warning-text);
+}
+.ga-dock-primary[data-tone="primary"] {
+  color: var(--g-accent-fg);
+  background: linear-gradient(180deg, var(--lit-a), var(--lit-b));
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.4),
+    inset 0 0 0 1px oklch(0.45 0.14 256 / 0.35),
+    0 6px 18px -6px oklch(0.62 0.17 254 / 0.65);
+}
+.ga-dock-primary:disabled {
+  opacity: 0.45;
+}
+.ga-dock-primary:is(:active, [data-pressed]):not(:disabled):not(.ga-inert) {
+  scale: 0.97;
+}
+.ga-dock-icon:is(:active, [data-pressed]):not([aria-haspopup]) {
+  scale: 0.92;
+}
+/* Focus: the accent ring, lifted off the control by a dark 2 px gap so it reads against the lit (accent) primary too. */
+.ga-dock :is(.ga-dock-primary, .ga-dock-icon):focus-visible {
+  outline: 2px solid var(--g-focus);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px oklch(0.165 0.006 265);
+}
+.ga-dock .ga-dock-primary[data-tone="primary"]:focus-visible {
+  box-shadow:
+    0 0 0 2px oklch(0.165 0.006 265),
+    inset 0 1px 0 oklch(1 0 0 / 0.4);
+}
+.ga-dock-sep {
+  width: 1px;
+  height: 22px;
+  margin: 0 6px;
+  flex-shrink: 0;
+  background: oklch(1 0 0 / 0.14);
+}
+.ga-dock[data-lit] .ga-dock-sep {
+  background: transparent;
+  margin: 0 2px;
+}
+
+/* =========================================================== b · Pill + orbs */
+.gb-pill,
+.gb-orb {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 48px;
+  border-radius: 999px;
+  color: var(--g-fg);
+  background: oklch(1 0 0 / 0.09);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.14), inset 0 1px 0 oklch(1 0 0 / 0.1);
+  transition:
+    background 140ms var(--ease-out),
+    color 140ms var(--ease-out),
+    box-shadow 150ms var(--ease-out),
+    scale 140ms var(--ease-out),
+    opacity 140ms var(--ease-out);
+}
+.gb-pill {
+  min-width: 9rem;
+  padding: 0 26px;
+  font-size: var(--text-md);
+  line-height: var(--text-md--line-height);
+  font-weight: 600;
+  --pearl-a: oklch(0.95 0.005 265);
+  --pearl-b: oklch(0.85 0.01 265);
+}
+.gb-orb {
+  width: 48px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .gb-pill:not([data-tone="primary"]):hover:not(:disabled):not(.ga-inert),
+  .gb-orb:hover {
+    background: oklch(1 0 0 / 0.14);
+  }
+  .gb-pill[data-tone="primary"]:hover:not(:disabled):not(.ga-inert) {
+    --pearl-a: oklch(0.99 0.003 265);
+    --pearl-b: oklch(0.9 0.008 265);
+  }
+}
+.gb-orb[aria-expanded="true"] {
+  background: oklch(1 0 0 / 0.16);
+}
+.gb-pill[data-tone="primary"] {
+  color: oklch(0.2 0.012 265);
+  background: linear-gradient(180deg, var(--pearl-a), var(--pearl-b));
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.95),
+    inset 0 -1px 0 oklch(0 0 0 / 0.12),
+    0 1px 2px oklch(0 0 0 / 0.35),
+    0 12px 28px -12px oklch(0 0 0 / 0.75);
+}
+.gb-pill:disabled {
+  opacity: 0.45;
+}
+.gb-pill:is(:active, [data-pressed]):not(:disabled):not(.ga-inert) {
+  scale: 0.97;
+}
+.gb-orb:is(:active, [data-pressed]):not([aria-haspopup]) {
+  scale: 0.92;
+}
+
+/* =========================================================== c · Command */
+.gc-cmd {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  height: 56px;
+  min-width: 15rem;
+  padding: 0 22px;
+  border-radius: 18px;
+  font-size: var(--text-md);
+  line-height: var(--text-md--line-height);
+  font-weight: 600;
+  color: oklch(1 0 0);
+  /* Deep glide blue: white text stays AA (≥ 4.8:1) across the whole gradient. */
+  --cmd-a: oklch(0.55 0.18 257);
+  --cmd-b: oklch(0.49 0.19 261);
+  background: linear-gradient(180deg, var(--cmd-a), var(--cmd-b));
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.24),
+    inset 0 0 0 1px oklch(0.42 0.16 262 / 0.7),
+    0 12px 32px -12px oklch(0.45 0.2 260 / 0.8);
+  transition:
+    box-shadow 150ms var(--ease-out),
+    scale 140ms var(--ease-out),
+    opacity 140ms var(--ease-out);
+}
+.gc-cmd[data-meta] {
+  justify-content: space-between;
+}
+.gc-cmd[data-tone="quiet"] {
+  background: oklch(1 0 0 / 0.09);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.14), inset 0 1px 0 oklch(1 0 0 / 0.1);
+}
+/* During a job the button is the bar: a dim track, the fill grows over it. */
+.gc-cmd[data-progress][data-tone="primary"] {
+  background: oklch(0.55 0.18 257 / 0.28);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: inset 0 0 0 1px oklch(0.7 0.14 255 / 0.35), inset 0 1px 0 oklch(1 0 0 / 0.1);
+}
+.gc-fill {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: oklch(0.62 0.16 255 / 0.5);
+  clip-path: inset(0 calc((1 - var(--p, 0)) * 100%) 0 0 round 18px);
+  transition: clip-path 320ms linear;
+}
+.gc-cmd[data-tone="primary"] .gc-fill {
+  background: linear-gradient(180deg, var(--cmd-a), var(--cmd-b));
+}
+@media (hover: hover) and (pointer: fine) {
+  /* Hover can't lighten much (white text must stay AA), so it lifts instead: a brighter rim and a wider glow. */
+  .gc-cmd[data-tone="primary"]:not([data-progress]):hover:not(:disabled):not(.ga-inert) {
+    --cmd-a: oklch(0.57 0.185 256);
+    --cmd-b: oklch(0.5 0.195 260);
+    box-shadow:
+      inset 0 1px 0 oklch(1 0 0 / 0.38),
+      inset 0 0 0 1px oklch(0.72 0.15 255 / 0.55),
+      0 14px 38px -10px oklch(0.55 0.2 258 / 0.95);
+  }
+  .gc-cmd[data-tone="quiet"]:hover:not(:disabled):not(.ga-inert) {
+    background: oklch(1 0 0 / 0.14);
+  }
+}
+.gc-cmd:disabled {
+  opacity: 0.45;
+}
+.gc-cmd:is(:active, [data-pressed]):not(:disabled):not(.ga-inert) {
+  scale: 0.98;
+}
+/* The cost: same white (AA), lighter weight, behind a hairline. */
+.gc-meta {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  font-size: var(--text-base);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.gc-meta::before {
+  content: "";
+  width: 1px;
+  height: 20px;
+  background: oklch(1 0 0 / 0.3);
+}
+.gc-orb {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  color: var(--g-fg);
+  background: oklch(1 0 0 / 0.09);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.14), inset 0 1px 0 oklch(1 0 0 / 0.1);
+  transition: background 140ms var(--ease-out);
+}
+.gc-orb[aria-expanded="true"] {
+  background: oklch(1 0 0 / 0.16);
+}
+.gc-star {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  color: var(--g-fg-muted);
+  transition: background 140ms var(--ease-out), color 140ms var(--ease-out), scale 140ms var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .gc-orb:hover {
+    background: oklch(1 0 0 / 0.14);
+  }
+  .gc-star:hover {
+    background: oklch(1 0 0 / 0.08);
+    color: var(--g-fg);
+  }
+}
+.gc-star:is(:active, [data-pressed]) {
+  scale: 0.9;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ga-sheen::after {
+    animation: none;
+  }
+  .gc-fill {
+    transition: none;
+  }
+}

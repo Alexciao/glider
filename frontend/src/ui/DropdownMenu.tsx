@@ -1,4 +1,4 @@
-import type { ComponentProps, ReactNode } from "react";
+import { createContext, useContext, type ComponentProps, type ReactNode } from "react";
 import { DropdownMenu as M } from "radix-ui";
 import { Check, ChevronRight } from "lucide-react";
 import { cx } from "./cx";
@@ -7,7 +7,15 @@ import { Kbd } from "./Kbd";
 export const DropdownMenu = M.Root;
 export const DropdownMenuTrigger = M.Trigger;
 
+/**
+ * An extra class for every menu surface below it, sub-menus included (they are portaled, so a CSS ancestor can't reach them,
+ * but React context does). Unset, menus look as they always have.
+ */
+const MenuSkin = createContext<string | undefined>(undefined);
+export const DropdownMenuSkin = MenuSkin.Provider;
+
 export function DropdownMenuContent({ className, align = "end", sideOffset = 8, ...rest }: ComponentProps<typeof M.Content>) {
+  const skin = useContext(MenuSkin);
   return (
     <M.Portal>
       <M.Content
@@ -17,6 +25,7 @@ export function DropdownMenuContent({ className, align = "end", sideOffset = 8, 
         className={cx(
           "app-no-drag g-pop z-50 min-w-52 rounded-lg border border-border-strong bg-popover p-1 text-sm shadow-lg outline-none",
           className,
+          skin,
         )}
         {...rest}
       />
@@ -83,9 +92,10 @@ export function DropdownMenuSubTrigger({ icon, className, children, ...rest }: O
 }
 
 export function DropdownMenuSubContent({ className, ...rest }: ComponentProps<typeof M.SubContent>) {
+  const skin = useContext(MenuSkin);
   return (
     <M.Portal>
-      <M.SubContent sideOffset={6} alignOffset={-5} collisionPadding={12} className={cx(contentClass, className)} {...rest} />
+      <M.SubContent sideOffset={6} alignOffset={-5} collisionPadding={12} className={cx(contentClass, className, skin)} {...rest} />
     </M.Portal>
   );
 }

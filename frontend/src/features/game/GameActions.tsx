@@ -35,7 +35,7 @@ import {
 } from "../../ui";
 import type { ActionKind, GameAction } from "./actionModel";
 
-const ICONS: Partial<Record<ActionKind, ReactNode>> = {
+export const ICONS: Partial<Record<ActionKind, ReactNode>> = {
   signIn: <LogIn size={18} />,
   install: <Download size={18} />,
   update: <CircleArrowUp size={18} />,
@@ -48,7 +48,7 @@ const ICONS: Partial<Record<ActionKind, ReactNode>> = {
 };
 
 /** Core refuses to cancel some running steps (an uninstall mid-delete, a move rewriting its metadata). */
-const cancelRefused = (action: GameAction): boolean => action.intent === "cancel" && action.job?.cancellable === false;
+export const cancelRefused = (action: GameAction): boolean => action.intent === "cancel" && action.job?.cancellable === false;
 
 /** Runs what the primary segment says it does. */
 export function pressPrimary(action: GameAction, appName: string): void {
@@ -87,6 +87,10 @@ export function pressPrimary(action: GameAction, appName: string): void {
   }
 }
 
+/** Hover/focus prefetch for the primary: warms the launch command, or the install plan. */
+export const warmFor = (action: GameAction, appName: string): (() => void) | undefined =>
+  action.intent === "launch" ? () => void actions.prepareLaunch(appName) : action.intent === "install" ? () => void prefetchInstallPlan(appName) : undefined;
+
 /**
  * The hero's split button: the primary action from the action model and the one menu every game shares.
  * Hovering or focusing Play warms the launch command (`game.prepareLaunch`), so the press itself is near-instant.
@@ -108,7 +112,7 @@ export function GameActions({
   onShortcuts?: (state: ShortcutState) => void;
 }) {
   const { appName } = game;
-  const warm = action.intent === "launch" ? () => void actions.prepareLaunch(appName) : action.intent === "install" ? () => void prefetchInstallPlan(appName) : undefined;
+  const warm = warmFor(action, appName);
   return (
     <SplitButton
       size="lg"
@@ -127,7 +131,8 @@ export function GameActions({
   );
 }
 
-function GameMenuItems({
+/** The one menu every game shares; the action-group candidates (`?actions=`) reuse it as is. */
+export function GameMenuItems({
   snap,
   game,
   detail,
