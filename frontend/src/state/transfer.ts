@@ -215,9 +215,9 @@ const STEP_NAME: Partial<Record<JobPhase, string>> = {
   moving: "Moving",
 };
 
-/** The same step while paused: one phrase with "paused" ("Downloading paused", "Install paused"). */
+/** The headline while paused: the step and "paused" in one phrase ("Download paused", "Install paused"), said once. */
 const PAUSED_NAME: Partial<Record<JobPhase, string>> = {
-  downloading: "Downloading paused",
+  downloading: "Download paused",
   repairing: "Repair paused",
   verifying: "File check paused",
   installing: "Install paused",
@@ -362,11 +362,11 @@ export function cardOf(job: JobInfo, p: JobProgress | null, ctx: CardContext): C
   let lead: Lead;
   let line: string[] = [];
   if (paused) {
-    lead = { kind: "state", text: "Paused" };
+    // "Paused" is said once, in the headline (with the step: "Download paused"); the line only adds how far and how long.
+    lead = { kind: "state", text: (phase && PAUSED_NAME[phase]) || "Paused" };
     const left = p ? etaAtPace(p) : null;
-    const pausedStep = phase ? PAUSED_NAME[phase] : undefined;
     // One phrase for the time: "1 min left when you resume" (never "about under a minute left").
-    if (pausedStep) line = [pausedStep, ...(bytes ? [bytes] : []), ...(left != null ? [`${formatEta(left)} left when you resume`] : [])];
+    line = [...(bytes ? [bytes] : []), ...(left != null ? [`${formatEta(left)} left when you resume`] : [])];
   } else if (held) {
     lead = { kind: "state", text: held.lead };
     // The bytes so far, then the promise; a lone promise is a sentence.

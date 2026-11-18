@@ -7,7 +7,6 @@ export { Tooltip, TooltipProvider } from "./Tooltip";
 export { Kbd } from "./Kbd";
 export { Surface, Card, Section, Row } from "./Surface";
 export { ProgressBar } from "./ProgressBar";
-export { SplitButton, type SplitButtonProps, type SplitButtonSize, type SplitButtonTone } from "./SplitButton";
 export { Sparkline } from "./Sparkline";
 export { MiniSparkline, type MiniSparklineProps } from "./MiniSparkline";
 export { ThroughputChart, niceCeil, nearestIndex, monotonePath, type ChartData, type ChartSeries, type ThroughputChartProps } from "./ThroughputChart";

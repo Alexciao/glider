@@ -1,38 +1,11 @@
-import { Star } from "lucide-react";
 import type { AppSnapshot, GameDetail, GameSummary, ShortcutState } from "../../ipc/contract.gen";
-import { actions } from "../../state/actions";
-import { Tooltip, cx } from "../../ui";
 import type { GameAction } from "./actionModel";
-import { ACTIONS_CANDIDATE, CandidateActions, candidateStatus } from "./ActionCandidates";
 import { GameActions } from "./GameActions";
 import { GameStatus } from "./GameStatus";
 import { HeroArt } from "./HeroArt";
-import { HeroProgress } from "./HeroProgress";
-
-/** Same height, radius language and glass fill as the split button's quiet tone, so the row reads as one set. */
-function FavoriteButton({ game }: { game: GameSummary }) {
-  const on = game.favorite;
-  return (
-    <Tooltip content={on ? "Remove from favorites" : "Add to favorites"}>
-      <button
-        type="button"
-        aria-pressed={on}
-        aria-label="Favorite"
-        onClick={() => void actions.setFavorite(game.appName, !on)}
-        className={cx(
-          "grid size-12 shrink-0 place-items-center rounded-xl border border-border-strong bg-surface-3 backdrop-blur-md",
-          "transition-[background-color,color,scale] duration-150 ease-out hover:bg-surface-active press:scale-[0.96]",
-          on ? "text-warning-text" : "text-fg-muted hover:text-fg",
-        )}
-      >
-        <Star size={18} className={cx("transition-[fill,scale] duration-150", on && "fill-current")} />
-      </button>
-    </Tooltip>
-  );
-}
 
 /**
- * The hero card: key art, the title, one status line, the running job's bar, and the split button. Everything inside is
+ * The hero card: key art, the title, one status line, the action dock and the running job's bar. Everything inside is
  * scoped to the dark token set, because AA text on any picture only works against a dark, art-independent scrim.
  * (`data-hero` is what the legibility spec measures.)
  */
@@ -53,8 +26,7 @@ export function Hero({
 }) {
   const logo = game.art.logo;
   const job = action.job;
-  const status = candidateStatus(ACTIONS_CANDIDATE, action);
-  const showBar = !!job &&(action.kind === "pause" || action.kind === "resume" || action.kind === "cancel") && job.status !== "queued" && job.status !== "waiting";
+  const showBar = !!job && (action.kind === "pause" || action.kind === "resume" || action.kind === "cancel") && job.status !== "queued" && job.status !== "waiting";
   return (
     <header data-hero data-theme="dark" className="relative isolate text-fg">
       <HeroArt appName={game.appName} art={game.art} />
@@ -73,24 +45,11 @@ export function Hero({
               {game.title}
             </h1>
           )}
-          {(!status.quiet || moment) && <GameStatus status={status} moment={moment} className="mt-2" />}
+          {(!action.status.quiet || moment) && <GameStatus status={action.status} moment={moment} className="mt-2" />}
         </div>
 
         <div data-hero-actions className="g-rise mt-6 flex items-center gap-2" style={{ ["--g-i" as string]: 1 }}>
-          {ACTIONS_CANDIDATE ? (
-            <CandidateActions candidate={ACTIONS_CANDIDATE} snap={snap} game={game} detail={detail} action={action} moment={moment} showBar={showBar} onShortcuts={onShortcuts} />
-          ) : (
-            <>
-              <GameActions snap={snap} game={game} detail={detail} action={action} moment={moment} onShortcuts={onShortcuts} />
-              <FavoriteButton game={game} />
-              {/* Progress sits beside the buttons, not under the title: the title never jumps when a job starts. */}
-              {showBar && job && (
-                <div className="ml-4 min-w-0 max-w-[440px] flex-1">
-                  <HeroProgress job={job} />
-                </div>
-              )}
-            </>
-          )}
+          <GameActions snap={snap} game={game} detail={detail} action={action} moment={moment} showBar={showBar} onShortcuts={onShortcuts} />
         </div>
       </div>
     </header>

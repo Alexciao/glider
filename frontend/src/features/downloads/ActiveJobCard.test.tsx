@@ -68,11 +68,13 @@ describe("the card, running", () => {
     const pause = within(region).getByRole("button", { name: "Pause" });
     await user.click(pause);
     const resume = await within(region).findByRole("button", { name: "Resume" });
-    await waitFor(() => expect(within(region).getByText("Paused")).toBeInTheDocument());
+    await waitFor(() => expect(within(region).getByText("Download paused")).toBeInTheDocument());
     // As quiet as Pause: the same glass treatment, no primary fill.
     expect(resume.className).toBe(pause.className);
     expect(resume.className).not.toMatch(/bg-primary/);
-    expect(region).toHaveTextContent(/Downloading paused · [\d.]+ .*(MB|GB)/);
+    expect(region).toHaveTextContent(/[\d.]+ .*(MB|GB) of [\d.]+ .*(MB|GB)/);
+    // Said once on screen, in the headline (the screen reader's own announcement aside).
+    expect(within(region).getAllByText(/paused/i).filter((el) => !el.closest('[role="status"]'))).toHaveLength(1);
     expect(region.textContent).not.toMatch(/about|elapsed/i);
     await user.click(resume);
     await waitFor(() => expect(within(region).getByRole("button", { name: "Pause" })).toBeInTheDocument());
@@ -191,7 +193,7 @@ describe("the card, announced", () => {
 });
 
 describe("holds are in the card, in place", () => {
-  it("a queue paused from the tray still gets the page's one notice, and its card says Paused", async () => {
+  it("a queue paused from the tray still gets the page's one notice, and its card says it's paused", async () => {
     const { user } = await mount("queue", <Downloads />, { freeze: true });
     await card();
     await act(async () => {
@@ -199,7 +201,7 @@ describe("holds are in the card, in place", () => {
     });
     expect(await screen.findByText("Downloads are paused.")).toBeInTheDocument();
     const region = (await screen.findByRole("progressbar")).closest("section")!;
-    expect(within(region).getByText("Paused")).toBeInTheDocument();
+    expect(within(region).getByText(/^\w+ paused$|^Paused$/)).toBeInTheDocument();
     expect(within(region).getByRole("button", { name: "Resume" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Resume all" }));
     await waitFor(() => expect(screen.queryByText("Downloads are paused.")).toBeNull());

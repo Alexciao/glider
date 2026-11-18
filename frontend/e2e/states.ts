@@ -236,7 +236,7 @@ const RAW_STATES: ShotState[] = [
     setup: async (p) => {
       await goPicked(p, PLAYABLE);
       await wait(500);
-      await btn(p, "Play").click();
+      await btn(p, /^Play$/).click();
       await wait(1100);
     },
   },
@@ -247,7 +247,7 @@ const RAW_STATES: ShotState[] = [
       await goPicked(p, PLAYABLE);
       await wait(500);
       await g(p, (h) => h.mock.failNext("launchFailed"));
-      await btn(p, "Play").click();
+      await btn(p, /^Play$/).click();
       await wait(900);
     },
   },
@@ -832,7 +832,7 @@ const RAW_STATES: ShotState[] = [
     setup: async (p) => {
       await goPicked(p, "g.installStatus==='installed'&&g.thirdParty==='ubisoft'");
       await wait(500);
-      await btn(p, "Play").click();
+      await btn(p, /^Play$/).click();
       await wait(1200);
     },
   },

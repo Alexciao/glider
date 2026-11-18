@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
+import { AnimatePresence, m } from "motion/react";
 import {
   CircleArrowUp,
+  Ellipsis,
+  Star,
   Download,
   EyeOff,
   FolderInput,
@@ -31,11 +34,20 @@ import {
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
-  SplitButton,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuSkin,
+  DropdownMenuTrigger,
+  Spinner,
+  Tooltip,
+  cx,
+  labelSwap,
+  tween,
 } from "../../ui";
 import type { ActionKind, GameAction } from "./actionModel";
+import { HeroProgress } from "./HeroProgress";
 
-export const ICONS: Partial<Record<ActionKind, ReactNode>> = {
+const ICONS: Partial<Record<ActionKind, ReactNode>> = {
   signIn: <LogIn size={18} />,
   install: <Download size={18} />,
   update: <CircleArrowUp size={18} />,
@@ -48,7 +60,7 @@ export const ICONS: Partial<Record<ActionKind, ReactNode>> = {
 };
 
 /** Core refuses to cancel some running steps (an uninstall mid-delete, a move rewriting its metadata). */
-export const cancelRefused = (action: GameAction): boolean => action.intent === "cancel" && action.job?.cancellable === false;
+const cancelRefused = (action: GameAction): boolean => action.intent === "cancel" && action.job?.cancellable === false;
 
 /** Runs what the primary segment says it does. */
 export function pressPrimary(action: GameAction, appName: string): void {
@@ -88,12 +100,45 @@ export function pressPrimary(action: GameAction, appName: string): void {
 }
 
 /** Hover/focus prefetch for the primary: warms the launch command, or the install plan. */
-export const warmFor = (action: GameAction, appName: string): (() => void) | undefined =>
+const warmFor = (action: GameAction, appName: string): (() => void) | undefined =>
   action.intent === "launch" ? () => void actions.prepareLaunch(appName) : action.intent === "install" ? () => void prefetchInstallPlan(appName) : undefined;
 
+/** Icon (or spinner) and label; crossfades only when the face's identity changes, so "Launching…" never flickers. */
+function Face({ action }: { action: GameAction }) {
+  return (
+    <AnimatePresence mode="popLayout" initial={false}>
+      <m.span
+        key={action.faceKey}
+        initial={labelSwap.initial}
+        animate={labelSwap.animate}
+        exit={labelSwap.exit}
+        transition={tween.base}
+        className="relative flex items-center gap-2.5 whitespace-nowrap"
+      >
+        {action.busy ? <Spinner size={16} /> : ICONS[action.kind]}
+        {action.label}
+      </m.span>
+    </AnimatePresence>
+  );
+}
+
+function FavoriteToggle({ game }: { game: GameSummary }) {
+  const on = game.favorite;
+  return (
+    <Tooltip content={on ? "Remove from favorites" : "Add to favorites"}>
+      <button type="button" aria-pressed={on} aria-label="Favorite" onClick={() => void actions.setFavorite(game.appName, !on)} className="ga-dock-icon">
+        <Star size={18} className={cx("ga-star", on && "fill-current")} />
+      </button>
+    </Tooltip>
+  );
+}
+
 /**
- * The hero's split button: the primary action from the action model and the one menu every game shares.
- * Hovering or focusing Play warms the launch command (`game.prepareLaunch`), so the press itself is near-instant.
+ * The hero's action group: one glass dock (the same blur and hairline as the hero's other glass) holding the primary action
+ * from the action model, favorite, and the one menu every game shares. The primary is lit with the accent only when it's what
+ * the page is for (Play, Install, Update, Resume, Sign in); work in progress (Pause, Close game, Cancel) stays glass, so a lit
+ * button always means "go". Hovering or focusing Play warms the launch command (`game.prepareLaunch`), so the press is
+ * near-instant. While a job runs, its bar sits beside the dock, never under the title, so the title never jumps.
  */
 export function GameActions({
   snap,
@@ -101,6 +146,7 @@ export function GameActions({
   detail,
   action,
   moment,
+  showBar = false,
   onShortcuts,
 }: {
   snap: AppSnapshot;
@@ -108,31 +154,64 @@ export function GameActions({
   detail: GameDetail | null;
   action: GameAction;
   moment: boolean;
+  /** The job has a bar to show (running or paused, not queued/waiting). */
+  showBar?: boolean;
   /** game.setShortcut's answer; shortcuts aren't in the summary, so the detail would otherwise never refetch. */
   onShortcuts?: (state: ShortcutState) => void;
 }) {
   const { appName } = game;
   const warm = warmFor(action, appName);
+  const inert = action.busy || action.disabled;
   return (
-    <SplitButton
-      size="lg"
-      tone={action.tone}
-      label={action.label}
-      faceKey={action.faceKey}
-      icon={ICONS[action.kind]}
-      busy={action.busy}
-      disabled={action.disabled || cancelRefused(action)}
-      moment={moment}
-      aria-label={`${game.title} actions`}
-      onPress={() => pressPrimary(action, appName)}
-      primaryProps={{ onPointerEnter: warm, onFocus: warm, "data-kind": action.kind }}
-      menu={<GameMenuItems snap={snap} game={game} detail={detail} action={action} onShortcuts={onShortcuts} />}
-    />
+    <>
+      <div role="group" aria-label={`${game.title} actions`} className="ga-dock" data-lit={action.tone === "primary" || undefined}>
+        <m.button
+          layout="position"
+          type="button"
+          data-kind={action.kind}
+          data-tone={action.tone}
+          disabled={action.disabled || cancelRefused(action)}
+          aria-busy={action.busy || undefined}
+          onClick={action.busy ? undefined : () => pressPrimary(action, appName)}
+          onPointerEnter={warm}
+          onFocus={warm}
+          className={cx("ga-dock-primary", inert && "ga-inert")}
+        >
+          <Face action={action} />
+          {moment && (
+            <>
+              <span aria-hidden className="ga-sheen" />
+              <span aria-hidden className="g-ready-ring" />
+            </>
+          )}
+        </m.button>
+        <m.span layout="position" aria-hidden className="ga-dock-sep" />
+        <m.span layout="position" className="flex">
+          <FavoriteToggle game={game} />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button type="button" aria-label="More actions" className="ga-dock-icon">
+                <Ellipsis size={18} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuSkin value="ga-menu ga-menu-glass">
+              <DropdownMenuContent align="end" alignOffset={-4} sideOffset={10} className="w-60">
+                <GameMenuItems snap={snap} game={game} detail={detail} action={action} onShortcuts={onShortcuts} />
+              </DropdownMenuContent>
+            </DropdownMenuSkin>
+          </DropdownMenu>
+        </m.span>
+      </div>
+      {showBar && action.job && (
+        <div className="ml-4 min-w-0 max-w-[440px] flex-1">
+          <HeroProgress job={action.job} />
+        </div>
+      )}
+    </>
   );
 }
 
-/** The one menu every game shares; the action-group candidates (`?actions=`) reuse it as is. */
-export function GameMenuItems({
+function GameMenuItems({
   snap,
   game,
   detail,

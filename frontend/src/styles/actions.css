@@ -1,0 +1,161 @@
+/*
+ * The hero's action group (features/game/GameActions.tsx): one glass dock holding the primary, favorite and the menu.
+ * Everything here is drawn inside the hero, which is always dark.
+ */
+
+/* ---------- shared ---------- */
+.ga-inert {
+  cursor: default;
+}
+.ga-star {
+  transition: fill 150ms var(--ease-out), scale 150ms var(--ease-out);
+}
+[aria-pressed="true"] > .ga-star {
+  color: var(--g-warning-text);
+}
+/* The ready sheen, clipped to the control (the control itself isn't clipped, so the ready ring can grow out of it). */
+.ga-sheen {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+}
+.ga-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 32%, oklch(1 0 0 / 0.55) 50%, transparent 68%);
+  animation: g-sheen 1100ms var(--ease-out) 150ms 1 both;
+}
+
+/* Menus: rounder, roomier surfaces that match the controls they open from. */
+.ga-menu {
+  border-radius: 14px;
+  padding: 6px;
+}
+.ga-menu :is([role="menuitem"], [role="menuitemcheckbox"]) {
+  border-radius: 8px;
+}
+.ga-menu [role="separator"] {
+  margin: 6px -6px;
+}
+.ga-menu-glass {
+  background: color-mix(in oklab, var(--g-popover) 80%, transparent);
+  -webkit-backdrop-filter: blur(28px) saturate(1.6);
+  backdrop-filter: blur(28px) saturate(1.6);
+  border-color: oklch(1 0 0 / 0.12);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.06), var(--g-shadow-lg);
+}
+
+/* =========================================================== a · Dock */
+.ga-dock {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  height: 52px;
+  padding: 4px;
+  border-radius: 18px; /* 14 inside + 4 padding: concentric */
+  background: oklch(1 0 0 / 0.075);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  backdrop-filter: blur(20px) saturate(1.5);
+  box-shadow:
+    inset 0 0 0 1px oklch(1 0 0 / 0.13),
+    inset 0 1px 0 oklch(1 0 0 / 0.08),
+    0 10px 28px -12px oklch(0 0 0 / 0.6);
+}
+.ga-dock-primary,
+.ga-dock-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  border-radius: 14px;
+  outline: none;
+  transition:
+    background-color 140ms var(--ease-out),
+    color 140ms var(--ease-out),
+    box-shadow 150ms var(--ease-out),
+    scale 140ms var(--ease-out),
+    opacity 140ms var(--ease-out);
+}
+.ga-dock-primary {
+  min-width: 8.5rem;
+  padding: 0 20px;
+  font-size: var(--text-md);
+  line-height: var(--text-md--line-height);
+  font-weight: 600;
+  color: var(--g-fg);
+  --lit-a: oklch(0.78 0.13 250);
+  --lit-b: oklch(0.7 0.15 254);
+}
+.ga-dock-icon {
+  width: 44px;
+  color: var(--g-fg-muted);
+}
+@media (hover: hover) and (pointer: fine) {
+  .ga-dock-primary:not([data-tone="primary"]):hover:not(:disabled):not(.ga-inert),
+  .ga-dock-icon:hover {
+    background: oklch(1 0 0 / 0.08);
+    color: var(--g-fg);
+  }
+  .ga-dock-primary[data-tone="primary"]:hover:not(:disabled):not(.ga-inert) {
+    --lit-a: oklch(0.82 0.12 250);
+    --lit-b: oklch(0.74 0.145 254);
+  }
+}
+.ga-dock-icon[aria-expanded="true"] {
+  background: oklch(1 0 0 / 0.11);
+  color: var(--g-fg);
+}
+.ga-dock-icon[aria-pressed="true"] {
+  color: var(--g-warning-text);
+}
+.ga-dock-primary[data-tone="primary"] {
+  color: var(--g-accent-fg);
+  background: linear-gradient(180deg, var(--lit-a), var(--lit-b));
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.4),
+    inset 0 0 0 1px oklch(0.45 0.14 256 / 0.35),
+    0 6px 18px -6px oklch(0.62 0.17 254 / 0.65);
+}
+.ga-dock-primary:disabled {
+  opacity: 0.45;
+}
+.ga-dock-primary:is(:active, [data-pressed]):not(:disabled):not(.ga-inert) {
+  scale: 0.97;
+}
+.ga-dock-icon:is(:active, [data-pressed]):not([aria-haspopup]) {
+  scale: 0.92;
+}
+/* Focus: the accent ring, lifted off the control by a dark 2 px gap so it reads against the lit (accent) primary too. */
+.ga-dock :is(.ga-dock-primary, .ga-dock-icon):focus-visible {
+  outline: 2px solid var(--g-focus);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px oklch(0.165 0.006 265);
+}
+.ga-dock .ga-dock-primary[data-tone="primary"]:focus-visible {
+  box-shadow:
+    0 0 0 2px oklch(0.165 0.006 265),
+    inset 0 1px 0 oklch(1 0 0 / 0.4);
+}
+.ga-dock-sep {
+  width: 1px;
+  height: 22px;
+  margin: 0 6px;
+  flex-shrink: 0;
+  background: oklch(1 0 0 / 0.14);
+}
+.ga-dock[data-lit] .ga-dock-sep {
+  background: transparent;
+  margin: 0 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ga-sheen::after {
+    animation: none;
+  }
+}

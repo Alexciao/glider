@@ -73,10 +73,31 @@ describe("deriveGameAction", () => {
     const g = w.find((x) => x.installStatus === "installed" && x.thirdParty === "none");
     const install = deriveGameAction(withJob(w.snap, job(g, "install", "running")), g, ctx());
     expect(install).toMatchObject({ kind: "pause", label: "Pause", intent: "pause", disabled: false, tone: "quiet" });
-    expect(install.status).toMatchObject({ text: "Installing", spinner: true });
+    expect(install.status).toMatchObject({ text: "Installing" });
     const move = deriveGameAction(withJob(w.snap, job(g, "move", "running", { phase: "moving" })), g, ctx());
     expect(move).toMatchObject({ kind: "cancel", label: "Cancel", intent: "cancel", disabled: false });
     expect(move.status.sub).toBeUndefined();
+  });
+
+  it("says each thing once: the line never repeats the button's word or its spinner", () => {
+    const g = { ...w.find((x) => x.installStatus === "installed" && x.thirdParty === "none"), runState: "idle" as GameSummary["runState"] };
+    const states = ["preparing", "syncingSaves", "installingPrerequisites", "launching", "closing"] as const;
+    for (const runState of states) {
+      const a = deriveGameAction(w.snap, { ...g, runState }, ctx());
+      expect(a.busy, runState).toBe(true); // the button spins
+      expect(a.status, runState).not.toHaveProperty("spinner");
+    }
+    // The last stage and closing are the button's own words ("Launching…", "Closing…"): the line steps aside.
+    expect(deriveGameAction(w.snap, { ...g, runState: "launching" }, ctx()).status.quiet).toBe(true);
+    expect(deriveGameAction(w.snap, { ...g, runState: "closing" }, ctx()).status.quiet).toBe(true);
+    expect(deriveGameAction(w.snap, { ...g, runState: "preparing" }, ctx()).status.quiet).toBeFalsy();
+
+    // Signed out: the button says "Sign in", the line only says why.
+    const out = deriveGameAction({ ...w.snap, auth: { status: "signedOut", account: null } }, g, ctx());
+    expect(out.status).toMatchObject({ text: "You're signed out" });
+    expect(out.status.sub).toBeUndefined();
+    const expired = deriveGameAction({ ...w.snap, auth: { status: "expired", account: null } }, g, ctx());
+    expect(expired.status.sub).toBeUndefined();
   });
 
   it("only install, update, repair and verify can pause", () => {

@@ -1,6 +1,6 @@
 import { AnimatePresence, m } from "motion/react";
 import { useNow } from "../../state/hooks";
-import { Spinner, StatusDot, cx, labelSwap, tween } from "../../ui";
+import { StatusDot, cx, labelSwap, tween } from "../../ui";
 import type { StatusModel } from "./actionModel";
 import { formatPlayingFor } from "./format";
 import { TONE_TEXT } from "./statusLevels";
@@ -25,7 +25,7 @@ function PlayingFor({ since }: { since: string | null }) {
 }
 
 /**
- * The one status line of the hero: a dot or spinner, what is happening, one quiet detail. A line that changes
+ * The one status line of the hero: a dot, what is happening, one quiet detail (the button and the bar carry the motion). A line that changes
  * crossfades with a hair of blur so "Preparing → Syncing saves → Launching" reads as one object updating.
  */
 export function GameStatus({ status, moment, className }: { status: StatusModel; moment: boolean; className?: string }) {
@@ -41,7 +41,7 @@ export function GameStatus({ status, moment, className }: { status: StatusModel;
           transition={tween.base}
           className="flex min-w-0 items-center gap-2.5"
         >
-          {status.spinner ? <Spinner size={14} className="shrink-0 text-fg-muted" /> : moment ? <ReadyCheck /> : <StatusDot tone={status.tone} />}
+          {moment ? <ReadyCheck /> : <StatusDot tone={status.tone} />}
           <span className={cx("font-medium", TONE_TEXT[status.tone])}>{status.since !== undefined ? <PlayingFor since={status.since} /> : status.text}</span>
           {status.sub && (
             <>

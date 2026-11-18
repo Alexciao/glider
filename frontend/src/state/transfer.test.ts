@@ -172,8 +172,9 @@ describe("cardOf: what the card says per state", () => {
       disk: { ...progress().disk!, writtenBytes: 600 * MB, totalBytes: 1.53 * GB, averageBytesPerSecond: 20 * MB },
     });
     const v = card(job({ status: "paused" }), p);
-    expect(v.lead).toEqual({ kind: "state", text: "Paused" });
-    expect(lineOf(v)).toBe("Downloading paused · 659 MB of 1.5 GB · 2 min left when you resume");
+    // "Paused" once: the headline names the step, the line doesn't repeat it.
+    expect(v.lead).toEqual({ kind: "state", text: "Download paused" });
+    expect(lineOf(v)).toBe("659 MB of 1.5 GB · 2 min left when you resume");
     expect(v.speed).toBeNull();
     expect(v.moving).toBe(false);
   });
@@ -248,7 +249,7 @@ describe("cardOf: waiting, never 'Queued'", () => {
   });
 
   it("a user pause wins over a hold", () => {
-    expect(card(job({ status: "paused" }), progress(), { hold: game }).lead.text).toBe("Paused");
+    expect(card(job({ status: "paused" }), progress(), { hold: game }).lead.text).toBe("Download paused");
   });
 });
 

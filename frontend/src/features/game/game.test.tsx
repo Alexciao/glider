@@ -105,7 +105,26 @@ describe("Game page: hero and the one primary action", () => {
     expect(within(screen.getByRole("group")).getByRole("button", { name: "Cancel" })).toBeDisabled();
   });
 
-  it("shows no status line for a ready game, one split button and the facts, with no version repeated", async () => {
+  it("a paused job's bar doesn't say Paused again (the status line and Resume already do)", async () => {
+    await mount("queue", (b) => {
+      const running = b.snap.queue.jobs.find((j) => j.status === "running")!;
+      const job = { ...running, kind: "install" as const, status: "paused" as const };
+      return (
+        <GameActions
+          snap={b.snap}
+          game={b.find((g) => g.appName === running.appName)}
+          detail={null}
+          moment={false}
+          showBar
+          action={{ kind: "resume", label: "Resume", tone: "primary", busy: false, disabled: false, faceKey: "resume", intent: "resume", status: { tone: "warning", text: "Install paused" }, job }}
+        />
+      );
+    });
+    expect(screen.getByRole("button", { name: "Resume" })).toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
+  });
+
+  it("shows no status line for a ready game, one action dock and the facts, with no version repeated", async () => {
     await mount("returning", (b) => <GameView appName={b.find(idleInstalled).appName} />);
     // The Play button already says it: the "Ready to play" line only appears for the one-off ready moment.
     expect(screen.queryByText("Ready to play")).not.toBeInTheDocument();

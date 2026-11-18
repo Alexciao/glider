@@ -37,9 +37,8 @@ export function HeroProgress({ job }: { job: JobInfo }) {
       />
       <div className="mt-2 flex items-center justify-between gap-4 text-xs text-fg-muted tabular-nums">
         <span className="min-w-0 truncate">{[p ? formatPercent(percent) : null, amount].filter(Boolean).join(" · ") || "Starting…"}</span>
-        {paused ? (
-          <span className="shrink-0">Paused</span>
-        ) : running && p ? (
+        {/* Paused says nothing here: the status line ("Install paused") and the Resume button already do. */}
+        {running && p ? (
           <span className="shrink-0">
             {speed != null && speed > 0 ? `${formatSpeed(speed)} · ` : ""}
             {formatEta(p.etaSeconds)} left

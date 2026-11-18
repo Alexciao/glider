@@ -33,7 +33,6 @@ export interface StatusModel {
   tone: BadgeTone;
   text: string;
   sub?: string;
-  spinner?: boolean;
   /** The button already says it ("Play" under "Ready to play"): the line is shown only during the one-off ready moment. */
   quiet?: boolean;
   /** Set while the game runs: the component renders "Playing for …" and keeps it ticking. */
@@ -78,7 +77,10 @@ const inert = (kind: ActionKind, label: string, status: StatusModel, extra: Part
   ...extra,
 });
 
-/** Starting up: the button holds one face ("Launching…") while the status line walks through the stages. */
+/**
+ * Starting up: the button holds one face (spinner + "Launching…") while the status line names the stage before it. The line
+ * never spins too, and the last stage ("Launching") is the button's own word, so the line steps aside for it.
+ */
 const starting = (status: StatusModel): GameAction => inert("launching", "Launching…", status, { tone: "primary", busy: true, disabled: false });
 
 /** The sub-line of a running job: only the phase, and only when it says something the verb does not. */
@@ -97,13 +99,13 @@ export function deriveGameAction(snap: AppSnapshot, game: GameSummary, ctx: Acti
   // 1. The game itself starting, running or closing outranks everything.
   switch (game.runState) {
     case "preparing":
-      return starting({ tone: statusTone("working"), text: "Preparing", spinner: true });
+      return starting({ tone: statusTone("working"), text: "Preparing" });
     case "syncingSaves":
-      return starting({ tone: statusTone("working"), text: "Syncing saves", spinner: true });
+      return starting({ tone: statusTone("working"), text: "Syncing saves" });
     case "installingPrerequisites":
-      return starting({ tone: statusTone("working"), text: "Installing prerequisites", sub: "Windows may ask for permission", spinner: true });
+      return starting({ tone: statusTone("working"), text: "Installing prerequisites", sub: "Windows may ask for permission" });
     case "launching":
-      return starting({ tone: statusTone("working"), text: "Launching", spinner: true });
+      return starting({ tone: statusTone("working"), text: "Launching", quiet: true });
     case "running":
       return {
         kind: "closeGame",
@@ -118,7 +120,7 @@ export function deriveGameAction(snap: AppSnapshot, game: GameSummary, ctx: Acti
             : { tone: statusTone("running"), text: "Playing", since: ctx.session?.since ?? null },
       };
     case "closing":
-      return inert("closing", "Closing…", { tone: statusTone("working"), text: "Closing", spinner: true }, { busy: true, disabled: false });
+      return inert("closing", "Closing…", { tone: statusTone("working"), text: "Closing", quiet: true }, { busy: true, disabled: false });
     case "idle":
       break;
   }
@@ -153,7 +155,8 @@ export function deriveGameAction(snap: AppSnapshot, game: GameSummary, ctx: Acti
           tone: "quiet",
           faceKey: pausable ? "pause" : "cancel",
           intent: pausable ? "pause" : "cancel",
-          status: { tone: statusTone("working"), text: jobVerb(job.kind, phase), sub: phaseSub(job.kind, phase), spinner: true },
+          // The bar beside the button already moves: the line doesn't spin as well.
+          status: { tone: statusTone("working"), text: jobVerb(job.kind, phase), sub: phaseSub(job.kind, phase) },
         };
       }
     }
@@ -174,7 +177,7 @@ export function deriveGameAction(snap: AppSnapshot, game: GameSummary, ctx: Acti
     return inert(
       "loading",
       signing ? "Signing in…" : "Loading…",
-      { tone: statusTone("working"), text: signing ? "Finish signing in in the Epic window" : "Checking your account", spinner: true },
+      { tone: statusTone("working"), text: signing ? "Finish signing in in the Epic window" : "Checking your account" },
       { busy: true, disabled: false },
     );
   }
@@ -188,10 +191,11 @@ export function deriveGameAction(snap: AppSnapshot, game: GameSummary, ctx: Acti
       disabled: false,
       faceKey: "signIn",
       intent: "signIn",
-      // One treatment for both: signed out is not a state to be mildly informed about, it is the next thing to do.
+      // One treatment for both: signed out is not a state to be mildly informed about, it is the next thing to do. The button
+      // says what to do (Sign in), so the line only says why.
       status: expired
-        ? { tone: statusTone("needsSignIn"), text: "Your session expired", sub: "Sign in to keep playing" }
-        : { tone: statusTone("needsSignIn"), text: "You're signed out", sub: "Sign in to play" },
+        ? { tone: statusTone("needsSignIn"), text: "Your session expired" }
+        : { tone: statusTone("needsSignIn"), text: "You're signed out" },
     };
   }
 

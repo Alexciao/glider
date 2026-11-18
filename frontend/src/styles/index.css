@@ -2,7 +2,7 @@
 @import "./tokens.css";
 @import "./ui.css";
 @import "./ui-forms.css";
-@import "./actions-candidates.css";
+@import "./actions.css";
 
 /* "Pressed": the real :active, or the data-pressed pulse `pressFeedback.ts` sets (a menu that opens on pointerdown steals :active).
    A trigger that opens a popup (menu, Select) is never squeezed: the popup is positioned against the trigger's box, so it
