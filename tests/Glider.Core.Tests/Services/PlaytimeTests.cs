@@ -38,6 +38,35 @@ public class PlaytimeTests
     }
 
     [Fact]
+    public void ApplyKeepsTheSessionStartAcrossCheckpoints()
+    {
+        var t = new PlaytimeTracker();
+        t.Start(T0);
+        var first = PlaytimeTracker.Apply(GameEntry.Empty, 0, T0, t.Started);
+        t.Take(T0.AddMinutes(5), final: true);
+        var last = PlaytimeTracker.Apply(first, 300, T0.AddMinutes(5), t.Started);
+        Assert.Equal(T0, last.LastStartedAt);
+        Assert.Equal(T0.AddMinutes(5), last.LastPlayedAt);
+        Assert.Equal(T0, PlaytimeTracker.Apply(last, 0, T0.AddHours(1)).LastStartedAt); // no tracker: unchanged
+    }
+
+    [Fact]
+    public void BreakdownAddsUpToTheShownTotal()
+    {
+        var imported = GameEntry.Empty with { PlaytimeSeconds = 5000, EpicPlaytimeSeconds = 40_000, GliderOnlySeconds = 600, SettledLocalSeconds = 4000, LastStartedAt = T0 };
+        var b = imported.Breakdown;
+        Assert.Equal(40_000, b.EpicSeconds);
+        Assert.Equal(1600, b.GliderSeconds); // 600 Glider-only + 1000 pending
+        Assert.Equal(imported.TotalPlaytimeSeconds, b.EpicSeconds!.Value + b.GliderSeconds);
+        Assert.Equal(T0, b.LastStartedAt);
+
+        var never = (GameEntry.Empty with { PlaytimeSeconds = 777 }).Breakdown;
+        Assert.Null(never.EpicSeconds);
+        Assert.Equal(777, never.GliderSeconds);
+        Assert.Null(never.LastStartedAt);
+    }
+
+    [Fact]
     public async Task SessionIsPersistedPerGameWhenItExits()
     {
         // The test drives sessions.Tick() itself; the background watch loop would tick at intermediate fake times while

@@ -635,7 +635,9 @@ internal sealed class LibraryService : IArtSource, IDisposable
             antiCheat,
             installed?.Executable,
             entry.Install?.InstalledAt,
-            eglManifest);
+            eglManifest,
+            null,
+            entry.Breakdown);
     }
 
     // ------------------------------------------------------------------ background sync / update check (metadata lane)

@@ -225,6 +225,7 @@ export interface GameDetail {
   installedAt: string | null;
   eglManifestPath: string | null;
   thirdPartyInfo: ThirdPartyStatus | null;
+  playtime: PlaytimeBreakdown | null;
 }
 
 export interface GameFlagRequest {
@@ -571,6 +572,12 @@ export interface PickFolderRequest {
 
 export interface PickFolderResult {
   path: string | null;
+}
+
+export interface PlaytimeBreakdown {
+  epicSeconds: number | null;
+  gliderSeconds: number;
+  lastStartedAt: string | null;
 }
 
 export interface Prerequisite {

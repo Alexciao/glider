@@ -343,7 +343,9 @@ public sealed record GameEntry(
     /// <summary>Seconds played under Glider that Epic's record is known not to include (settled by <see cref="Game.EpicPlaytimeService.Reconcile"/>).</summary>
     long GliderOnlySeconds = 0,
     /// <summary><see cref="PlaytimeSeconds"/> at the last settlement: Glider play beyond it is pending (Epic may still post it).</summary>
-    long SettledLocalSeconds = 0)
+    long SettledLocalSeconds = 0,
+    /// <summary>When the latest (or current) session started; <see cref="LastPlayedAt"/> is its last checkpoint or end. Null = recorded before sessions were.</summary>
+    DateTimeOffset? LastStartedAt = null)
 {
     public static GameEntry Empty { get; } = new(null, false, false, 0, null, GameSettings.Default, new ShortcutState(false, false));
 
@@ -355,6 +357,11 @@ public sealed record GameEntry(
     /// Epic doesn't include, plus the Glider play not settled yet. Each second is counted once either way.
     /// </summary>
     public long TotalPlaytimeSeconds => EpicPlaytimeSeconds is { } epic ? epic + GliderOnlySeconds + PendingLocalSeconds : PlaytimeSeconds;
+
+    /// <summary>The shown total split by where it was played; the two parts add up to <see cref="TotalPlaytimeSeconds"/>.</summary>
+    public PlaytimeBreakdown Breakdown => EpicPlaytimeSeconds is { } epic
+        ? new PlaytimeBreakdown(epic, GliderOnlySeconds + PendingLocalSeconds, LastStartedAt)
+        : new PlaytimeBreakdown(null, PlaytimeSeconds, LastStartedAt);
 
     /// <summary>Nothing worth persisting (lets the store drop default entries).</summary>
     public bool IsEmpty => this == Empty;
