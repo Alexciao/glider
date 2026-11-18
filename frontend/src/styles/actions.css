@@ -41,10 +41,10 @@
 .ga-menu [role="separator"] {
   margin: 6px -6px;
 }
+/* Solid, never see-through: WebView2 over Mica doesn't apply backdrop-filter here, so a translucent menu showed crisp page
+   text through it. The dock's hairline and top light carry the "same family" look instead. */
 .ga-menu-glass {
-  background: color-mix(in oklab, var(--g-popover) 80%, transparent);
-  -webkit-backdrop-filter: blur(28px) saturate(1.6);
-  backdrop-filter: blur(28px) saturate(1.6);
+  background: var(--g-popover);
   border-color: oklch(1 0 0 / 0.12);
   box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.06), var(--g-shadow-lg);
 }
