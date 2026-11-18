@@ -589,7 +589,7 @@ internal sealed class LaunchService
 
             var now = _c.Now;
             var seconds = tracker.Take(now, final);
-            await _c.Games.UpdateAsync(app, e => PlaytimeTracker.Apply(e, seconds, now));
+            await _c.Games.UpdateAsync(app, e => PlaytimeTracker.Apply(e, seconds, now, tracker.Started));
             _c.Library.Invalidate();
         }
         catch (Exception e)

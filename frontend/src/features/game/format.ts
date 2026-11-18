@@ -21,6 +21,23 @@ export function formatDateTime(iso: string | null | undefined): string | null {
   return t === null ? null : DATE_TIME.format(t);
 }
 
+const WHEN = new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
+const TIME = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+
+/** "Tue 17 Nov 2026, 14:02", or null when unknown. */
+export function formatWhen(iso: string | null | undefined): string | null {
+  const t = parse(iso);
+  return t === null ? null : WHEN.format(t);
+}
+
+/** "15:30" when `iso` falls on the same calendar day as `reference`, else the full date and time. */
+export function formatTimeNear(iso: string | null | undefined, reference: string | null | undefined): string | null {
+  const t = parse(iso);
+  if (t === null) return null;
+  const r = parse(reference);
+  return r !== null && new Date(t).toDateString() === new Date(r).toDateString() ? TIME.format(t) : DATE_TIME.format(t);
+}
+
 /** "Playing for 1 h 12 min"-style span: under a minute reads "less than a minute" instead of a bare "< 1 min". */
 export function formatPlayingFor(sinceIso: string | null | undefined, now: number = Date.now()): string {
   const t = parse(sinceIso);

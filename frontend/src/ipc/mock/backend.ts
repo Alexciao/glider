@@ -37,6 +37,7 @@ import type {
   SaveSyncStatus,
   Settings,
   StoreState,
+  PlaytimeBreakdown,
   ThirdPartyStatus,
   VerifyMode,
 } from "../contract.gen";
@@ -1476,7 +1477,20 @@ export class MockBackend {
       installedAt: g.installedAt,
       eglManifestPath: g.eglManifestPath,
       thirdPartyInfo: this.thirdPartyInfo(g),
+      playtime: this.playtime(g),
     };
+  }
+
+  /** Mock split: most games carry Epic's imported record plus a little Glider play; every third has never been imported. */
+  private playtime(g: MockGame): PlaytimeBreakdown {
+    const s = g.summary;
+    const lastPlayed = s.lastPlayedAt ? Date.parse(s.lastPlayedAt) : null;
+    const lastStartedAt = lastPlayed === null ? null : new Date(lastPlayed - 95 * 60_000).toISOString();
+    const total = s.playtimeSeconds;
+    const imported = s.appName.length % 3 !== 0;
+    if (!imported) return { epicSeconds: null, gliderSeconds: total, lastStartedAt };
+    const glider = Math.min(total, Math.round(total * 0.12));
+    return { epicSeconds: total - glider, gliderSeconds: glider, lastStartedAt };
   }
 
   private updateSettingsInternal(next: Settings): Settings {

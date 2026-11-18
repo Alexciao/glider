@@ -10,7 +10,17 @@ internal sealed class PlaytimeTracker
 
     public bool Active => _from is not null;
 
-    public void Start(DateTimeOffset at) => _from ??= at;
+    /// <summary>When the session began (kept after it ends, for the final write).</summary>
+    public DateTimeOffset? Started { get; private set; }
+
+    public void Start(DateTimeOffset at)
+    {
+        if (_from is null)
+        {
+            _from = at;
+            Started = at;
+        }
+    }
 
     /// <summary>Whole seconds since the last checkpoint. <paramref name="final"/> ends the session. Never negative (clock steps back).</summary>
     public long Take(DateTimeOffset now, bool final = false)
@@ -25,6 +35,6 @@ internal sealed class PlaytimeTracker
         return seconds;
     }
 
-    public static GameEntry Apply(GameEntry entry, long seconds, DateTimeOffset now) =>
-        entry with { PlaytimeSeconds = entry.PlaytimeSeconds + seconds, LastPlayedAt = now };
+    public static GameEntry Apply(GameEntry entry, long seconds, DateTimeOffset now, DateTimeOffset? started = null) =>
+        entry with { PlaytimeSeconds = entry.PlaytimeSeconds + seconds, LastPlayedAt = now, LastStartedAt = started ?? entry.LastStartedAt };
 }

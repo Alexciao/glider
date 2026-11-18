@@ -117,6 +117,20 @@ describe("Game page: hero and the one primary action", () => {
     expect(screen.getByText("Playtime")).toBeInTheDocument();
   });
 
+  it("explains the playtime split behind a small info button", async () => {
+    const { user } = await mount("returning", <GameView appName="Fortnite" />);
+    const playtime = await screen.findByRole("button", { name: "Playtime details" });
+    await user.hover(playtime);
+    expect((await screen.findAllByText("Glider")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Epic Games Launcher").length).toBeGreaterThan(0);
+  });
+
+  it("shows when the game was opened behind the last-played info button", async () => {
+    const { user } = await mount("returning", <GameView appName="Fortnite" />);
+    await user.hover(await screen.findByRole("button", { name: "Last played details" }));
+    expect((await screen.findAllByText("Opened", {}, { timeout: 3000 })).length).toBeGreaterThan(0);
+  });
+
   it("names Fortnite, the v0.1 game, with its update as the primary action and Play in the menu", async () => {
     const { user } = await mount("returning", <GameView appName="Fortnite" />);
     expect(screen.getByRole("heading", { name: "Fortnite" })).toBeInTheDocument();

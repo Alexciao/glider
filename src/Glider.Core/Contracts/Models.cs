@@ -229,7 +229,15 @@ public sealed record GameDetail(
     /// <summary>The EGL manifest kept in sync for this install, when there is one.</summary>
     string? EglManifestPath,
     /// <summary>Third-party store state (launcher present, account linked) for Ubisoft Connect / EA app games; null for ordinary Epic games.</summary>
-    ThirdPartyStatus? ThirdPartyInfo = null);
+    ThirdPartyStatus? ThirdPartyInfo = null,
+    /// <summary>Where the playtime was played and when the game was last opened.</summary>
+    PlaytimeBreakdown? Playtime = null);
+
+/// <summary>
+/// The game's playtime split by source (the parts add up to the total shown). <c>EpicSeconds</c> is Epic's imported record, null when never imported
+/// (everything is then Glider's). <c>LastStartedAt</c> is when the latest session began; null for games last played before Glider recorded it.
+/// </summary>
+public sealed record PlaytimeBreakdown(long? EpicSeconds, long GliderSeconds, DateTimeOffset? LastStartedAt);
 
 /// <summary>
 /// What a game that runs through another store's launcher needs. <see cref="ManagedExternally"/> games have no Epic files
