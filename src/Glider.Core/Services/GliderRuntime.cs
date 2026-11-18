@@ -97,6 +97,7 @@ public sealed class GliderRuntime : IAsyncDisposable
                 LockRetryDelay = options.LockRetryDelay ?? TimeSpan.FromSeconds(5),
                 FolderNameFor = app => service?.LibraryForTests.FolderName(app),
                 InstallSizeFor = app => service?.LibraryForTests.Installed(app)?.InstallSizeBytes,
+                VerifyTotalFor = legendary.VerifyTotal,
             });
             Phase("legendary+queue");
             var egl = new EglService(eglEnvironment ?? EglEnvironment.ForMachine(), paths, log, options.EglProcesses, options.Egl);

@@ -53,6 +53,9 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
     private double _lastWriteRate;
     private double _lastRawRate;
     private double _diskBoundWriteRate;
+    private readonly Func<ManifestVerifyTotal?> _verifyTotalSource;
+    private ManifestVerifyTotal? _verifyTotal;
+    private bool _verifyTotalRead;
 
     public JobProgressTracker(
         string jobId,
@@ -67,8 +70,10 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
         JobSamples? samples = null,
         Func<(int Bad, int Fixed)>? verifyCounts = null,
         long? installSizeBytes = null,
-        LimiterContext? limiterContext = null)
+        LimiterContext? limiterContext = null,
+        Func<ManifestVerifyTotal?>? verifyTotal = null)
     {
+        _verifyTotalSource = verifyTotal ?? (() => null);
         _limiterContext = limiterContext ?? new LimiterContext();
         _jobId = jobId;
         _appName = appName;
@@ -151,6 +156,7 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
             _runRemainingDownload = _runRemainingWrite = null;
             _runBase = 0;
             _smoother.Reset();
+            _verifyTotalRead = false; // a verify after an install or update checks the new manifest
         }
     }
 
@@ -158,6 +164,11 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
 
     public void OnPhase(JobPhase phase)
     {
+        if (phase == JobPhase.Verifying)
+        {
+            ReadVerifyTotal();
+        }
+
         JobProgress? update = null;
         lock (_lock)
         {
@@ -176,7 +187,7 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
                         Phase = phase,
                         PhasePercent = 0,
                         EtaSeconds = null,
-                        Verify = new VerifyStats(0, 0, 0, _installSize ?? 0, 0, _verifyCounts().Bad, _verifyCounts().Fixed),
+                        Verify = new VerifyStats(0, _verifyTotal?.Files ?? 0, 0, _verifyTotal?.Bytes ?? 0, 0, _verifyCounts().Bad, _verifyCounts().Fixed),
                         FilesDone = 0,
                         FilesTotal = 0,
                     }
@@ -190,6 +201,38 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
         if (update is not null)
         {
             _throttle.Post(update);
+        }
+    }
+
+    /// <summary>
+    /// What this step's verify reads (<see cref="LegendaryCli.VerifyTotal"/>), read once per step and outside the lock (a manifest
+    /// is megabytes). Not the install record's size: for an imported Fortnite that is the whole manifest, every optional pack
+    /// included, which showed "122 of 150 GB" for a 37 GB install.
+    /// </summary>
+    private void ReadVerifyTotal()
+    {
+        lock (_lock)
+        {
+            if (_verifyTotalRead)
+            {
+                return;
+            }
+        }
+
+        ManifestVerifyTotal? total = null;
+        try
+        {
+            total = _verifyTotalSource();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // no total: the step shows files, not bytes
+        }
+
+        lock (_lock)
+        {
+            _verifyTotal = total is { Bytes: > 0 } ? total : null;
+            _verifyTotalRead = true;
         }
     }
 
@@ -231,11 +274,7 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
     {
         lock (_lock)
         {
-            var write = sizes.InstallBytes is { } install ? install - (sizes.UnchangedBytes ?? 0) : (long?)null;
-            if (write < 0)
-            {
-                write = null;
-            }
+            var write = WriteTotal(sizes);
 
             if (_baseline.TotalDownloadBytes is not { } total || total <= 0)
             {
@@ -253,8 +292,38 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
         }
     }
 
+    /// <summary>
+    /// The bytes this run writes. Legendary's "Written" counts every chunk part it puts into a file, so it ends at the summed size
+    /// of the files it adds or changes: Install size − unchanged (manager.py:113, 248-250). When install tags or a prefix filter
+    /// the run (Fortnite) that subtraction means nothing: Install size is then only the added files, and "unchanged / skipped"
+    /// includes every skipped pack (manager.py:213-217). The owner's Fortnite repair printed 13,027 MiB to install and
+    /// 140,151 MiB unchanged, so the write tail went uncounted. Then what gets written is the decompressed download plus the
+    /// reused chunks (to within chunks shared by several files), and never less than the added files.
+    /// </summary>
+    internal static long? WriteTotal(LegendaryRunSizes sizes)
+    {
+        var subtracted = sizes.InstallBytes is { } install ? install - (sizes.UnchangedBytes ?? 0) : (long?)null;
+        if (!sizes.Filtered && subtracted > 0)
+        {
+            return subtracted;
+        }
+
+        if (sizes.UncompressedDownloadBytes is not { } unpacked)
+        {
+            return null;
+        }
+
+        var estimate = Math.Max(unpacked + (sizes.ReusableBytes ?? 0), sizes.Filtered ? sizes.InstallBytes ?? 0 : 0);
+        return estimate > 0 ? estimate : null;
+    }
+
     public void Report(LegendaryProgress p)
     {
+        if (_phase == JobPhase.Verifying)
+        {
+            ReadVerifyTotal(); // returns at once after the first time
+        }
+
         JobProgress progress;
         JobPhase? phaseChange = null;
         Action? first;
@@ -283,7 +352,11 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
             switch (measuring)
             {
                 case JobPhase.Verifying:
-                    percent = p.Percent;
+                    // Legendary's percent is bytes read of the verify total (cli.py:1307). Inside a big file, with that total known,
+                    // the file's own bytes place the bar exactly; without it the parser's estimate stands.
+                    percent = p.VerifyFileReadBytes > 0 && _verifyTotal is { } vt
+                        ? Math.Min(100, p.VerifyBasePercent + p.VerifyFileReadBytes * 100.0 / vt.Bytes)
+                        : p.Percent;
                     rawDisk = p.DiskReadBytesPerSecond;
                     break;
 
@@ -319,6 +392,11 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
             var (from, to) = _segment.For(measuring);
             _baseline.JobPercent = Math.Clamp(Math.Max(_baseline.JobPercent, from + (to - from) * percent / 100), 0, 100);
             long? remainingWrite = measuring == JobPhase.Downloading && totalWrite > 0 ? Math.Max(0, totalWrite - written) : null;
+            if (remainingWrite == 0 && percent < 100)
+            {
+                remainingWrite = null; // an estimated total ran out before the writer did: its percent tells the rest
+            }
+
             _smoother.Update(rawDownload, rawDisk, percent, remaining, p.EtaSeconds, remainingWrite);
             var elapsed = _baseline.ElapsedSeconds + _time.GetElapsedTime(_runStarted).TotalSeconds;
             var stepElapsed = Math.Max(1e-3, _baseline.StepElapsedSeconds + _time.GetElapsedTime(_stepStarted).TotalSeconds);
@@ -326,8 +404,8 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
             var net = _smoother.DownloadBytesPerSecond;
             var disk = _smoother.DiskBytesPerSecond;
             var counts = _verifyCounts();
-            var verifyTotalBytes = _installSize ?? 0;
-            var wholeEta = WholeJobEta(phase, _smoother.EtaSeconds, _smoother.WriteEtaSeconds);
+            var verifyTotalBytes = _verifyTotal?.Bytes ?? 0; // 0: unknown, the UI shows files instead of bytes
+            var wholeEta = WholeJobEta(phase, _smoother.EtaSeconds, _smoother.WriteEtaSeconds ?? _smoother.CompletionEtaSeconds);
 
             if (phase is JobPhase.Downloading or JobPhase.Repairing)
             {
@@ -380,9 +458,9 @@ internal sealed class JobProgressTracker : ILegendaryProgressSink, IDisposable
 
     /// <summary>
     /// Seconds until the whole job is done, not just the current step: while downloading it is the slower of the download and the
-    /// writes still owed (they run side by side, and on a slow drive the writer finishes long after the network); while installing
-    /// only the writes are left. Without the writer's totals it is the download's own countdown, as before; other phases keep their
-    /// own estimate.
+    /// writer (they run side by side, and on a slow drive the writer finishes long after the network); while installing only the
+    /// writer is left. The writer's estimate is the bytes it still owes at its recent pace or, without a byte total, the pace of
+    /// Legendary's percent, which counts chunks written. Other phases keep their own estimate.
     /// </summary>
     private static double? WholeJobEta(JobPhase phase, double? stepEta, double? writeEta) => phase switch
     {

@@ -142,6 +142,14 @@ describe("cardOf: what the card says per state", () => {
     expect(repairing.line[0]).toBe("Repairing 10 files");
   });
 
+  it("verifying without a byte total from Core: counts files, never invents a size", () => {
+    const v = card(
+      job({ kind: "verify", phase: "verifying" }),
+      progress({ phase: "verifying", network: null, disk: null, etaSeconds: 60, verify: { filesChecked: 609, filesTotal: 734, bytesChecked: 0, bytesTotal: 0, readBytesPerSecond: 356 * 1024 * 1024, badFiles: 0, fixedFiles: 0 } }),
+    );
+    expect(lineOf(v)).toBe("Checking files · 609 of 734 files · 356 MB/s");
+  });
+
   it("moving: its own bytes, no chart; finalizing and the short steps say it in the headline with no line", () => {
     const moving = card(job({ kind: "move", phase: "moving" }), progress({ phase: "moving", network: null, etaSeconds: 40 }));
     expect(lineOf(moving)).toBe("Moving · 3.0 of 12.0 GB · 30.0 MB/s");

@@ -345,7 +345,9 @@ export function cardOf(job: JobInfo, p: JobProgress | null, ctx: CardContext): C
     bytes = ofBytes(net.downloadedBytes, net.totalBytes);
     speed = net.bytesPerSecond;
   } else if (verify && phase === "verifying") {
-    bytes = ofBytes(verify.bytesChecked, verify.bytesTotal);
+    // Core sends no byte total when it can't know what Legendary reads; files are honest then.
+    if (verify.bytesTotal > 0) bytes = ofBytes(verify.bytesChecked, verify.bytesTotal);
+    else if (verify.filesTotal > 0) bytes = `${verify.filesChecked.toLocaleString()} of ${verify.filesTotal.toLocaleString()} files`;
     speed = verify.readBytesPerSecond;
     if (verify.badFiles > 0) extra = `${verify.badFiles.toLocaleString()} to repair`;
   } else if (disk && (phase === "installing" || phase === "moving")) {

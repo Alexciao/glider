@@ -154,7 +154,15 @@ public readonly record struct LegendaryProgress(
     /// <summary>Glider fork only (" + Glider" line): CDN host in use, or null on stock Legendary.</summary>
     string? Cdn = null,
     /// <summary>Glider fork only: shared-memory cache size.</summary>
-    double CacheTotalMiB = 0);
+    double CacheTotalMiB = 0,
+    /// <summary>
+    /// Verify, inside a file over 512 MiB ("=> Verifying large file" lines): Legendary's own percent before this file (a byte
+    /// share of the verify total, cli.py:1307) and the bytes of the file read so far. 0 between files. With the verify total
+    /// known, the overall percent is <c>VerifyBasePercent + VerifyFileReadBytes / total</c>; <see cref="Percent"/> is the
+    /// parser's estimate without it.
+    /// </summary>
+    double VerifyBasePercent = 0,
+    long VerifyFileReadBytes = 0);
 
 [System.Text.Json.Serialization.JsonConverter(typeof(CamelEnumConverter<InstallMode>))]
 public enum InstallMode { Install, Update, Repair }
