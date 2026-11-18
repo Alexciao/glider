@@ -9,7 +9,7 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <Deterministic>true</Deterministic>
     <InvariantGlobalization>false</InvariantGlobalization>
-    <Version>0.2.8</Version>
+    <Version>0.2.9</Version>
     <Authors>Glider contributors</Authors>
     <Product>Glider</Product>
     <Copyright>Copyright (c) 2026 Glider contributors</Copyright>
