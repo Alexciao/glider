@@ -29,6 +29,7 @@ export {
   DropdownMenuSubTrigger,
   DropdownMenuSubContent,
   DropdownMenuCheckboxItem,
+  DropdownMenuSkin,
 } from "./DropdownMenu";
 export { ToastRegion, type ToastItem, type ToastLevel } from "./Toast";
 export { Skeleton } from "./Skeleton";
