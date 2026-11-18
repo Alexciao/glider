@@ -7,7 +7,15 @@ using Glider.Core.Contracts;
 namespace Glider.Core.Legendary;
 
 /// <summary>Sizes from the install summary (cli.py:1042-1047); all bytes, null when not printed.</summary>
-internal readonly record struct LegendaryRunSizes(long? DownloadBytes, long? InstallBytes, long? UnchangedBytes, long? ReusableBytes);
+internal readonly record struct LegendaryRunSizes(
+    long? DownloadBytes,
+    long? InstallBytes,
+    long? UnchangedBytes,
+    long? ReusableBytes,
+    /// <summary>The download decompressed (from "Compression savings"); null when not printed.</summary>
+    long? UncompressedDownloadBytes = null,
+    /// <summary>Install tags or a prefix narrowed the run: Install size and unchanged then don't subtract (<see cref="LegendaryOutputFacts.FilteredFiles"/>).</summary>
+    bool Filtered = false);
 
 /// <summary>
 /// Optional richer progress channel. When the <see cref="IProgress{T}"/> handed to <see cref="ILegendary"/> also
@@ -765,7 +773,8 @@ internal sealed class LegendaryProcessRunner : IDisposable
                 {
                     _sizesReported = true;
                     Post(new RunEvent(RunEventKind.Sizes, default, default,
-                        new LegendaryRunSizes(Facts.DownloadSizeBytes, Facts.InstallSizeBytes, Facts.UnchangedBytes, Facts.ReusableBytes)));
+                        new LegendaryRunSizes(Facts.DownloadSizeBytes, Facts.InstallSizeBytes, Facts.UnchangedBytes, Facts.ReusableBytes,
+                            Facts.UncompressedDownloadBytes, Facts.FilteredFiles)));
                 }
 
                 if (_command.AbortWhen?.Invoke(Facts) == true)

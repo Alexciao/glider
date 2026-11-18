@@ -958,6 +958,44 @@ public sealed partial class LegendaryCli : ILegendary, IDisposable
         return null;
     }
 
+    /// <summary>
+    /// The bytes <c>legendary verify</c> will read for an installed game, from the same inputs it uses: the installed version's
+    /// manifest and config.ini's <c>[app] install_tags</c> (cli.py:1254-1293). Its percent is a share of exactly this total, so
+    /// "checked of total" is honest. installed.json's <c>install_size</c> is not: an import records the whole manifest (every
+    /// optional pack; 150 GB for a 37 GB Fortnite), and a tagged update only its new files. Null when the manifest can't be read.
+    /// </summary>
+    internal ManifestVerifyTotal? VerifyTotal(string appName)
+    {
+        try
+        {
+            using var doc = LegendaryFiles.ReadJson(LegendaryFiles.InstalledJson(Config));
+            if (doc is null || LegendaryFiles.ParseInstalled(doc.RootElement, appName) is not { Version.Length: > 0 } installed)
+            {
+                return null;
+            }
+
+            // lfs/lgndry.py load_manifest: "<app>_<platform>_<version>.manifest", else without the platform.
+            var dir = LegendaryFiles.ManifestsDir(Config);
+            string[] names = installed.Platform is { Length: > 0 } platform
+                ? [$"{appName}_{platform}_{installed.Version}", $"{appName}_{installed.Version}"]
+                : [$"{appName}_Windows_{installed.Version}", $"{appName}_{installed.Version}"];
+            var manifest = names.Select(n => Path.Combine(dir, LegendaryFiles.CleanFilename(n) + ".manifest")).FirstOrDefault(File.Exists);
+            if (manifest is null)
+            {
+                return null;
+            }
+
+            var iniPath = LegendaryConfigFile.PathIn(Config);
+            var tags = File.Exists(iniPath) ? IniValue(File.ReadAllText(iniPath, System.Text.Encoding.UTF8), appName, "install_tags") : null;
+            return ManifestReader.TryReadVerifyTotal(File.ReadAllBytes(manifest), tags);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _log.Debug("legendary", $"Couldn't size {appName}'s verify: {e.Message}");
+            return null;
+        }
+    }
+
     internal static (long Download, long Install) Sizes(JsonElement? manifest, IReadOnlySet<string>? tags)
     {
         if (manifest is not { } m)

@@ -59,6 +59,15 @@ internal sealed class LegendaryOutputFacts
     public bool InstallFailed { get; private set; }
     public long? InstallSizeBytes { get; private set; }
     public long? DownloadSizeBytes { get; private set; }
+
+    /// <summary>The download's size once decompressed (from "Compression savings"): about the bytes those chunks write.</summary>
+    public long? UncompressedDownloadBytes { get; private set; }
+
+    /// <summary>
+    /// Install tags or a file prefix narrowed the run ("Remaining files after filtering"). Legendary then prints as Install size
+    /// only the files it adds, and counts the skipped files as unchanged (manager.py:213-217, 248-250): the two don't subtract.
+    /// </summary>
+    public bool FilteredFiles { get; private set; }
     public long? ReusableBytes { get; private set; }
     public long? UnchangedBytes { get; private set; }
     public bool SummaryComplete { get; private set; }
@@ -205,7 +214,19 @@ internal sealed class LegendaryOutputFacts
         }
         else if (msg.StartsWith("Download size: ", StringComparison.Ordinal))
         {
+            // "Download size: 12169.49 MiB (Compression savings: 6.6%)": savings = 1 - compressed / uncompressed (cli.py:1043)
             DownloadSizeBytes = MiBValue(msg[15..]);
+            var at = msg.IndexOf("(Compression savings: ", StringComparison.Ordinal);
+            var pct = at < 0 ? -1 : msg[(at + 22)..].IndexOf('%');
+            if (DownloadSizeBytes is { } dl && pct > 0 &&
+                double.TryParse(msg.Slice(at + 22, pct), NumberStyles.Float, CultureInfo.InvariantCulture, out var savings) && savings < 99)
+            {
+                UncompressedDownloadBytes = (long)(dl / (1 - savings / 100));
+            }
+        }
+        else if (msg.StartsWith("Remaining files after filtering: ", StringComparison.Ordinal))
+        {
+            FilteredFiles = true;
         }
         else if (msg.StartsWith("Reusable size: ", StringComparison.Ordinal))
         {

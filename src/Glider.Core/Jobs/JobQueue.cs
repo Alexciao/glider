@@ -45,8 +45,11 @@ public sealed class JobQueueOptions
     /// <summary>Catalog FolderName of an app (Legendary installs into &lt;base&gt;\&lt;FolderName&gt;); null = the app name.</summary>
     public Func<string, string?>? FolderNameFor { get; init; }
 
-    /// <summary>Manifest install size of the installed game (verify byte totals); null = unknown.</summary>
+    /// <summary>Install size of the installed game (the job's final size on disk); null = unknown.</summary>
     public Func<string, long?>? InstallSizeFor { get; init; }
+
+    /// <summary>What a verify of the installed game reads: files and bytes (<see cref="LegendaryCli.VerifyTotal"/>); null = unknown, shown as files only.</summary>
+    internal Func<string, ManifestVerifyTotal?>? VerifyTotalFor { get; init; }
 
     /// <summary>Per-game start conditions checked before a job takes the writer slot. Null = the hooks, when they implement <see cref="IJobGate"/>.</summary>
     public IJobGate? Gate { get; init; }
@@ -1156,7 +1159,8 @@ public sealed class JobQueue : IJobQueue, IAsyncDisposable
                 SpeedLimit = () => _settings.Current.SpeedLimitBytesPerSecond,
                 ModeReason = () => _options.Policy?.ModeReason,
                 Drive = () => DriveOf(job),
-            });
+            },
+            () => _options.VerifyTotalFor?.Invoke(job.Request.AppName));
         lock (_lock)
         {
             running.Tracker = tracker;

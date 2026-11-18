@@ -1,0 +1,76 @@
+{
+ "files": [
+  [
+   "Game.exe",
+   [],
+   1572864
+  ],
+  [
+   "Content/Paks/base.pak",
+   [
+    "Startup"
+   ],
+   2098152
+  ],
+  [
+   "Content/Paks/hd.pak",
+   [
+    "HighRes"
+   ],
+   3145728
+  ],
+  [
+   "Content/Paks/lang-de.pak",
+   [
+    "Langde"
+   ],
+   700000
+  ],
+  [
+   "Content/Paks/lang-fr.pak",
+   [
+    "Langfr"
+   ],
+   500000
+  ],
+  [
+   "Content/Paks/shared.pak",
+   [
+    "Startup",
+    "HighRes"
+   ],
+   4096
+  ],
+  [
+   "Content/Movies/Intrö 日本.bk2",
+   [
+    "Langde",
+    "Langfr"
+   ],
+   333333
+  ],
+  [
+   "Engine/empty.ini",
+   [],
+   0
+  ]
+ ],
+ "verify": {
+  "<none>": {
+   "files": 8,
+   "bytes": 8354173
+  },
+  "Startup,Langde,": {
+   "files": 6,
+   "bytes": 4708445
+  },
+  "HighRes": {
+   "files": 4,
+   "bytes": 4722688
+  },
+  " Langfr , Startup": {
+   "files": 6,
+   "bytes": 4508445
+  }
+ }
+}

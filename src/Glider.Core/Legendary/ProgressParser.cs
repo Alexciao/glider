@@ -21,8 +21,10 @@ internal enum ProgressKind
 /// </code>
 /// A snapshot is published at the block's last line, or when a new header arrives while a block is still open (lost
 /// or truncated lines never stall the display). Verify progress is stdout, one CR-terminated line per file
-/// (cli.py:1315) plus per-1% lines for files over 512 MiB (lfs/utils.py:140), which we interpolate into the overall
-/// percentage once the total size can be estimated.
+/// (cli.py:1315) whose percent is bytes read ÷ the summed size of the files being verified (cli.py:1307, not a file count),
+/// plus per-1% lines for files over 512 MiB (lfs/utils.py:140). Those carry the file's own bytes
+/// (<see cref="LegendaryProgress.VerifyFileReadBytes"/>), which the job tracker places exactly with the total from the manifest;
+/// without that total the parser interpolates once one large file's share of the percent has shown the total.
 /// </summary>
 internal sealed class ProgressParser
 {
@@ -318,7 +320,13 @@ internal sealed class ProgressParser
                 overall = Math.Min(100, _largeFileStartPercent + Math.Min(pos, size) / totalMiB * 100);
             }
 
-            _current = _current with { Percent = Math.Max(overall, _verifyFilePercent), DiskReadBytesPerSecond = speed * MiB };
+            _current = _current with
+            {
+                Percent = Math.Max(overall, _verifyFilePercent),
+                DiskReadBytesPerSecond = speed * MiB,
+                VerifyBasePercent = _verifyFilePercent,
+                VerifyFileReadBytes = (long)(Math.Min(pos, size) * MiB),
+            };
             Publish(ProgressKind.Verify);
             published = true;
             return true;
