@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { StoreBounds } from "../../ipc/contract.gen";
 import { rpc, setRpcForTests } from "../../ipc/rpc";
 import { startBridge } from "../../state/bridge";
@@ -180,6 +180,24 @@ describe("StorePage", () => {
       tip.remove();
       menu.remove();
     });
+  });
+
+  it("copies the full address on click, confirms briefly, and stays quiet when the clipboard refuses", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    await mountStore();
+    const button = await screen.findByRole("button", { name: "Copy address" });
+    const full = button.getAttribute("title");
+    expect(full).toMatch(/^https:\/\//);
+    fireEvent.click(button);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(full));
+    expect(await screen.findByText("Copied")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Copied")).toBeNull(), { timeout: 2500 });
+
+    writeText.mockRejectedValueOnce(new Error("denied"));
+    fireEvent.click(button);
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText("Copied")).toBeNull();
   });
 
   it("signed out: one Open in browser (the fallback's), not a second one in the toolbar", async () => {

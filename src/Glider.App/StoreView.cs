@@ -808,7 +808,7 @@ internal sealed class StoreView : IStoreHost, IDisposable
         var field = window?.IsMicaActive == true && ThemeState.IsDark ? (window.IsPageTranslucent ? MicaField : SolidField) : null;
         try
         {
-            _ = web.ExecuteScriptAsync($"window.__gliderMica&&window.__gliderMica({(field is null ? "null" : "'" + field + "'")})");
+            _ = web.ExecuteScriptAsync($"window.__gliderMica&&window.__gliderMica({(field is null ? "null" : "'" + field + "','" + SolidField + "'")})");
         }
         catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException or System.Runtime.InteropServices.COMException)
         {
@@ -819,13 +819,12 @@ internal sealed class StoreView : IStoreHost, IDisposable
     /// <summary>
     /// A constructed sheet, off until the host turns it on, in the top frame of store.epicgames.com only (never the sign-in pages,
     /// checkout frames or popups). It changes backgrounds and nothing else: the page paints Glider's content field (see
-    /// <see cref="MicaField"/>) instead of Epic's flat colour, and Epic's sticky search/browse bar keeps a translucent tint so
-    /// content scrolling under it stays legible.
+    /// <see cref="MicaField"/>) instead of Epic's flat colour, and Epic's sticky browse bar is a solid bar in that same field.
     /// </summary>
     private const string MicaPageScript =
         "(()=>{if(location.hostname!=='store.epicgames.com'||window!==window.top)return;try{const sh=new CSSStyleSheet();sh.disabled=true;" +
-        "window.__gliderMica=(field)=>{if(!field){sh.disabled=true;return;}" +
-        "sh.replaceSync('html{background:'+field+'!important}body{background:transparent!important}nav[class^=\"_topNav_\"],nav[class*=\" _topNav_\"]{background:rgb(20 21 25/.72)!important;-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px)}');sh.disabled=false;};" +
+        "window.__gliderMica=(field,solid)=>{if(!field){sh.disabled=true;return;}" +
+        "sh.replaceSync('html{background:'+field+'!important}body{background:transparent!important}nav[class^=\"_topNav_\"],nav[class*=\" _topNav_\"]{background:'+solid+'!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;box-shadow:inset 0 -1px 0 oklch(1 0 0/.07)}');sh.disabled=false;};" +
         "const keep=()=>{if(!document.adoptedStyleSheets.includes(sh))document.adoptedStyleSheets=[...document.adoptedStyleSheets,sh];};" +
         "keep();document.addEventListener('DOMContentLoaded',keep);addEventListener('load',keep);}catch(e){}})()";
 

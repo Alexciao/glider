@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ExternalLink, House, Lock, RefreshCw, Store, WifiOff } from "lucide-react";
+import { ArrowLeft, Check, Copy, ExternalLink, House, Lock, RefreshCw, Store, WifiOff } from "lucide-react";
 import type { GliderError, StoreBounds, StoreTarget } from "../../ipc/contract.gen";
 import { isHosted } from "../../ipc/client";
 import { rpc } from "../../ipc/rpc";
@@ -109,9 +109,7 @@ export function StorePage() {
           {view?.host && (
             <>
               <Lock size={12} className={cx(view.secure ? "text-fg-subtle" : "text-warning-text")} aria-label={view.secure ? "Secure connection" : "Not secure"} />
-              <span className="truncate" title={view.url ?? undefined}>
-                {view.host}
-              </span>
+              <CopyAddress host={view.host} url={view.url} />
             </>
           )}
         </div>
@@ -191,5 +189,48 @@ function Fallback({ icon, title, description, primary, secondary }: { icon: Reac
         }
       />
     </div>
+  );
+}
+
+/** The address reads as text and copies the full URL on click; the icon shows on hover/focus in space reserved for it. */
+function CopyAddress({ host, url }: { host: string; url: string | null }) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  const copy = () => {
+    const text = url ?? host;
+    void (async () => {
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        return; // no clipboard access: stay quiet, nothing was copied
+      }
+      setCopied(true);
+      window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => setCopied(false), 1200);
+    })();
+  };
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      aria-label="Copy address"
+      title={url ?? undefined}
+      className="group -mx-1 flex min-w-0 items-center gap-1 rounded px-1 py-0.5 transition-colors duration-150 hover:text-fg"
+    >
+      <span className="truncate">{host}</span>
+      <span
+        aria-hidden
+        className={cx(
+          "shrink-0 transition-opacity duration-150",
+          copied ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100",
+        )}
+      >
+        {copied ? <Check size={14} /> : <Copy size={14} />}
+      </span>
+      <span className="sr-only" aria-live="polite">
+        {copied ? "Copied" : ""}
+      </span>
+    </button>
   );
 }
