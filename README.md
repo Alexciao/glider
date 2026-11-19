@@ -174,6 +174,8 @@ cd frontend; pnpm dev
 
 Glider's code is released under the [MIT license](LICENSE).
 
+Glider's code was written largely with AI assistance and reviewed by a human maintainer.
+
 - **[Legendary](https://github.com/legendary-gl/legendary)** (GPLv3) does the Epic protocol work. Glider bundles it as a
   separate executable with a small patch (bounded retries, download server failover, live speed changes, clearer
   progress). The patch, license and source offer ship with the app and live in `tools/legendary-fork/`.
